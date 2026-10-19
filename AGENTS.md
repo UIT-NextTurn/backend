@@ -1,0 +1,61 @@
+# AGENTS.md
+
+## WHY
+
+NextTurn is a multi-tenant platform (*nền tảng trung gian đa khách thuê*) engineered for online appointment scheduling, digital ticketing, and real-time virtual queue orchestration (*điều phối hàng đợi ảo thời gian thực*). This backend provides resilient REST APIs and real-time event distribution across service counters, clinics, and guest tracking views.
+
+## Tech Stack
+
+- Java 25 (LTS) & Spring Boot 4.x.
+- Maven (`mvnw`) for dependency management and builds.
+- Spring Data JPA & Hibernate with MySQL (runtime) and H2 (testing).
+- Spring WebSocket with STOMP protocol over SockJS for live queue event broadcasting.
+- Jakarta Validation (`spring-boot-starter-validation`) for incoming payload validation.
+- Lombok for cleaner data models and reduced boilerplate (*mã khung dựng sẵn*).
+- Layout specified in [agent-docs/folder_structure.md](./agent-docs/folder_structure.md) as the working standard.
+
+## WHAT
+
+Deliver secure, low-latency APIs and real-time queues:
+- Manage multi-tenant appointments and queue ticket lifecycles (Call, Hold, Serve, Skip, Transfer).
+- Broadcast queue position updates and wait estimates over WebSockets.
+- Wrap all REST responses uniformly using `ApiResponse<T>`.
+- Handle errors centrally through `GlobalExceptionHandler` and `AppException`.
+
+## HOW
+
+Strictly adhere to the package structure defined in [agent-docs/folder_structure.md](./agent-docs/folder_structure.md) under `src/main/java/studyweb/cus/`:
+
+- `config/` - `@Configuration` and `@Bean` definitions (CORS, WebSocket, security).
+- `constant/` - Static immutable constants (API route prefixes, default pagination).
+- `controller/` - `@RestController` endpoints; validate requests and return `ResponseEntity<ApiResponse<T>>`.
+- `dto/` - Request and response payload transfer objects.
+- `entity/` - JPA entities mapped to database tables.
+- `enums/` - Status, queue state, and role enumerations.
+- `event/` - Spring `ApplicationEvent` classes for decoupled pub/sub (*cơ chế xuất bản - đăng ký nhận tin*).
+- `exception/` - Custom domain exceptions and `@RestControllerAdvice` global handlers.
+- `mapper/` - Entity ↔ DTO transformation logic.
+- `redis/` - Redis configurations, cache keys, and template operations.
+- `repository/` - Spring Data JPA interfaces extending `JpaRepository`.
+- `scheduler/` - `@Scheduled` cron jobs and background queue cleanup tasks.
+- `security/` - JWT utilities, authentication filters, and security filter chains.
+- `service/` - Business logic orchestration (*điều phối nghiệp vụ*) across repositories and services.
+- `util/` - Pure, stateless helper functions.
+- `resources/application.yml` - Environment properties; Flyway SQL migrations go into `db/migration/`.
+
+Keep controllers thin, delegate business logic to services, and encapsulate database operations in repositories.
+
+Always verify your changes before completion by running:
+```powershell
+.\mvnw test
+```
+
+## Progressive Disclosure
+
+Read only the `agent-docs` file that is relevant to the work you are doing.
+
+- `agent-docs/folder_structure.md` - Directory layout and package responsibilities. Read this before adding new packages or reorganizing files.
+- `agent-docs/code_conventions.md` - Coding rules, naming standards, entity/DTO patterns, and architectural constraints. Read this before adding new features, refactoring, or creating models.
+- `agent-docs/testing.md` - Testing guide with MockMvc, Mockito, H2 in-memory configuration, and test execution commands. Read this before writing or updating tests.
+
+If more files are added under `agent-docs`, add one short line for each file here so the next agent can quickly decide what to open and what to skip.

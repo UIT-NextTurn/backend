@@ -1,0 +1,36 @@
+# ===================================================================
+# NextTurn Backend Application Configuration
+# ===================================================================
+server:
+  port: 8080
+
+spring:
+  application:
+    name: nextturn-backend
+
+  # -------------------------------------------------------------------
+  # MySQL DataSource Configuration
+  # -------------------------------------------------------------------
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/nextturn_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # -------------------------------------------------------------------
+  # JPA / Hibernate ORM Configuration
+  # -------------------------------------------------------------------
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  # -------------------------------------------------------------------
+  # Jackson Date/Time Formatting
+  # -------------------------------------------------------------------
+  jackson:
+    date-format: "yyyy-MM-dd HH:mm:ss"
+    time-zone: Asia/Ho_Chi_Minh
