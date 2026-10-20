@@ -11,7 +11,7 @@ src/main/java/studyweb/cus/
 ├── event/         → ApplicationEvent classes for pub/sub within the app
 ├── exception/     → Custom exception classes and @ControllerAdvice handlers
 ├── mapper/        → Entity ↔ DTO conversion logic
-├── redis/         → Redis keys, repository templates, cache config
+├── valkey/        → Valkey keys, repository templates, cache config
 ├── repository/    → Spring Data JPA interfaces (extends JpaRepository)
 ├── scheduler/     → @Scheduled cron jobs and background tasks
 ├── security/      → Auth filters, JWT utils, password encoders, security chains

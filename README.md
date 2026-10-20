@@ -1,7 +1,7 @@
 # NextTurn Backend (Booking and Online Queue System)
 *Hệ thống đặt lịch và quản lý hàng đợi trực tuyến*
 
-Backend REST API & Real-time WebSocket service for **NextTurn**, a multi-tenant platform (*nền tảng trung gian đa khách thuê*) engineered for online appointment scheduling, digital ticketing, and virtual queue orchestration (*điều phối hàng đợi ảo thời gian thực*).
+Backend REST API & Real-time Server-Sent Events (SSE) service for **NextTurn**, a multi-tenant platform (*nền tảng trung gian đa khách thuê*) engineered for online appointment scheduling, digital ticketing, and virtual queue orchestration (*điều phối hàng đợi ảo thời gian thực*).
 
 ---
 
@@ -11,7 +11,8 @@ Backend REST API & Real-time WebSocket service for **NextTurn**, a multi-tenant 
 - **Language**: Java 25 (LTS)
 - **Build Tool**: Maven 3.9+ (includes `mvnw` wrapper)
 - **Database**: MySQL with Spring Data JPA & Hibernate
-- **Real-time Engine**: Server Sent Event
+- **In-Memory Cache & Queue**: Valkey 8.0
+- **Real-time Engine**: Server-Sent Events (SSE)
 - **Validation**: Jakarta Bean Validation (`spring-boot-starter-validation`)
 - **Productivity**: Lombok & Spring Boot DevTools
 - **Testing**: JUnit 5, MockMvc, H2 in-memory test database
@@ -26,9 +27,8 @@ backend/
 ├── src/
 │   ├── main/
 │   │   ├── java/studyweb/cus/
-│   │   │   ├── config/                  # @Configuration, @Bean definitions (CORS, WebSocket, etc.)
-│   │   │   │   ├── CorsConfig.java
-│   │   │   │   └── WebSocketConfig.java
+│   │   │   ├── config/                  # @Configuration, @Bean definitions (CORS, security, etc.)
+│   │   │   │   └── CorsConfig.java
 │   │   │   ├── constant/                # Static final constants (API paths, error codes, etc.)
 │   │   │   │   └── AppConstant.java
 │   │   │   ├── controller/              # REST endpoints (@RestController)
@@ -42,7 +42,7 @@ backend/
 │   │   │   │   ├── AppException.java
 │   │   │   │   └── GlobalExceptionHandler.java
 │   │   │   ├── mapper/                  # Entity <-> DTO conversion logic
-│   │   │   ├── redis/                   # Redis keys, templates, cache config
+│   │   │   ├── valkey/                  # Valkey keys, templates, cache config
 │   │   │   ├── repository/              # Spring Data JPA interfaces
 │   │   │   ├── scheduler/               # @Scheduled cron jobs & background tasks
 │   │   │   ├── security/                # Auth filters, JWT utils, security chains
@@ -74,14 +74,25 @@ backend/
 
 ## ⚙️ Configuration & Environment Variables
 
-Default settings are configured in `src/main/resources/application.yml`. You can override them using system environment variables:
+Create a `.env` file in the `backend/` directory by duplicating the template:
+```bash
+cp .env.example .env
+```
+
+Settings are automatically loaded from `.env` by `make run` or can be supplied as system environment variables (*biến môi trường*):
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `SERVER_PORT` | HTTP port | `8080` |
-| `SPRING_DATASOURCE_URL` | MySQL JDBC URL | `jdbc:mysql://localhost:3306/nextturn_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC` |
-| `SPRING_DATASOURCE_USERNAME` | MySQL user | `root` |
-| `SPRING_DATASOURCE_PASSWORD` | MySQL password | *(empty)* |
+| `SPRING_DATASOURCE_URL` | MySQL JDBC URL | `jdbc:mysql://localhost:3306/nextturn_master?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC` |
+| `SPRING_DATASOURCE_USERNAME` | MySQL user | `nextturn` |
+| `SPRING_DATASOURCE_PASSWORD` | MySQL password | `nextturn_dev_secret` |
+| `SPRING_JPA_HIBERNATE_DDL_AUTO` | Hibernate schema mode | `update` |
+| `SPRING_JPA_SHOW_SQL` | Log SQL queries | `true` |
+| `VALKEY_HOST` | Valkey cache & queue host | `localhost` |
+| `VALKEY_PORT` | Valkey client port | `6379` |
+| `VALKEY_PASSWORD` | Valkey password | *(empty)* |
+| `APP_TIMEZONE` | Application timezone | `Asia/Ho_Chi_Minh` |
 
 ---
 
@@ -89,17 +100,22 @@ Default settings are configured in `src/main/resources/application.yml`. You can
 
 ### 1. Prerequisites
 - **Java**: JDK 25 installed (`java -version`)
-- **MySQL**: MySQL Server 8.x+ running on port `3306` (or configured via environment variables)
+- **MySQL & Valkey**: Started via `make up-mysql` and `make up-valkey` in `infrastructure/` (or running locally)
 
 ### 2. Run Locally
-Using the Maven wrapper on Windows PowerShell:
-```powershell
-.\mvnw spring-boot:run
+Using `make` (cross-platform for Windows & Linux):
+```bash
+make run
 ```
-Or using global Maven:
-```powershell
-mvn spring-boot:run
-```
+Or directly using the Maven wrapper:
+- Windows PowerShell:
+  ```powershell
+  .\mvnw spring-boot:run
+  ```
+- Linux / macOS:
+  ```bash
+  ./mvnw spring-boot:run
+  ```
 
 ### 3. Run Automated Tests
 ```powershell
@@ -111,6 +127,5 @@ mvn test
 ## 📡 Initial Endpoints
 
 - **Health Check**: `GET http://localhost:8080/api/v1/health`
-- **WebSocket STOMP Handshake**: `ws://localhost:8080/ws/queue`
-  - Client subscription destinations: `/topic/**`, `/queue/**`
-  - Application incoming destination: `/app/**`
+- **Real-time Queue Stream (SSE)**: `GET http://localhost:8080/api/v1/sse/queue/{queueId}` (`text/event-stream`)
+- **Real-time Ticket Tracking (SSE)**: `GET http://localhost:8080/api/v1/sse/ticket/{ticketId}` (`text/event-stream`)

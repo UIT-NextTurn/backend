@@ -17,7 +17,7 @@ All code lives in `studyweb.cus.*` adhering to [folder_structure.md](./folder_st
 - **`mapper/`**: Static conversion methods or mapping components transforming between Entity and DTO.
 - **`constant/`**: Immutable `public static final` definitions (e.g. route prefixes, defaults).
 - **`enums/`**: Fixed domain enumerations (e.g. queue statuses, roles, ticket priorities).
-- **`config/`**: Spring `@Configuration` beans for security, WebSockets, CORS, and data sources.
+- **`config/`**: Spring `@Configuration` beans for security, CORS, and data sources.
 - **`util/`**: Pure, stateless helper functions without Spring bean dependencies.
 
 ---
