@@ -20,7 +20,7 @@ src/main/java/studyweb/cus/
 
 src/main/resources/
 ├── application.yml       → App config (DB, env-specific properties)
-├── db/migration/         → Flyway SQL migration scripts (V1__, V2__, ...)
+├── db/migration/         → Flyway SQL migration scripts (V<timestamp>__*.sql, e.g., V20261021010001__*.sql)
 
 src/test/java/studyweb/cus/  → Unit & integration tests mirroring main packages
 ```

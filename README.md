@@ -51,7 +51,7 @@ backend/
 │   │   │   └── BackendApplication.java  # Main application entry point
 │   │   └── resources/
 │   │       ├── application.yml          # Application & MySQL configuration
-│   │       └── db/migration/            # Flyway SQL migration scripts (V1__, V2__, ...)
+│   │       └── db/migration/            # Flyway SQL migration scripts (V<timestamp>__*.sql, e.g., V20261021010001__*.sql)
 │   └── test/
 │       ├── java/studyweb/cus/
 │       │   ├── controller/
