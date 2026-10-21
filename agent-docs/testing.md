@@ -87,9 +87,9 @@ Run all automated unit and integration tests using the Maven wrapper:
 
 ## 4. Test Conventions
 
-- **File Placement**: Mirror the main source package layout inside `src/test/java/studyweb/cus/...`.
-  - Main: `src/main/java/studyweb/cus/controller/HealthCheckController.java`
-  - Test: `src/test/java/studyweb/cus/controller/HealthCheckControllerTest.java`
+- **File Placement**: Mirror the main source package layout inside `src/test/java/com/nextturn/...`.
+  - Main: `src/main/java/com/nextturn/controller/HealthCheckController.java`
+  - Test: `src/test/java/com/nextturn/controller/HealthCheckControllerTest.java`
 - **Naming**: Always suffix test class names with `Test` (e.g., `QueueTicketServiceTest`).
 - **Structure**: Follow the **AAA Pattern** (Arrange, Act, Assert) within test bodies.
 - **Determinism**: Never rely on execution order between tests. Each test must be completely isolated and idempotent.

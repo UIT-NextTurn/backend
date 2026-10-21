@@ -25,7 +25,7 @@ backend/
 ├── .mvn/                                # Maven wrapper configuration
 ├── src/
 │   ├── main/
-│   │   ├── java/studyweb/cus/
+│   │   ├── java/com/nextturn/
 │   │   │   ├── config/                  # @Configuration, @Bean definitions (CORS, security, etc.)
 │   │   │   │   └── CorsConfig.java
 │   │   │   ├── constant/                # Static final constants (API paths, error codes, etc.)
@@ -52,7 +52,7 @@ backend/
 │   │       ├── application.yml          # Application & MySQL configuration
 │   │       └── db/migration/            # Flyway SQL migration scripts (V<timestamp>__*.sql, e.g., V20261021010001__*.sql)
 │   └── test/
-│       ├── java/studyweb/cus/
+│       ├── java/com/nextturn/
 │       │   ├── controller/
 │       │   │   └── HealthCheckControllerTest.java
 │       │   └── BackendApplicationTests.java

@@ -1,7 +1,7 @@
 # Folder Structure
 
 ```
-src/main/java/studyweb/cus/
+src/main/java/com/nextturn/
 ├── config/        → @Configuration, @Bean definitions (security, DB, etc.)
 ├── constant/      → Static final constants (API paths, error codes, etc.)
 ├── controller/    → REST endpoints (@RestController), request validation, response shaping
@@ -22,5 +22,5 @@ src/main/resources/
 ├── application.yml       → App config (DB, env-specific properties)
 ├── db/migration/         → Flyway SQL migration scripts (V<timestamp>__*.sql, e.g., V20261021010001__*.sql)
 
-src/test/java/studyweb/cus/  → Unit & integration tests mirroring main packages
+src/test/java/com/nextturn/  → Unit & integration tests mirroring main packages
 ```
