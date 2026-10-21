@@ -2,7 +2,7 @@
 
 ## WHY
 
-NextTurn is a multi-tenant platform (*nền tảng trung gian đa khách thuê*) engineered for online appointment scheduling, digital ticketing, and real-time virtual queue orchestration (*điều phối hàng đợi ảo thời gian thực*). This backend provides resilient REST APIs and real-time event distribution across service counters, clinics, and guest tracking views.
+NextTurn is a multi-tenant platform engineered for online appointment scheduling, digital ticketing, and real-time virtual queue orchestration. This backend provides resilient REST APIs and real-time event distribution across service counters, clinics, and guest tracking views.
 
 ## Tech Stack
 
@@ -12,7 +12,7 @@ NextTurn is a multi-tenant platform (*nền tảng trung gian đa khách thuê*)
 - Server-Sent Events (SSE) for real-time virtual queue event streaming.
 - Valkey 8.0 for in-memory caching and real-time state management.
 - Jakarta Validation (`spring-boot-starter-validation`) for incoming payload validation.
-- Lombok for cleaner data models and reduced boilerplate (*mã khung dựng sẵn*).
+- Lombok for cleaner data models and reduced boilerplate.
 - Layout specified in [agent-docs/folder_structure.md](./agent-docs/folder_structure.md) as the working standard.
 
 ## WHAT
@@ -33,14 +33,14 @@ Strictly adhere to the package structure defined in [agent-docs/folder_structure
 - `dto/` - Request and response payload transfer objects.
 - `entity/` - JPA entities mapped to database tables.
 - `enums/` - Status, queue state, and role enumerations.
-- `event/` - Spring `ApplicationEvent` classes for decoupled pub/sub (*cơ chế xuất bản - đăng ký nhận tin*).
+- `event/` - Spring `ApplicationEvent` classes for decoupled pub/sub.
 - `exception/` - Custom domain exceptions and `@RestControllerAdvice` global handlers.
 - `mapper/` - Entity ↔ DTO transformation logic.
 - `valkey/` - Valkey configurations, cache keys, and template operations.
 - `repository/` - Spring Data JPA interfaces extending `JpaRepository`.
 - `scheduler/` - `@Scheduled` cron jobs and background queue cleanup tasks.
 - `security/` - JWT utilities, authentication filters, and security filter chains.
-- `service/` - Business logic orchestration (*điều phối nghiệp vụ*) across repositories and services.
+- `service/` - Business logic orchestration across repositories and services.
 - `util/` - Pure, stateless helper functions.
 - `resources/application.yml` - Environment properties; Flyway SQL migrations go into `db/migration/`.
 

@@ -9,7 +9,7 @@ Coding standards, architecture rules, and implementation patterns for the NextTu
 All code lives in `studyweb.cus.*` adhering to [folder_structure.md](./folder_structure.md):
 
 - **`controller/`**: Thin REST endpoints. Do not place business logic here. Validate incoming payloads using `@Valid` and return standard `ResponseEntity<ApiResponse<T>>`.
-- **`service/`**: Domain and workflow orchestration (*điều phối luồng nghiệp vụ*). Handles database transactions (`@Transactional`), security checks, and cross-repository coordination.
+- **`service/`**: Domain and workflow orchestration. Handles database transactions (`@Transactional`), security checks, and cross-repository coordination.
 - **`repository/`**: Spring Data JPA interfaces extending `JpaRepository<Entity, ID>`. Use Spring Data derived queries or JPQL with `@Query`.
 - **`entity/`**: JPA entities mapped to relational database tables.
 - **`dto/`**: Data Transfer Objects for API request and response bodies. Never expose JPA entities directly in API endpoints.
@@ -35,8 +35,8 @@ All code lives in `studyweb.cus.*` adhering to [folder_structure.md](./folder_st
 ## 3. Entity & JPA Best Practices
 
 - **Lombok Usage**: Prefer `@Getter`, `@Setter`, and `@NoArgsConstructor` on entities.
-- **Avoid `@Data` and `@EqualsAndHashCode` on JPA Entities**: They generate automatic `toString()` and `hashCode()` that can trigger unintended lazy-loading or infinite recursion on bidirectional relationships (*quan hệ hai chiều*).
-- **Auditing (*ghi vết kiểm toán*)**: Always include timestamp tracking (`createdAt`, `updatedAt`) using `@CreationTimestamp` and `@UpdateTimestamp` or `@EntityListeners(AuditingEntityListener.class)`.
+- **Avoid `@Data` and `@EqualsAndHashCode` on JPA Entities**: They generate automatic `toString()` and `hashCode()` that can trigger unintended lazy-loading or infinite recursion on bidirectional relationships.
+- **Auditing**: Always include timestamp tracking (`createdAt`, `updatedAt`) using `@CreationTimestamp` and `@UpdateTimestamp` or `@EntityListeners(AuditingEntityListener.class)`.
 - **Foreign Keys**: Explicitly define `@ManyToOne(fetch = FetchType.LAZY)` for relational mappings to avoid N+1 query performance hits.
 
 ---
@@ -63,7 +63,7 @@ All code lives in `studyweb.cus.*` adhering to [folder_structure.md](./folder_st
   ```
 - Do not return manual error JSON maps in controllers; allow `GlobalExceptionHandler` to translate exceptions into standardized `ApiResponse<T>` payloads.
 - Catch specific checked exceptions rather than generic `Exception` or `Throwable`.
-- Never silently swallow exceptions (*bỏ qua ngoại lệ mà không xử lý hoặc ghi nhật ký*).
+- Never silently swallow exceptions.
 
 ---
 
@@ -75,4 +75,4 @@ All code lives in `studyweb.cus.*` adhering to [folder_structure.md](./folder_st
   @Transactional(readOnly = true)
   public TicketResponse getTicketById(Long id) { ... }
   ```
-- For concurrent queue number increments or counter assignments, use optimistic locking (`@Version`) or pessimistic database locks to prevent race conditions (*điều kiện tương tranh*).
+- For concurrent queue number increments or counter assignments, use optimistic locking (`@Version`) or pessimistic database locks to prevent race conditions.

@@ -1,7 +1,6 @@
 # NextTurn Backend (Booking and Online Queue System)
-*Hệ thống đặt lịch và quản lý hàng đợi trực tuyến*
 
-Backend REST API & Real-time Server-Sent Events (SSE) service for **NextTurn**, a multi-tenant platform (*nền tảng trung gian đa khách thuê*) engineered for online appointment scheduling, digital ticketing, and virtual queue orchestration (*điều phối hàng đợi ảo thời gian thực*).
+Backend REST API & Real-time Server-Sent Events (SSE) service for **NextTurn**, a multi-tenant platform engineered for online appointment scheduling, digital ticketing, and virtual queue orchestration.
 
 ---
 
@@ -79,7 +78,7 @@ Create a `.env` file in the `backend/` directory by duplicating the template:
 cp .env.example .env
 ```
 
-Settings are automatically loaded from `.env` by `make run` or can be supplied as system environment variables (*biến môi trường*):
+Settings are automatically loaded from `.env` by `make run` or can be supplied as system environment variables:
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
