@@ -1,5 +1,10 @@
 name: NextTurn Backend - Database Migration
 
+# ==============================================================================
+# Triggers:
+# 1. workflow_run: Tự động chạy sau khi CI hoàn tất thành công.
+# 2. workflow_dispatch: Kích hoạt thủ công theo nhu cầu.
+# ==============================================================================
 on:
   workflow_run:
     workflows: ["NextTurn Backend - Continuous Integration (CI)"]
@@ -18,15 +23,16 @@ jobs:
     name: Migrate Database Schema
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
+    # Chỉ chạy nếu kích hoạt bằng tay hoặc khi CI kết thúc với trạng thái success
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repository (*Tải mã nguồn về máy ảo*)
         uses: actions/checkout@v4
 
-      - name: Check Tailscale and SSH deployment secrets
+      - name: Check Tailscale and SSH deployment secrets (*Kiểm tra cấu hình biến bí mật*)
         id: check_secrets
         run: |
           MISSING_SECRETS=""
@@ -42,48 +48,60 @@ jobs:
 
           if [ -n "$MISSING_SECRETS" ]; then
             echo "configured=false" >> $GITHUB_OUTPUT
-            echo "::error::Missing required secrets for deployment:${MISSING_SECRETS}."
+            echo "::error::Missing required secrets for migration:${MISSING_SECRETS}."
             exit 1
           else
             echo "configured=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Connect to Tailscale as Ephemeral Node
+      # 1. Kết nối vào mạng Tailscale dưới dạng Ephemeral Node
+      - name: Connect to Tailscale as Ephemeral Node (*Kết nối mạng Tailscale*)
         uses: tailscale/github-action@v3
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
           tags: tag:nextturn-gitops
           args: --accept-routes
 
-      - name: Verify Tailscale connectivity to server
+      # 2. Kiểm tra thông suốt mạng tới VM
+      - name: Verify Tailscale connectivity to server (*Kiểm tra ping tới VM*)
         run: |
           echo "Pinging target VM on Tailnet (${{ secrets.VM_HOST }})..."
           tailscale ping -c 3 ${{ secrets.VM_HOST }} || ping -c 3 ${{ secrets.VM_HOST }}
 
-      - name: Copy migration SQL scripts to server
-        uses: appleboy/scp-action@v0.1.7
+      # 3. Nạp SSH Private Key vào ssh-agent (Dùng OpenSSH gốc của máy ảo)
+      - name: Setup SSH Agent (*Khởi tạo SSH Agent và nạp Private Key*)
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_USER || 'ryan' }}
-          key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
-          port: 22
-          source: "src/main/resources/db/migration/*.sql"
-          target: "${{ secrets.DEPLOY_PATH || '/mnt/data/nextturn/backend' }}/migrations"
-          strip_components: 5
+          ssh-private-key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
 
-      - name: Execute Flyway migration via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_USER || 'ryan' }}
-          key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
-          port: 22
-          script_stop: true
-          script: |
+      # 4. Quét và tin cậy khóa máy chủ VM qua mạng Tailscale
+      - name: Scan and add SSH host key (*Quét và ghi nhận SSH Host Key*)
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+
+      # 5. Sao chép các tệp SQL migration lên server bằng lệnh scp gốc (Không bị lỗi DNS container)
+      - name: Copy migration SQL scripts via native SCP (*Chép các tệp SQL lên server*)
+        run: |
+          DEPLOY_DIR="${{ secrets.DEPLOY_PATH || '/mnt/data/nextturn/infrastructure' }}"
+          REMOTE_USER="${{ secrets.VM_USER || 'ryan' }}"
+          REMOTE_HOST="${{ secrets.VM_HOST }}"
+
+          echo "==> Tạo thư mục lưu trữ migrations trên máy chủ..."
+          ssh ${REMOTE_USER}@${REMOTE_HOST} "mkdir -p ${DEPLOY_DIR}/migrations"
+
+          echo "==> Chép các tệp SQL vào thư mục migrations..."
+          scp -r src/main/resources/db/migration/*.sql ${REMOTE_USER}@${REMOTE_HOST}:${DEPLOY_DIR}/migrations/
+
+      # 6. Thực thi Flyway migration thông qua SSH
+      - name: Execute Flyway migration on server (*Chạy tiến trình di chuyển CSDL bằng Flyway*)
+        run: |
+          ssh ${{ secrets.VM_USER || 'ryan' }}@${{ secrets.VM_HOST }} << 'EOF'
             set -e
-            DEPLOY_DIR="${{ secrets.DEPLOY_PATH || '/mnt/data/nextturn/backend' }}"
+            DEPLOY_DIR="${{ secrets.DEPLOY_PATH || '/mnt/data/nextturn/infrastructure' }}"
             MIGRATIONS_DIR="${DEPLOY_DIR}/migrations"
 
+            # Tìm kiếm tệp .env cấu hình thông số kết nối CSDL
             ENV_FILE="${DEPLOY_DIR}/.env"
             if [ ! -f "$ENV_FILE" ] && [ -f "${DEPLOY_DIR}/backend/.env" ]; then
               ENV_FILE="${DEPLOY_DIR}/backend/.env"
@@ -94,24 +112,28 @@ jobs:
               exit 1
             fi
 
-            # Extract database credentials from .env
-            DB_URL=$(grep -E '^\s*SPRING_DATASOURCE_URL\s*=' "$ENV_FILE" | head -n 1 | cut -d '=' -f2- | tr -d ' "' | tr -d "'")
-            DB_USER=$(grep -E '^\s*SPRING_DATASOURCE_USERNAME\s*=' "$ENV_FILE" | head -n 1 | cut -d '=' -f2- | tr -d ' "' | tr -d "'")
-            DB_PASS=$(grep -E '^\s*SPRING_DATASOURCE_PASSWORD\s*=' "$ENV_FILE" | head -n 1 | cut -d '=' -f2- | tr -d ' "' | tr -d "'")
+            # Trích xuất thông tin kết nối CSDL từ file .env
+            DB_URL=$(grep -E '^\s*(SPRING_DATASOURCE_URL|MYSQL_URL)\s*=' "$ENV_FILE" | head -n 1 | cut -d '=' -f2- | tr -d ' "' | tr -d "'")
+            DB_USER=$(grep -E '^\s*(SPRING_DATASOURCE_USERNAME|MYSQL_USER)\s*=' "$ENV_FILE" | head -n 1 | cut -d '=' -f2- | tr -d ' "' | tr -d "'")
+            DB_PASS=$(grep -E '^\s*(SPRING_DATASOURCE_PASSWORD|MYSQL_PASSWORD)\s*=' "$ENV_FILE" | head -n 1 | cut -d '=' -f2- | tr -d ' "' | tr -d "'")
 
-            # Clean any escape backslash if present
+            # Xử lý ký tự đặc biệt nếu mật khẩu có escape ký tự '#'
             DB_PASS=$(echo "$DB_PASS" | sed 's/\\#/#/g')
 
-            echo "==> 1. Ensuring shared network exists..."
+            echo "==> 1. Kiểm tra mạng container dùng chung nextturn-network..."
             podman network exists nextturn-network || podman network create --driver bridge nextturn-network
 
-            echo "==> 2. Pulling Flyway migration image..."
+            echo "==> 2. Kéo ảnh Flyway phiên bản ổn định cho ARM64..."
             podman pull docker.io/flyway/flyway:11-alpine
 
-            echo "==> 3. Running Flyway migration against database: ${DB_URL} (User: ${DB_USER})..."
+            echo "==> 3. Phân quyền thư mục migrations để tránh lỗi Permission denied..."
+            chmod -R 755 "${MIGRATIONS_DIR}"
+
+            echo "==> 4. Khởi chạy Flyway container để thực thi migration..."
+            # Sử dụng cờ :ro,z để SELinux trên Oracle Linux cho phép container đọc thư mục SQL
             podman run --rm \
               --network nextturn-network \
-              -v "${MIGRATIONS_DIR}:/flyway/sql:ro" \
+              -v "${MIGRATIONS_DIR}:/flyway/sql:ro,z" \
               docker.io/flyway/flyway:11-alpine \
               -url="${DB_URL}" \
               -user="${DB_USER}" \
@@ -119,4 +141,5 @@ jobs:
               -baselineOnMigrate=true \
               migrate
 
-            echo "==> Database migration completed successfully!"
+            echo "==> Quá trình migration hoàn tất thành công!"
+          EOF
