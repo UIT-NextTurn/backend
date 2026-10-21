@@ -1,0 +1,122 @@
+name: NextTurn Backend - Database Migration
+
+on:
+  workflow_run:
+    workflows: ["NextTurn Backend - Continuous Integration (CI)"]
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: migration-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Migrate Database Schema
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Tailscale and SSH deployment secrets
+        id: check_secrets
+        run: |
+          MISSING_SECRETS=""
+          if [ -z "${{ secrets.TAILSCALE_AUTHKEY }}" ]; then
+            MISSING_SECRETS="${MISSING_SECRETS} TAILSCALE_AUTHKEY"
+          fi
+          if [ -z "${{ secrets.VM_HOST }}" ]; then
+            MISSING_SECRETS="${MISSING_SECRETS} VM_HOST"
+          fi
+          if [ -z "${{ secrets.VM_SSH_PRIVATE_KEY }}" ]; then
+            MISSING_SECRETS="${MISSING_SECRETS} VM_SSH_PRIVATE_KEY"
+          fi
+
+          if [ -n "$MISSING_SECRETS" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "::error::Missing required secrets for deployment:${MISSING_SECRETS}."
+            exit 1
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Connect to Tailscale as Ephemeral Node
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          tags: tag:nextturn-gitops
+          args: --accept-routes
+
+      - name: Verify Tailscale connectivity to server
+        run: |
+          echo "Pinging target VM on Tailnet (${{ secrets.VM_HOST }})..."
+          tailscale ping -c 3 ${{ secrets.VM_HOST }} || ping -c 3 ${{ secrets.VM_HOST }}
+
+      - name: Copy migration SQL scripts to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER || 'ryan' }}
+          key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          port: 22
+          source: "src/main/resources/db/migration/*.sql"
+          target: "${{ secrets.DEPLOY_PATH || '/mnt/data/nextturn/backend' }}/migrations"
+          strip_components: 5
+
+      - name: Execute Flyway migration via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER || 'ryan' }}
+          key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          port: 22
+          script_stop: true
+          script: |
+            set -e
+            DEPLOY_DIR="${{ secrets.DEPLOY_PATH || '/mnt/data/nextturn/backend' }}"
+            MIGRATIONS_DIR="${DEPLOY_DIR}/migrations"
+
+            ENV_FILE="${DEPLOY_DIR}/.env"
+            if [ ! -f "$ENV_FILE" ] && [ -f "${DEPLOY_DIR}/backend/.env" ]; then
+              ENV_FILE="${DEPLOY_DIR}/backend/.env"
+            fi
+
+            if [ ! -f "$ENV_FILE" ]; then
+              echo "::error::Configuration file not found at ${ENV_FILE}. Cannot determine database connection details."
+              exit 1
+            fi
+
+            # Extract database credentials from .env
+            DB_URL=$(grep -E '^\s*SPRING_DATASOURCE_URL\s*=' "$ENV_FILE" | head -n 1 | cut -d '=' -f2- | tr -d ' "' | tr -d "'")
+            DB_USER=$(grep -E '^\s*SPRING_DATASOURCE_USERNAME\s*=' "$ENV_FILE" | head -n 1 | cut -d '=' -f2- | tr -d ' "' | tr -d "'")
+            DB_PASS=$(grep -E '^\s*SPRING_DATASOURCE_PASSWORD\s*=' "$ENV_FILE" | head -n 1 | cut -d '=' -f2- | tr -d ' "' | tr -d "'")
+
+            # Clean any escape backslash if present
+            DB_PASS=$(echo "$DB_PASS" | sed 's/\\#/#/g')
+
+            echo "==> 1. Ensuring shared network exists..."
+            podman network exists nextturn-network || podman network create --driver bridge nextturn-network
+
+            echo "==> 2. Pulling Flyway migration image..."
+            podman pull docker.io/flyway/flyway:11-alpine
+
+            echo "==> 3. Running Flyway migration against database: ${DB_URL} (User: ${DB_USER})..."
+            podman run --rm \
+              --network nextturn-network \
+              -v "${MIGRATIONS_DIR}:/flyway/sql:ro" \
+              docker.io/flyway/flyway:11-alpine \
+              -url="${DB_URL}" \
+              -user="${DB_USER}" \
+              -password="${DB_PASS}" \
+              -baselineOnMigrate=true \
+              migrate
+
+            echo "==> Database migration completed successfully!"

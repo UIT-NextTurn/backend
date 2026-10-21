@@ -2,7 +2,7 @@ name: NextTurn Backend - Continuous Deployment (CD)
 
 on:
   workflow_run:
-    workflows: ["NextTurn Backend - Continuous Integration (CI)"]
+    workflows: ["NextTurn Backend - Database Migration"]
     types:
       - completed
     branches:
