@@ -43,6 +43,16 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: true
 
+  # -------------------------------------------------------------------
+  # Keycloak OAuth2 Resource Server & JWT Configuration
+  # -------------------------------------------------------------------
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/nextturn}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/nextturn/protocol/openid-connect/certs}
+
 # -------------------------------------------------------------------
 # Valkey Cache & Queue Store Configuration
 # -------------------------------------------------------------------
