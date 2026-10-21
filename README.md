@@ -44,7 +44,12 @@ backend/
 │   │   │   ├── valkey/                  # Valkey keys, templates, cache config
 │   │   │   ├── repository/              # Spring Data JPA interfaces
 │   │   │   ├── scheduler/               # @Scheduled cron jobs & background tasks
-│   │   │   ├── security/                # Auth filters, JWT utils, security chains
+│   │   │   ├── security/                # Spring Security, Keycloak OIDC, RBAC & Principal
+│   │   │   │   ├── annotation/          # Role meta-annotations (@RequireSuperAdmin, @CurrentUser, etc.)
+│   │   │   │   ├── config/              # SecurityFilterChain, SessionManagement, WebMvcConfigurer
+│   │   │   │   ├── keycloak/            # Keycloak JWT converters & KeycloakProperties
+│   │   │   │   ├── principal/           # AuthenticatedUser record & CurrentUserArgumentResolver
+│   │   │   │   └── service/             # SecurityContextHelper & SecurityService (@authz)
 │   │   │   ├── service/                 # Business logic orchestration
 │   │   │   ├── util/                    # Stateless utility/helper functions
 │   │   │   └── BackendApplication.java  # Main application entry point
@@ -94,6 +99,13 @@ Settings are automatically loaded from `.env` by `make run` or can be supplied a
 | `VALKEY_PORT` | Valkey client port | `6379` |
 | `VALKEY_PASSWORD` | Valkey password | *(empty)* |
 | `APP_TIMEZONE` | Application timezone | `Asia/Ho_Chi_Minh` |
+| `KEYCLOAK_ISSUER_URI` | Keycloak issuer URL | `http://localhost:8180/realms/nextturn` |
+| `KEYCLOAK_JWK_SET_URI` | Keycloak JWKS certs URL | `http://localhost:8180/realms/nextturn/protocol/openid-connect/certs` |
+| `CORS_ALLOWED_ORIGIN_PATTERNS` | Allowed CORS origins | `http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173` |
+| `CORS_ALLOWED_HEADERS` | Allowed CORS headers | `Origin,Content-Type,Accept,Authorization,X-Requested-With` |
+| `CORS_ALLOWED_METHODS` | Allowed HTTP methods | `GET,POST,PUT,PATCH,DELETE,OPTIONS` |
+| `CORS_MAX_AGE_SECONDS` | Preflight cache duration in seconds | `3600` |
+| `CORS_ALLOW_CREDENTIALS` | Allow credentials flag | `true` |
 
 ---
 

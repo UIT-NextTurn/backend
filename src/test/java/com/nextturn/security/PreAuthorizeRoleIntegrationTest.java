@@ -1,9 +1,12 @@
 package com.nextturn.security;
 
+import com.nextturn.security.annotation.CurrentUser;
 import com.nextturn.security.annotation.RequireCounterStaff;
 import com.nextturn.security.annotation.RequireEndUser;
 import com.nextturn.security.annotation.RequireSuperAdmin;
 import com.nextturn.security.annotation.RequireTenantAdmin;
+import com.nextturn.security.keycloak.KeycloakJwtAuthenticationConverter;
+import com.nextturn.security.principal.AuthenticatedUser;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -119,6 +122,16 @@ class PreAuthorizeRoleIntegrationTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    @DisplayName("Should inject @CurrentUser AuthenticatedUser into controller parameter")
+    void currentUserArgumentResolverShouldInjectPrincipal() throws Exception {
+        AbstractAuthenticationToken auth = authenticationConverter.convert(createMockJwt("TENANT_ADMIN", "admin@tenant1.com"));
+
+        mockMvc.perform(get("/api/v1/test-roles/current-user").with(authentication(auth)))
+                .andExpect(status().isOk())
+                .andExpect(content().string("user:admin@tenant1.com"));
+    }
+
     private Jwt createMockJwt(String role, String email) {
         return Jwt.withTokenValue("mock-jwt-token")
                 .header("alg", "RS256")
@@ -170,5 +183,14 @@ class PreAuthorizeRoleIntegrationTest {
         public ResponseEntity<String> spelSuperAdmin() {
             return ResponseEntity.ok("spel-superadmin-ok");
         }
+
+        @GetMapping("/current-user")
+        public ResponseEntity<String> currentUserEndpoint(@CurrentUser AuthenticatedUser user) {
+            if (user == null) {
+                return ResponseEntity.status(500).body("user-is-null");
+            }
+            return ResponseEntity.ok("user:" + user.email());
+        }
     }
 }
+

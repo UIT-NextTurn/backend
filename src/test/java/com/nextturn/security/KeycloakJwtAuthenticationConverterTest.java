@@ -1,6 +1,12 @@
 package com.nextturn.security;
 
 import com.nextturn.enums.UserRole;
+import com.nextturn.security.keycloak.KeycloakJwtAuthenticationConverter;
+import com.nextturn.security.keycloak.KeycloakJwtGrantedAuthoritiesConverter;
+import com.nextturn.security.keycloak.KeycloakProperties;
+import com.nextturn.security.principal.AuthenticatedUser;
+import com.nextturn.security.service.SecurityContextHelper;
+import com.nextturn.security.service.SecurityService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,7 +19,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -21,13 +27,22 @@ class KeycloakJwtAuthenticationConverterTest {
 
     private KeycloakJwtGrantedAuthoritiesConverter authoritiesConverter;
     private KeycloakJwtAuthenticationConverter authenticationConverter;
+    private SecurityContextHelper securityContextHelper;
     private SecurityService securityService;
 
     @BeforeEach
     void setUp() {
-        authoritiesConverter = new KeycloakJwtGrantedAuthoritiesConverter();
+        KeycloakProperties properties = new KeycloakProperties(
+                "nextturn-backend",
+                "nextturn",
+                "http://localhost:8180",
+                "http://localhost:8180/realms/nextturn",
+                "http://localhost:8180/realms/nextturn/protocol/openid-connect/certs"
+        );
+        authoritiesConverter = new KeycloakJwtGrantedAuthoritiesConverter(properties);
         authenticationConverter = new KeycloakJwtAuthenticationConverter(authoritiesConverter);
-        securityService = new SecurityService();
+        securityContextHelper = new SecurityContextHelper();
+        securityService = new SecurityService(securityContextHelper);
     }
 
     @Test
@@ -97,12 +112,24 @@ class KeycloakJwtAuthenticationConverterTest {
         assertThat(securityService.getCurrentUserEmail()).contains("sa@nextturn.com");
         assertThat(securityService.getCurrentUserId()).contains("1eebb091-3264-4c21-92d5-40eba7ea15ae");
         assertThat(securityService.getCurrentUserRoles()).containsExactly(UserRole.SUPERADMIN);
+
+        // SecurityContextHelper & AuthenticatedUser record
+        Optional<AuthenticatedUser> userOpt = securityContextHelper.getCurrentUser();
+        assertThat(userOpt).isPresent();
+        AuthenticatedUser user = userOpt.get();
+        assertThat(user.userId()).isEqualTo("1eebb091-3264-4c21-92d5-40eba7ea15ae");
+        assertThat(user.email()).isEqualTo("sa@nextturn.com");
+        assertThat(user.isSuperAdmin()).isTrue();
+        assertThat(user.isTenantAdmin()).isTrue();
+        assertThat(user.isCounterStaff()).isTrue();
+        assertThat(user.isEndUser()).isTrue();
+        assertThat(user.jwt()).isEqualTo(jwt);
     }
 
     @Test
     @DisplayName("Should extract TENANT_ADMIN role correctly")
     void shouldExtractTenantAdminRole() {
-        Jwt jwt = createMockJwtWithRole("TENANT_ADMIN", "admin@tenant1.com");
+        Jwt jwt = createMockJwtWithRole("TENANT_ADMIN", "admin@tenant1.com", "clinic-01");
         AbstractAuthenticationToken authToken = authenticationConverter.convert(jwt);
         SecurityContextHolder.getContext().setAuthentication(authToken);
 
@@ -110,12 +137,19 @@ class KeycloakJwtAuthenticationConverterTest {
         assertThat(securityService.isTenantAdmin()).isTrue();
         assertThat(securityService.isSuperAdmin()).isFalse();
         assertThat(securityService.getCurrentUserRoles()).containsExactly(UserRole.TENANT_ADMIN);
+
+        Optional<AuthenticatedUser> userOpt = securityContextHelper.getCurrentUser();
+        assertThat(userOpt).isPresent();
+        AuthenticatedUser user = userOpt.get();
+        assertThat(user.tenantId()).isEqualTo("clinic-01");
+        assertThat(user.isTenantAdmin()).isTrue();
+        assertThat(user.isSuperAdmin()).isFalse();
     }
 
     @Test
     @DisplayName("Should extract COUNTER_STAFF role correctly")
     void shouldExtractCounterStaffRole() {
-        Jwt jwt = createMockJwtWithRole("COUNTER_STAFF", "staff1@tenant1.com");
+        Jwt jwt = createMockJwtWithRole("COUNTER_STAFF", "staff1@tenant1.com", "branch-a");
         AbstractAuthenticationToken authToken = authenticationConverter.convert(jwt);
         SecurityContextHolder.getContext().setAuthentication(authToken);
 
@@ -124,12 +158,19 @@ class KeycloakJwtAuthenticationConverterTest {
         assertThat(securityService.isTenantAdmin()).isFalse();
         assertThat(securityService.isSuperAdmin()).isFalse();
         assertThat(securityService.getCurrentUserRoles()).containsExactly(UserRole.COUNTER_STAFF);
+
+        Optional<AuthenticatedUser> userOpt = securityContextHelper.getCurrentUser();
+        assertThat(userOpt).isPresent();
+        AuthenticatedUser user = userOpt.get();
+        assertThat(user.tenantId()).isEqualTo("branch-a");
+        assertThat(user.isCounterStaff()).isTrue();
+        assertThat(user.isTenantAdmin()).isFalse();
     }
 
     @Test
     @DisplayName("Should extract END_USER role correctly")
     void shouldExtractEndUserRole() {
-        Jwt jwt = createMockJwtWithRole("END_USER", "customer@gmail.com");
+        Jwt jwt = createMockJwtWithRole("END_USER", "customer@gmail.com", null);
         AbstractAuthenticationToken authToken = authenticationConverter.convert(jwt);
         SecurityContextHolder.getContext().setAuthentication(authToken);
 
@@ -139,10 +180,16 @@ class KeycloakJwtAuthenticationConverterTest {
         assertThat(securityService.isTenantAdmin()).isFalse();
         assertThat(securityService.isSuperAdmin()).isFalse();
         assertThat(securityService.getCurrentUserRoles()).containsExactly(UserRole.END_USER);
+
+        Optional<AuthenticatedUser> userOpt = securityContextHelper.getCurrentUser();
+        assertThat(userOpt).isPresent();
+        AuthenticatedUser user = userOpt.get();
+        assertThat(user.isEndUser()).isTrue();
+        assertThat(user.isCounterStaff()).isFalse();
     }
 
-    private Jwt createMockJwtWithRole(String role, String email) {
-        return Jwt.withTokenValue("mock-token")
+    private Jwt createMockJwtWithRole(String role, String email, String tenantId) {
+        var jwtBuilder = Jwt.withTokenValue("mock-token")
                 .header("alg", "RS256")
                 .issuer("http://ryan-a1:8180/realms/nextturn")
                 .subject("user-uuid-12345")
@@ -152,7 +199,12 @@ class KeycloakJwtAuthenticationConverterTest {
                         "nextturn-backend", Map.of(
                                 "roles", List.of(role)
                         )
-                ))
-                .build();
+                ));
+
+        if (tenantId != null) {
+            jwtBuilder.claim("tenant_id", tenantId);
+        }
+
+        return jwtBuilder.build();
     }
 }

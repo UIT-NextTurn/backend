@@ -1,4 +1,4 @@
-package com.nextturn.security;
+package com.nextturn.security.keycloak;
 
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.core.GrantedAuthority;
@@ -30,6 +30,15 @@ public class KeycloakJwtGrantedAuthoritiesConverter implements Converter<Jwt, Co
     private static final String ROLE_PREFIX = "ROLE_";
 
     private final JwtGrantedAuthoritiesConverter defaultScopesConverter = new JwtGrantedAuthoritiesConverter();
+    private final KeycloakProperties keycloakProperties;
+
+    public KeycloakJwtGrantedAuthoritiesConverter(KeycloakProperties keycloakProperties) {
+        this.keycloakProperties = keycloakProperties;
+    }
+
+    public KeycloakJwtGrantedAuthoritiesConverter() {
+        this(new KeycloakProperties("nextturn-backend", "nextturn", "http://localhost:8180", null, null));
+    }
 
     @Override
     public Collection<GrantedAuthority> convert(Jwt jwt) {
@@ -41,7 +50,7 @@ public class KeycloakJwtGrantedAuthoritiesConverter implements Converter<Jwt, Co
             authorities.addAll(scopeAuthorities);
         }
 
-        // 2. Extract Client Roles from resource_access (primary location for nextturn-backend roles)
+        // 2. Extract Client Roles from resource_access (primary location for NextTurn client roles)
         extractClientRoles(jwt, authorities);
 
         // 3. Extract Realm Roles from realm_access
@@ -57,12 +66,16 @@ public class KeycloakJwtGrantedAuthoritiesConverter implements Converter<Jwt, Co
             return;
         }
 
-        // Check configured client ID (nextturn-backend)
-        extractRolesFromClientEntry(resourceAccess.get(DEFAULT_CLIENT_ID), authorities);
+        String targetClientId = keycloakProperties != null && keycloakProperties.clientId() != null
+                ? keycloakProperties.clientId()
+                : DEFAULT_CLIENT_ID;
 
-        // Also check azp (Authorized Party) if distinct from DEFAULT_CLIENT_ID
+        // Check configured client ID
+        extractRolesFromClientEntry(resourceAccess.get(targetClientId), authorities);
+
+        // Also check azp (Authorized Party) if distinct from configured client ID
         String azp = jwt.getClaimAsString(AZP_CLAIM);
-        if (azp != null && !azp.equalsIgnoreCase(DEFAULT_CLIENT_ID)) {
+        if (azp != null && !azp.equalsIgnoreCase(targetClientId)) {
             extractRolesFromClientEntry(resourceAccess.get(azp), authorities);
         }
     }

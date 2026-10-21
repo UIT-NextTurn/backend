@@ -14,6 +14,6 @@ import java.lang.annotation.Target;
 @Target({ElementType.METHOD, ElementType.TYPE})
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
-@PreAuthorize("hasAnyRole('SUPERADMIN', 'TENANT_ADMIN', 'COUNTER_STAFF')")
+@PreAuthorize("hasAnyRole('COUNTER_STAFF')")
 public @interface RequireCounterStaff {
 }

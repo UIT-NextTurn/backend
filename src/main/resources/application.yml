@@ -54,10 +54,32 @@ spring:
           jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/nextturn/protocol/openid-connect/certs}
 
 # -------------------------------------------------------------------
+# Keycloak Client Configuration
+# -------------------------------------------------------------------
+keycloak:
+  client-id: ${KEYCLOAK_CLIENT_ID:nextturn-backend}
+  realm: ${KEYCLOAK_REALM:nextturn}
+  auth-server-url: ${KEYCLOAK_AUTH_SERVER_URL:http://localhost:8180}
+  issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/nextturn}
+  jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/nextturn/protocol/openid-connect/certs}
+
+
+# -------------------------------------------------------------------
 # Valkey Cache & Queue Store Configuration
 # -------------------------------------------------------------------
 valkey:
   host: ${VALKEY_HOST:localhost}
   port: ${VALKEY_PORT:6379}
   password: ${VALKEY_PASSWORD:}
+
+# -------------------------------------------------------------------
+# CORS Cross-Origin Resource Sharing Configuration
+# -------------------------------------------------------------------
+cors:
+  allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173}
+  allowed-headers: ${CORS_ALLOWED_HEADERS:Origin,Content-Type,Accept,Authorization,X-Requested-With}
+  allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,PATCH,DELETE,OPTIONS}
+  max-age: ${CORS_MAX_AGE_SECONDS:3600}
+  allow-credentials: ${CORS_ALLOW_CREDENTIALS:true}
+
 

@@ -1,5 +1,9 @@
-package com.nextturn.security;
+package com.nextturn.security.config;
 
+import com.nextturn.security.keycloak.KeycloakJwtAuthenticationConverter;
+import com.nextturn.security.keycloak.KeycloakProperties;
+import com.nextturn.security.principal.CurrentUserArgumentResolver;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -9,21 +13,29 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.method.support.HandlerMethodArgumentResolver;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.util.List;
 
 /**
  * Spring Security configuration for NextTurn OAuth2 Resource Server.
- * Enables method security (@PreAuthorize, @PostAuthorize) and configures
- * the Keycloak JWT authentication converter to translate client/realm roles into Spring authorities.
+ * Configures SecurityFilterChain, CORS, stateless session management,
+ * Keycloak JWT authentication converter, and registers {@link CurrentUserArgumentResolver}.
  */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
-public class SecurityConfig {
+@EnableConfigurationProperties(KeycloakProperties.class)
+public class SecurityConfig implements WebMvcConfigurer {
 
     private final KeycloakJwtAuthenticationConverter keycloakJwtAuthenticationConverter;
+    private final CurrentUserArgumentResolver currentUserArgumentResolver;
 
-    public SecurityConfig(KeycloakJwtAuthenticationConverter keycloakJwtAuthenticationConverter) {
+    public SecurityConfig(KeycloakJwtAuthenticationConverter keycloakJwtAuthenticationConverter,
+                          CurrentUserArgumentResolver currentUserArgumentResolver) {
         this.keycloakJwtAuthenticationConverter = keycloakJwtAuthenticationConverter;
+        this.currentUserArgumentResolver = currentUserArgumentResolver;
     }
 
     @Bean
@@ -47,5 +59,10 @@ public class SecurityConfig {
                 );
 
         return http.build();
+    }
+
+    @Override
+    public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
+        resolvers.add(currentUserArgumentResolver);
     }
 }
