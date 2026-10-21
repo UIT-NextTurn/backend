@@ -19,8 +19,10 @@ src/main/java/com/nextturn/
 └── util/          → Stateless utility/helper functions
 
 src/main/resources/
-├── application.yml       → App config (DB, env-specific properties)
-├── db/migration/         → Flyway SQL migration scripts (V<timestamp>__*.sql, e.g., V20261021010001__*.sql)
+├── application.yml          → App config for DB and env-specific properties
+└── db/migration/
+    ├── central/             → Flyway SQL migrations for nextturn_master (V<timestamp>__*.sql)
+    └── tenant/              → Flyway SQL migrations for tenant_{code} schemas (V<timestamp>__*.sql)
 
 src/test/java/com/nextturn/  → Unit & integration tests mirroring main packages
 ```
