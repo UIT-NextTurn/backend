@@ -16,10 +16,15 @@ Tests execute using an isolated in-memory H2 database configured in `src/test/re
 
 ## 2. Running Tests
 
-Run all automated unit and integration tests using the Maven wrapper:
+Run all automated unit and integration tests using `make` or the Maven wrapper:
+
+```bash
+# Run the complete test suite using Makefile
+make test
+```
 
 ```powershell
-# Run the complete test suite
+# Run using the Maven wrapper directly
 .\mvnw test
 
 # Run a specific test class
@@ -36,13 +41,22 @@ Run all automated unit and integration tests using the Maven wrapper:
 
 ## 3. Test Layers & Recommended Patterns
 
-### A. Controller / Web Layer Integration Tests
-- Annotate test classes with `@SpringBootTest` and `@AutoConfigureMockMvc`.
-- Use `MockMvc` to perform HTTP calls (`get()`, `post()`, `put()`, `delete()`) and verify JSON output.
-- Assert HTTP status and the envelope fields of `ApiResponse`:
+### A. Controller / Web Layer Slice Tests (Kiểm thử phân tầng)
+- Annotate test classes with `@WebMvcTest(TargetController.class)`. Avoid `@SpringBootTest` for web layer tests as it is heavy and unnecessarily bootstraps JPA, Flyway, and the DataSource.
+- Explicitly enable method security via `@EnableMethodSecurity(prePostEnabled = true)` (or include `TestSecurityConfig.class`) to ensure `@PreAuthorize` authorization rules are enforced in the slice test.
+- Import the required security and CORS configurations via `@Import(...)`:
   ```java
-  @SpringBootTest
-  @AutoConfigureMockMvc
+  @WebMvcTest(HealthCheckController.class)
+  @EnableMethodSecurity(prePostEnabled = true)
+  @Import({
+          SecurityConfig.class,
+          TestSecurityConfig.class,
+          CorsConfig.class,
+          KeycloakJwtAuthenticationConverter.class,
+          KeycloakJwtGrantedAuthoritiesConverter.class,
+          CurrentUserArgumentResolver.class,
+          SecurityContextHelper.class
+  })
   class HealthCheckControllerTest {
 
       @Autowired

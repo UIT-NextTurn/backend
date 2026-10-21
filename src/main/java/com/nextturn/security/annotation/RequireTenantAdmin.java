@@ -9,11 +9,11 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Secures methods/classes for tenant administrators (or platform superadmins).
+ * Secures methods/classes strictly for tenant administrators.
  */
 @Target({ElementType.METHOD, ElementType.TYPE})
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
-@PreAuthorize("hasAnyRole('TENANT_ADMIN')")
+@PreAuthorize("hasRole('TENANT_ADMIN')")
 public @interface RequireTenantAdmin {
 }

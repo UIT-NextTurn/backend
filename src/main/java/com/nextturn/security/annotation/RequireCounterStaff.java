@@ -9,11 +9,11 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Secures methods/classes for counter operators, ticket callers, and tenant administrators.
+ * Secures methods/classes strictly for counter operators and staff.
  */
 @Target({ElementType.METHOD, ElementType.TYPE})
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
-@PreAuthorize("hasAnyRole('COUNTER_STAFF')")
+@PreAuthorize("hasRole('COUNTER_STAFF')")
 public @interface RequireCounterStaff {
 }

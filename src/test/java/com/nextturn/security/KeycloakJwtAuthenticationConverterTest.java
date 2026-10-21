@@ -98,9 +98,10 @@ class KeycloakJwtAuthenticationConverterTest {
         assertThat(securityService.hasRole("SUPERADMIN")).isTrue();
         assertThat(securityService.hasRole(UserRole.SUPERADMIN)).isTrue();
         assertThat(securityService.isSuperAdmin()).isTrue();
-        assertThat(securityService.isTenantAdmin()).isTrue();
-        assertThat(securityService.isCounterStaff()).isTrue();
-        assertThat(securityService.isEndUser()).isTrue();
+        assertThat(securityService.isTenantAdmin()).isFalse();
+        assertThat(securityService.isCounterStaff()).isFalse();
+        assertThat(securityService.isStaff()).isFalse();
+        assertThat(securityService.isEndUser()).isFalse();
 
         // Other roles are NOT held
         assertThat(securityService.hasRole("TENANT_ADMIN")).isFalse();
@@ -120,9 +121,10 @@ class KeycloakJwtAuthenticationConverterTest {
         assertThat(user.userId()).isEqualTo("1eebb091-3264-4c21-92d5-40eba7ea15ae");
         assertThat(user.email()).isEqualTo("sa@nextturn.com");
         assertThat(user.isSuperAdmin()).isTrue();
-        assertThat(user.isTenantAdmin()).isTrue();
-        assertThat(user.isCounterStaff()).isTrue();
-        assertThat(user.isEndUser()).isTrue();
+        assertThat(user.isTenantAdmin()).isFalse();
+        assertThat(user.isCounterStaff()).isFalse();
+        assertThat(user.isStaff()).isFalse();
+        assertThat(user.isEndUser()).isFalse();
         assertThat(user.jwt()).isEqualTo(jwt);
     }
 
@@ -135,7 +137,10 @@ class KeycloakJwtAuthenticationConverterTest {
 
         assertThat(securityService.hasRole(UserRole.TENANT_ADMIN)).isTrue();
         assertThat(securityService.isTenantAdmin()).isTrue();
+        assertThat(securityService.isStaff()).isTrue();
         assertThat(securityService.isSuperAdmin()).isFalse();
+        assertThat(securityService.isCounterStaff()).isFalse();
+        assertThat(securityService.isEndUser()).isFalse();
         assertThat(securityService.getCurrentUserRoles()).containsExactly(UserRole.TENANT_ADMIN);
 
         Optional<AuthenticatedUser> userOpt = securityContextHelper.getCurrentUser();
@@ -143,7 +148,10 @@ class KeycloakJwtAuthenticationConverterTest {
         AuthenticatedUser user = userOpt.get();
         assertThat(user.tenantId()).isEqualTo("clinic-01");
         assertThat(user.isTenantAdmin()).isTrue();
+        assertThat(user.isStaff()).isTrue();
         assertThat(user.isSuperAdmin()).isFalse();
+        assertThat(user.isCounterStaff()).isFalse();
+        assertThat(user.isEndUser()).isFalse();
     }
 
     @Test
@@ -155,6 +163,7 @@ class KeycloakJwtAuthenticationConverterTest {
 
         assertThat(securityService.hasRole(UserRole.COUNTER_STAFF)).isTrue();
         assertThat(securityService.isCounterStaff()).isTrue();
+        assertThat(securityService.isStaff()).isTrue();
         assertThat(securityService.isTenantAdmin()).isFalse();
         assertThat(securityService.isSuperAdmin()).isFalse();
         assertThat(securityService.getCurrentUserRoles()).containsExactly(UserRole.COUNTER_STAFF);
@@ -164,7 +173,10 @@ class KeycloakJwtAuthenticationConverterTest {
         AuthenticatedUser user = userOpt.get();
         assertThat(user.tenantId()).isEqualTo("branch-a");
         assertThat(user.isCounterStaff()).isTrue();
+        assertThat(user.isStaff()).isTrue();
         assertThat(user.isTenantAdmin()).isFalse();
+        assertThat(user.isSuperAdmin()).isFalse();
+        assertThat(user.isEndUser()).isFalse();
     }
 
     @Test
@@ -176,6 +188,7 @@ class KeycloakJwtAuthenticationConverterTest {
 
         assertThat(securityService.hasRole(UserRole.END_USER)).isTrue();
         assertThat(securityService.isEndUser()).isTrue();
+        assertThat(securityService.isStaff()).isFalse();
         assertThat(securityService.isCounterStaff()).isFalse();
         assertThat(securityService.isTenantAdmin()).isFalse();
         assertThat(securityService.isSuperAdmin()).isFalse();
@@ -185,7 +198,10 @@ class KeycloakJwtAuthenticationConverterTest {
         assertThat(userOpt).isPresent();
         AuthenticatedUser user = userOpt.get();
         assertThat(user.isEndUser()).isTrue();
+        assertThat(user.isStaff()).isFalse();
         assertThat(user.isCounterStaff()).isFalse();
+        assertThat(user.isTenantAdmin()).isFalse();
+        assertThat(user.isSuperAdmin()).isFalse();
     }
 
     private Jwt createMockJwtWithRole(String role, String email, String tenantId) {

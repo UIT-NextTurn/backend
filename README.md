@@ -131,9 +131,20 @@ Or directly using the Maven wrapper:
   ```
 
 ### 3. Run Automated Tests
-```powershell
-mvn test
+Using `make`:
+```bash
+make test
 ```
+Or directly using the Maven wrapper:
+- Windows PowerShell:
+  ```powershell
+  .\mvnw test
+  ```
+- Linux / macOS:
+  ```bash
+  ./mvnw test
+  ```
+
 
 ---
 

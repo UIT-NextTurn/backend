@@ -9,11 +9,11 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Secures methods/classes for authenticated end users, patients, or guests.
+ * Secures methods/classes strictly for end users.
  */
 @Target({ElementType.METHOD, ElementType.TYPE})
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
-@PreAuthorize("hasAnyRole('END_USER')")
+@PreAuthorize("hasRole('END_USER')")
 public @interface RequireEndUser {
 }

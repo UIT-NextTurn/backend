@@ -81,24 +81,31 @@ public class SecurityService {
     }
 
     /**
-     * Convenience check: is current user TENANT_ADMIN or SUPERADMIN?
+     * Convenience check: is current user TENANT_ADMIN?
      */
     public boolean isTenantAdmin() {
-        return hasAnyRole(UserRole.SUPERADMIN, UserRole.TENANT_ADMIN);
+        return hasRole(UserRole.TENANT_ADMIN);
     }
 
     /**
-     * Convenience check: is current user COUNTER_STAFF, TENANT_ADMIN, or SUPERADMIN?
+     * Convenience check: is current user COUNTER_STAFF?
      */
     public boolean isCounterStaff() {
-        return hasAnyRole(UserRole.SUPERADMIN, UserRole.TENANT_ADMIN, UserRole.COUNTER_STAFF);
+        return hasRole(UserRole.COUNTER_STAFF);
     }
 
     /**
-     * Convenience check: is current user authenticated?
+     * Convenience check: is current user END_USER?
      */
     public boolean isEndUser() {
-        return isAuthenticated();
+        return hasRole(UserRole.END_USER);
+    }
+
+    /**
+     * Convenience check: is current user a facility staff member (TENANT_ADMIN or COUNTER_STAFF)?
+     */
+    public boolean isStaff() {
+        return hasAnyRole(UserRole.TENANT_ADMIN, UserRole.COUNTER_STAFF);
     }
 
     /**

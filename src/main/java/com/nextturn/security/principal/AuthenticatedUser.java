@@ -58,23 +58,30 @@ public record AuthenticatedUser(
     }
 
     /**
-     * Checks if the user is a TENANT_ADMIN or SUPERADMIN.
+     * Checks if the user is a TENANT_ADMIN.
      */
     public boolean isTenantAdmin() {
-        return hasAnyRole(UserRole.SUPERADMIN, UserRole.TENANT_ADMIN);
+        return hasRole(UserRole.TENANT_ADMIN);
     }
 
     /**
-     * Checks if the user is COUNTER_STAFF, TENANT_ADMIN, or SUPERADMIN.
+     * Checks if the user is a COUNTER_STAFF.
      */
     public boolean isCounterStaff() {
-        return hasAnyRole(UserRole.SUPERADMIN, UserRole.TENANT_ADMIN, UserRole.COUNTER_STAFF);
+        return hasRole(UserRole.COUNTER_STAFF);
     }
 
     /**
-     * Checks if the user has END_USER or higher roles.
+     * Checks if the user is an END_USER.
      */
     public boolean isEndUser() {
-        return hasAnyRole(UserRole.SUPERADMIN, UserRole.TENANT_ADMIN, UserRole.COUNTER_STAFF, UserRole.END_USER);
+        return hasRole(UserRole.END_USER);
+    }
+
+    /**
+     * Checks if the user is a facility staff member (TENANT_ADMIN or COUNTER_STAFF).
+     */
+    public boolean isStaff() {
+        return hasAnyRole(UserRole.TENANT_ADMIN, UserRole.COUNTER_STAFF);
     }
 }
