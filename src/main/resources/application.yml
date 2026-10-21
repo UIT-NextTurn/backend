@@ -2,7 +2,7 @@
 # NextTurn Backend Application Configuration
 # ===================================================================
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
 
 spring:
   application:
@@ -12,9 +12,9 @@ spring:
   # MySQL DataSource Configuration
   # -------------------------------------------------------------------
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/nextturn_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
-    username: ${SPRING_DATASOURCE_USERNAME:root}
-    password: ${SPRING_DATASOURCE_PASSWORD:}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/nextturn_master?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:nextturn}
+    password: ${SPRING_DATASOURCE_PASSWORD:nextturn_dev_secret}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # -------------------------------------------------------------------
@@ -22,8 +22,8 @@ spring:
   # -------------------------------------------------------------------
   jpa:
     hibernate:
-      ddl-auto: update
-    show-sql: true
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    show-sql: ${SPRING_JPA_SHOW_SQL:true}
     properties:
       hibernate:
         format_sql: true
@@ -33,4 +33,21 @@ spring:
   # -------------------------------------------------------------------
   jackson:
     date-format: "yyyy-MM-dd HH:mm:ss"
-    time-zone: Asia/Ho_Chi_Minh
+    time-zone: ${APP_TIMEZONE:Asia/Ho_Chi_Minh}
+
+  # -------------------------------------------------------------------
+  # Flyway Database Migration Configuration
+  # -------------------------------------------------------------------
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:true}
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+# -------------------------------------------------------------------
+# Valkey Cache & Queue Store Configuration
+# -------------------------------------------------------------------
+valkey:
+  host: ${VALKEY_HOST:localhost}
+  port: ${VALKEY_PORT:6379}
+  password: ${VALKEY_PASSWORD:}
+

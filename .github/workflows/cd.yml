@@ -1,0 +1,190 @@
+name: NextTurn Backend - Continuous Deployment (CD)
+
+on:
+  workflow_run:
+    workflows: ["NextTurn Backend - Continuous Integration (CI)"]
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      deploy_to_server:
+        description: 'Deploy container image to Oracle Linux 9 server (*Triển khai lên máy chủ*)'
+        required: true
+        default: true
+        type: boolean
+      environment:
+        description: 'Target deployment environment (*Môi trường triển khai*)'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - 'production'
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    name: Build & Push Container Image
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+
+    steps:
+      - name: Checkout repository (*Tải mã nguồn về máy chủ ảo*)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set lowercased repository image name (*Chuẩn hóa tên ảnh dạng chữ thường*)
+        run: |
+          echo "IMAGE_NAME=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      - name: Set up Docker Buildx (*Thiết lập công cụ biên dịch ảnh container Buildx*)
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (*Đăng nhập kho ảnh GHCR*)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata and tags (*Trích xuất nhãn phiên bản Docker*)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.event.workflow_run.head_branch == 'main' }}
+
+      - name: Build and push native ARM64 image (*Đóng gói và đẩy ảnh container ARM64 gốc lên GHCR*)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Oracle Linux 9 Server (Tailscale Ephemeral Node)
+    needs: build-and-push
+    if: >-
+      always() &&
+      needs.build-and-push.result == 'success' &&
+      (github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.deploy_to_server == true))
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+
+    steps:
+      - name: Set lowercased repository image name (*Chuẩn hóa tên ảnh*)
+        run: |
+          echo "IMAGE_NAME=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      - name: Check Tailscale and SSH deployment secrets (*Kiểm tra cấu hình khóa bảo mật*)
+        id: check_secrets
+        run: |
+          MISSING_SECRETS=""
+          if [ -z "${{ secrets.TAILSCALE_AUTHKEY }}" ]; then
+            MISSING_SECRETS="${MISSING_SECRETS} TAILSCALE_AUTHKEY"
+          fi
+          if [ -z "${{ secrets.VM_HOST }}" ]; then
+            MISSING_SECRETS="${MISSING_SECRETS} VM_HOST"
+          fi
+          if [ -z "${{ secrets.VM_SSH_PRIVATE_KEY }}" ]; then
+            MISSING_SECRETS="${MISSING_SECRETS} VM_SSH_PRIVATE_KEY"
+          fi
+
+          if [ -n "$MISSING_SECRETS" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "::warning::Missing required secrets for Tailscale deployment:${MISSING_SECRETS}. Remote deployment step skipped."
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Connect to Tailscale as Ephemeral Node (*Kết nối vào mạng Tailscale dưới dạng nút tạm thời*)
+        if: steps.check_secrets.outputs.configured == 'true'
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          tags: tag:nextturn-gitops
+          args: --accept-routes
+
+      - name: Verify Tailscale connectivity to server (*Kiểm tra kết nối mạng nội bộ Tailscale tới máy chủ*)
+        if: steps.check_secrets.outputs.configured == 'true'
+        run: |
+          echo "Pinging target VM on Tailnet (${{ secrets.VM_HOST }})..."
+          tailscale ping -c 3 ${{ secrets.VM_HOST }} || ping -c 3 ${{ secrets.VM_HOST }}
+
+      - name: Execute deployment commands via SSH (*Thực thi triển khai từ xa qua giao thức SSH*)
+        if: steps.check_secrets.outputs.configured == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER || 'ryan' }}
+          key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          port: 22
+          script_stop: true
+          envs: REGISTRY,IMAGE_NAME,GITHUB_ACTOR,GITHUB_TOKEN
+          script: |
+            set -e
+            DEPLOY_DIR="${{ secrets.DEPLOY_PATH || '/mnt/data/nextturn/backend' }}"
+            
+            echo "==> 1. Authenticating Podman with GitHub Container Registry..."
+            echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+            echo "==> 2. Pulling latest ARM64 container image..."
+            podman pull "${REGISTRY}/${IMAGE_NAME}:latest"
+
+            echo "==> 3. Ensuring shared network exists (*Đảm bảo mạng dùng chung tồn tại*)..."
+            podman network exists nextturn-network || podman network create --driver bridge nextturn-network
+
+            echo "==> 4. Gracefully stopping previous backend container..."
+            podman stop nextturn-backend 2>/dev/null || true
+            podman rm nextturn-backend 2>/dev/null || true
+
+            echo "==> 5. Starting updated NextTurn Backend container..."
+            ENV_FILE="${DEPLOY_DIR}/.env"
+            if [ -f "$ENV_FILE" ]; then
+              ENV_FLAG="--env-file $ENV_FILE"
+            else
+              echo "::notice::Warning: $ENV_FILE not found, starting with default container environment."
+              ENV_FLAG=""
+            fi
+
+            podman run -d \
+              --name nextturn-backend \
+              --restart unless-stopped \
+              --network nextturn-network \
+              -p 8080:8080 \
+              $ENV_FLAG \
+              "${REGISTRY}/${IMAGE_NAME}:latest"
+
+            echo "==> 6. Verifying backend container status (*Kiểm tra trạng thái sẵn sàng*)..."
+            sleep 8
+            podman ps --filter "name=nextturn-backend"
+
+            echo "==> 7. Pruning unused dangling images (*Dọn dẹp ảnh rác không dùng*)..."
+            podman image prune -f
+            
+            echo "==> NextTurn Backend successfully deployed to Oracle Linux 9 (ARM64) via Tailscale!"
