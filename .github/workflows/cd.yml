@@ -83,8 +83,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,ignore-error=true,scope=backend
 
   deploy:
     name: Deploy to Oracle Linux 9 Server (Tailscale Ephemeral Node)
