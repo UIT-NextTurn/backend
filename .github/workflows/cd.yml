@@ -10,12 +10,12 @@ on:
   workflow_dispatch:
     inputs:
       deploy_to_server:
-        description: 'Deploy container image to Oracle Linux 9 server (*Triển khai lên máy chủ*)'
+        description: 'Deploy container image to Oracle Linux 9 server'
         required: true
         default: true
         type: boolean
       environment:
-        description: 'Target deployment environment (*Môi trường triển khai*)'
+        description: 'Target deployment environment'
         required: true
         default: 'production'
         type: choice
@@ -43,26 +43,26 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
 
     steps:
-      - name: Checkout repository (*Tải mã nguồn về máy chủ ảo*)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Set lowercased repository image name (*Chuẩn hóa tên ảnh dạng chữ thường*)
+      - name: Set lowercased repository image name
         run: |
           echo "IMAGE_NAME=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
-      - name: Set up Docker Buildx (*Thiết lập công cụ biên dịch ảnh container Buildx*)
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry (*Đăng nhập kho ảnh GHCR*)
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata and tags (*Trích xuất nhãn phiên bản Docker*)
+      - name: Extract Docker metadata and tags
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -74,7 +74,7 @@ jobs:
             type=sha,format=short
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.event.workflow_run.head_branch == 'main' }}
 
-      - name: Build and push native ARM64 image (*Đóng gói và đẩy ảnh container ARM64 gốc lên GHCR*)
+      - name: Build and push native ARM64 image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -97,11 +97,11 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - name: Set lowercased repository image name (*Chuẩn hóa tên ảnh*)
+      - name: Set lowercased repository image name
         run: |
           echo "IMAGE_NAME=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
-      - name: Check Tailscale and SSH deployment secrets (*Kiểm tra cấu hình khóa bảo mật*)
+      - name: Check Tailscale and SSH deployment secrets
         id: check_secrets
         run: |
           MISSING_SECRETS=""
@@ -122,7 +122,7 @@ jobs:
             echo "configured=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Connect to Tailscale as Ephemeral Node (*Kết nối vào mạng Tailscale dưới dạng nút tạm thời*)
+      - name: Connect to Tailscale as Ephemeral Node
         if: steps.check_secrets.outputs.configured == 'true'
         uses: tailscale/github-action@v3
         with:
@@ -130,13 +130,13 @@ jobs:
           tags: tag:nextturn-gitops
           args: --accept-routes
 
-      - name: Verify Tailscale connectivity to server (*Kiểm tra kết nối mạng nội bộ Tailscale tới máy chủ*)
+      - name: Verify Tailscale connectivity to server
         if: steps.check_secrets.outputs.configured == 'true'
         run: |
           echo "Pinging target VM on Tailnet (${{ secrets.VM_HOST }})..."
           tailscale ping -c 3 ${{ secrets.VM_HOST }} || ping -c 3 ${{ secrets.VM_HOST }}
 
-      - name: Execute deployment commands via SSH (*Thực thi triển khai từ xa qua giao thức SSH*)
+      - name: Execute deployment commands via SSH
         if: steps.check_secrets.outputs.configured == 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -156,35 +156,66 @@ jobs:
             echo "==> 2. Pulling latest ARM64 container image..."
             podman pull "${REGISTRY}/${IMAGE_NAME}:latest"
 
-            echo "==> 3. Ensuring shared network exists (*Đảm bảo mạng dùng chung tồn tại*)..."
+            echo "==> 3. Ensuring shared network exists..."
             podman network exists nextturn-network || podman network create --driver bridge nextturn-network
 
-            echo "==> 4. Gracefully stopping previous backend container..."
-            podman stop nextturn-backend 2>/dev/null || true
-            podman rm nextturn-backend 2>/dev/null || true
-
-            echo "==> 5. Starting updated NextTurn Backend container..."
+            # Resolve environment configuration file
             ENV_FILE="${DEPLOY_DIR}/.env"
-            if [ -f "$ENV_FILE" ]; then
-              ENV_FLAG="--env-file $ENV_FILE"
-            else
-              echo "::notice::Warning: $ENV_FILE not found, starting with default container environment."
-              ENV_FLAG=""
+            if [ ! -f "$ENV_FILE" ] && [ -f "${DEPLOY_DIR}/backend/.env" ]; then
+              ENV_FILE="${DEPLOY_DIR}/backend/.env"
             fi
 
+            # Default container configurations
+            CONTAINER_NAME="nextturn-backend"
+            PORT_MAPPING="8080:8080"
+            ENV_FLAG=""
+
+            if [ -f "$ENV_FILE" ]; then
+              ENV_FLAG="--env-file $ENV_FILE"
+
+              # 1. Parse container name from .env (supports CONTAINER_NAME or BACKEND_CONTAINER_NAME)
+              PARSED_NAME=$(grep -E '^\s*(CONTAINER_NAME|BACKEND_CONTAINER_NAME)\s*=' "$ENV_FILE" | head -n 1 | cut -d '=' -f2- | tr -d ' "' | tr -d "'")
+              if [ -n "$PARSED_NAME" ]; then
+                CONTAINER_NAME="$PARSED_NAME"
+              fi
+
+              # 2. Parse port mapping from .env (supports PORT_MAPPING, or HOST_PORT:SERVER_PORT, or SERVER_PORT)
+              PARSED_PORT_MAP=$(grep -E '^\s*PORT_MAPPING\s*=' "$ENV_FILE" | head -n 1 | cut -d '=' -f2- | tr -d ' "' | tr -d "'")
+              PARSED_HOST_PORT=$(grep -E '^\s*(HOST_PORT|BACKEND_PORT)\s*=' "$ENV_FILE" | head -n 1 | cut -d '=' -f2- | tr -d ' "' | tr -d "'")
+              PARSED_SERVER_PORT=$(grep -E '^\s*SERVER_PORT\s*=' "$ENV_FILE" | head -n 1 | cut -d '=' -f2- | tr -d ' "' | tr -d "'")
+
+              if [ -n "$PARSED_PORT_MAP" ]; then
+                PORT_MAPPING="$PARSED_PORT_MAP"
+              elif [ -n "$PARSED_HOST_PORT" ] && [ -n "$PARSED_SERVER_PORT" ]; then
+                PORT_MAPPING="${PARSED_HOST_PORT}:${PARSED_SERVER_PORT}"
+              elif [ -n "$PARSED_SERVER_PORT" ]; then
+                PORT_MAPPING="${PARSED_SERVER_PORT}:${PARSED_SERVER_PORT}"
+              elif [ -n "$PARSED_HOST_PORT" ]; then
+                PORT_MAPPING="${PARSED_HOST_PORT}:8080"
+              fi
+              echo "==> Using configuration from $ENV_FILE: CONTAINER_NAME=${CONTAINER_NAME}, PORT_MAPPING=${PORT_MAPPING}"
+            else
+              echo "::notice::Warning: $ENV_FILE not found, starting with defaults: name=${CONTAINER_NAME}, port=${PORT_MAPPING}"
+            fi
+
+            echo "==> 4. Gracefully stopping previous container (${CONTAINER_NAME})..."
+            podman stop "${CONTAINER_NAME}" 2>/dev/null || true
+            podman rm "${CONTAINER_NAME}" 2>/dev/null || true
+
+            echo "==> 5. Starting updated NextTurn Backend container (${CONTAINER_NAME} on ${PORT_MAPPING})..."
             podman run -d \
-              --name nextturn-backend \
+              --name "${CONTAINER_NAME}" \
               --restart unless-stopped \
               --network nextturn-network \
-              -p 8080:8080 \
+              -p "${PORT_MAPPING}" \
               $ENV_FLAG \
               "${REGISTRY}/${IMAGE_NAME}:latest"
 
-            echo "==> 6. Verifying backend container status (*Kiểm tra trạng thái sẵn sàng*)..."
+            echo "==> 6. Verifying backend container status..."
             sleep 8
-            podman ps --filter "name=nextturn-backend"
+            podman ps --filter "name=^${CONTAINER_NAME}$"
 
-            echo "==> 7. Pruning unused dangling images (*Dọn dẹp ảnh rác không dùng*)..."
+            echo "==> 7. Pruning unused dangling images..."
             podman image prune -f
             
             echo "==> NextTurn Backend successfully deployed to Oracle Linux 9 (ARM64) via Tailscale!"

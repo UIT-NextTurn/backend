@@ -28,33 +28,33 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - name: Checkout repository (*Tải mã nguồn về máy chủ ảo*)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 25 (*Cài đặt môi trường máy ảo Java 25*)
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
           java-version: '25'
           distribution: 'oracle'
           cache: 'maven'
 
-      - name: Grant execute permission for Maven wrapper (*Cấp quyền thực thi cho mvnw*)
+      - name: Grant execute permission for Maven wrapper
         run: chmod +x ./mvnw
 
-      - name: Verify build tooling versions (*Kiểm tra phiên bản công cụ*)
+      - name: Verify build tooling versions
         run: |
           java -version
           ./mvnw -v
 
-      - name: Run automated unit & integration tests (*Chạy kiểm thử tự động*)
+      - name: Run automated unit & integration tests
         run: ./mvnw -B clean test --no-transfer-progress
 
-      - name: Package executable JAR (*Đóng gói ứng dụng để kiểm tra tính toàn vẹn*)
+      - name: Package executable JAR
         run: ./mvnw -B package -DskipTests --no-transfer-progress
 
-      - name: Upload test results artifact (*Lưu trữ báo cáo kiểm thử Surefire*)
+      - name: Upload test results artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -72,7 +72,7 @@ jobs:
           reporter: java-junit
           fail-on-error: false
 
-      - name: Upload compiled JAR artifact (*Lưu trữ tệp nhị phân đã biên dịch*)
+      - name: Upload compiled JAR artifact
         uses: actions/upload-artifact@v4
         if: success()
         with:
