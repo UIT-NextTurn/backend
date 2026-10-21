@@ -49,8 +49,10 @@ backend/
 │   │   │   ├── util/                    # Stateless utility/helper functions
 │   │   │   └── BackendApplication.java  # Main application entry point
 │   │   └── resources/
-│   │       ├── application.yml          # Application & MySQL configuration
-│   │       └── db/migration/            # Flyway SQL migration scripts (V<timestamp>__*.sql, e.g., V20261021010001__*.sql)
+│   │       ├── application.yml          # Application and MySQL configuration
+│   │       └── db/migration/
+│   │           ├── central/             # Flyway migrations for central master schema (nextturn_master)
+│   │           └── tenant/              # Flyway migrations for dynamic tenant schemas (tenant_{code})
 │   └── test/
 │       ├── java/studyweb/cus/
 │       │   ├── controller/
