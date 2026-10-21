@@ -92,4 +92,4 @@ Run all automated unit and integration tests using the Maven wrapper:
   - Test: `src/test/java/studyweb/cus/controller/HealthCheckControllerTest.java`
 - **Naming**: Always suffix test class names with `Test` (e.g., `QueueTicketServiceTest`).
 - **Structure**: Follow the **AAA Pattern** (Arrange, Act, Assert) within test bodies.
-- **Determinism**: Never rely on execution order between tests. Each test must be completely isolated and idempotent (*có tính chất lũy đẳng, chạy nhiều lần vẫn ra cùng kết quả*).
+- **Determinism**: Never rely on execution order between tests. Each test must be completely isolated and idempotent.
