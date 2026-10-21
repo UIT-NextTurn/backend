@@ -80,26 +80,26 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
 
-      # 5. Copy migration SQL scripts to server via native SCP
-      - name: Copy migration SQL scripts via native SCP
+      # 5. Copy Central migration SQL scripts to server via native SCP
+      - name: Copy Central migration SQL scripts via native SCP
         run: |
           DEPLOY_DIR="${{ secrets.DEPLOY_PATH || '/mnt/data/nextturn' }}"
           REMOTE_USER="${{ secrets.VM_USER || 'ryan' }}"
           REMOTE_HOST="${{ secrets.VM_HOST }}"
 
-          echo "==> Creating migrations directory on target server..."
-          ssh ${REMOTE_USER}@${REMOTE_HOST} "mkdir -p ${DEPLOY_DIR}/migrations"
+          echo "==> Creating central migrations directory on target server..."
+          ssh ${REMOTE_USER}@${REMOTE_HOST} "mkdir -p ${DEPLOY_DIR}/migrations/central"
 
-          echo "==> Copying SQL scripts to migrations directory..."
-          scp -r src/main/resources/db/migration/*.sql ${REMOTE_USER}@${REMOTE_HOST}:${DEPLOY_DIR}/migrations/
+          echo "==> Copying central schema SQL scripts to migrations directory..."
+          scp -r src/main/resources/db/migration/central/*.sql ${REMOTE_USER}@${REMOTE_HOST}:${DEPLOY_DIR}/migrations/central/
 
-      # 6. Execute Flyway migration via SSH
-      - name: Execute Flyway migration on server
+      # 6. Execute Flyway migration for Central Schema via SSH
+      - name: Execute Flyway migration on nextturn_master
         run: |
           ssh ${{ secrets.VM_USER || 'ryan' }}@${{ secrets.VM_HOST }} << 'EOF'
             set -e
             DEPLOY_DIR="${{ secrets.DEPLOY_PATH || '/mnt/data/nextturn' }}"
-            MIGRATIONS_DIR="${DEPLOY_DIR}/migrations"
+            CENTRAL_MIGRATIONS_DIR="${DEPLOY_DIR}/migrations/central"
 
             # Locate .env configuration file
             ENV_FILE="${DEPLOY_DIR}/.env"
@@ -126,13 +126,13 @@ jobs:
             echo "==> 2. Pulling stable Flyway image for ARM64..."
             podman pull docker.io/flyway/flyway:11-alpine
 
-            echo "==> 3. Setting migrations directory permissions..."
-            chmod -R 755 "${MIGRATIONS_DIR}"
+            echo "==> 3. Setting central migrations directory permissions..."
+            chmod -R 755 "${CENTRAL_MIGRATIONS_DIR}"
 
-            echo "==> 4. Running Flyway container to execute migration..."
+            echo "==> 4. Running Flyway container to execute central migration on nextturn_master..."
             podman run --rm \
               --network nextturn-network \
-              -v "${MIGRATIONS_DIR}:/flyway/sql:ro,z" \
+              -v "${CENTRAL_MIGRATIONS_DIR}:/flyway/sql:ro,z" \
               docker.io/flyway/flyway:11-alpine \
               -url="${DB_URL}" \
               -user="${DB_USER}" \
@@ -140,5 +140,5 @@ jobs:
               -baselineOnMigrate=true \
               migrate
 
-            echo "==> Database migration completed successfully!"
+            echo "==> Central master database migration completed successfully!"
           EOF

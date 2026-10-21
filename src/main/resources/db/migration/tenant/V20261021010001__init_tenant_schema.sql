@@ -1,8 +1,8 @@
 -- ==============================================================================
--- NextTurn Relational Database Migration (Flyway V20261021010002)
+-- NextTurn Relational Database Migration (Flyway V20261021010001)
 -- Schema: Tenant Dedicated Schema (tenant_{code})
 -- Description: Isolated business tables for services, staff shifts, capacity slots,
---              appointments, real-time queue tickets, audits, and customer feedbacks.
+--              appointments, virtual queue tickets, feedbacks, and notification logs.
 -- Target Engine: MySQL 8.4 LTS (Oracle HeatWave Compatible) / InnoDB
 -- ==============================================================================
 
@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS `tenant__services` (
     CONSTRAINT `pk_tenant__services` PRIMARY KEY (`id`),
     CONSTRAINT `uk_tenant__services_service_code` UNIQUE (`service_code`),
     CONSTRAINT `uk_tenant__services_service_name` UNIQUE (`service_name`),
+    CONSTRAINT `chk_tenant__services_status` CHECK (`status` IN ('ACTIVE', 'INACTIVE')),
+    CONSTRAINT `chk_tenant__services_duration` CHECK (`standard_duration` > 0),
+    CONSTRAINT `chk_tenant__services_price` CHECK (`price` >= 0.00),
     INDEX `idx_tenant__services_status` (`status`, `is_deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -44,6 +47,8 @@ CREATE TABLE IF NOT EXISTS `tenant__staffs` (
     CONSTRAINT `uk_tenant__staffs_staff_code` UNIQUE (`staff_code`),
     CONSTRAINT `uk_tenant__staffs_email` UNIQUE (`email`),
     CONSTRAINT `uk_tenant__staffs_phone_number` UNIQUE (`phone_number`),
+    CONSTRAINT `chk_tenant__staffs_role` CHECK (`role` IN ('ADMIN', 'COUNTER', 'SPECIALIST')),
+    CONSTRAINT `chk_tenant__staffs_status` CHECK (`status` IN ('ACTIVE', 'INACTIVE')),
     INDEX `idx_tenant__staffs_role_status` (`role`, `status`, `is_deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -80,6 +85,8 @@ CREATE TABLE IF NOT EXISTS `tenant__shifts` (
         REFERENCES `tenant__staffs` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_tenant__shifts_service` FOREIGN KEY (`service_id`)
         REFERENCES `tenant__services` (`id`) ON DELETE SET NULL,
+    CONSTRAINT `chk_tenant__shifts_status` CHECK (`status` IN ('SCHEDULED', 'COMPLETED', 'CANCELLED')),
+    CONSTRAINT `chk_tenant__shifts_time_window` CHECK (`shift_end` > `shift_start`),
     INDEX `idx_tenant__shifts_date_staff` (`work_date`, `staff_id`),
     INDEX `idx_tenant__shifts_date_service` (`work_date`, `service_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -101,6 +108,10 @@ CREATE TABLE IF NOT EXISTS `tenant__time_slots` (
     CONSTRAINT `pk_tenant__time_slots` PRIMARY KEY (`id`),
     CONSTRAINT `fk_tenant__slots_service` FOREIGN KEY (`service_id`)
         REFERENCES `tenant__services` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `chk_tenant__time_slots_status` CHECK (`status` IN ('AVAILABLE', 'HOLDING', 'BOOKED')),
+    CONSTRAINT `chk_tenant__time_slots_time_window` CHECK (`slot_end` > `slot_start`),
+    CONSTRAINT `chk_tenant__time_slots_capacity` CHECK (`capacity_per_slot` >= 1),
+    CONSTRAINT `chk_tenant__time_slots_booked_count` CHECK (`booked_count` >= 0 AND `booked_count` <= `capacity_per_slot`),
     INDEX `idx_tenant__slots_query` (`service_id`, `work_date`, `status`),
     INDEX `idx_tenant__slots_hold` (`holding_token`, `holding_expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -111,7 +122,7 @@ CREATE TABLE IF NOT EXISTS `tenant__time_slots` (
 CREATE TABLE IF NOT EXISTS `tenant__appointments` (
     `id` CHAR(36) NOT NULL,
     `appointment_code` VARCHAR(30) NOT NULL,
-    `user_id` CHAR(36) NULL COMMENT 'Logical FK to central__users.id in nextturn_master',
+    `user_id` CHAR(36) NULL COMMENT 'Logical reference to central__users.id in nextturn_master',
     `service_id` CHAR(36) NOT NULL,
     `slot_id` CHAR(36) NOT NULL,
     `customer_name` VARCHAR(150) NOT NULL,
@@ -129,6 +140,7 @@ CREATE TABLE IF NOT EXISTS `tenant__appointments` (
         REFERENCES `tenant__services` (`id`) ON DELETE RESTRICT,
     CONSTRAINT `fk_tenant__apt_slot` FOREIGN KEY (`slot_id`)
         REFERENCES `tenant__time_slots` (`id`) ON DELETE RESTRICT,
+    CONSTRAINT `chk_tenant__appointments_status` CHECK (`status` IN ('PENDING', 'CONFIRMED', 'CHECKED_IN', 'CANCELLED', 'NO_SHOW')),
     INDEX `idx_tenant__apt_user` (`user_id`),
     INDEX `idx_tenant__apt_phone` (`customer_phone`),
     INDEX `idx_tenant__apt_status` (`status`, `created_at`)
@@ -167,6 +179,11 @@ CREATE TABLE IF NOT EXISTS `tenant__queue_tickets` (
         REFERENCES `tenant__staffs` (`id`) ON DELETE SET NULL,
     CONSTRAINT `fk_tenant__ticket_provider` FOREIGN KEY (`provider_id`)
         REFERENCES `tenant__staffs` (`id`) ON DELETE SET NULL,
+    CONSTRAINT `chk_tenant__tickets_customer_type` CHECK (`customer_type` IN ('APPOINTMENT', 'WALK_IN')),
+    CONSTRAINT `chk_tenant__tickets_status` CHECK (`status` IN ('WAITING', 'CALLING', 'SERVING', 'COMPLETED', 'NO_SHOW')),
+    CONSTRAINT `chk_tenant__tickets_recall_count` CHECK (`recall_count` >= 0),
+    CONSTRAINT `chk_tenant__tickets_version` CHECK (`version` >= 0),
+    CONSTRAINT `chk_tenant__tickets_actual_duration` CHECK (`actual_duration` IS NULL OR `actual_duration` >= 0),
     INDEX `idx_tenant__ticket_live_queue` (`work_date`, `service_id`, `status`),
     INDEX `idx_tenant__ticket_called` (`counter_staff_id`, `status`),
     INDEX `idx_tenant__ticket_provider` (`provider_id`, `status`)
@@ -185,6 +202,8 @@ CREATE TABLE IF NOT EXISTS `tenant__ticket_audit_logs` (
     CONSTRAINT `pk_tenant__ticket_audit_logs` PRIMARY KEY (`id`),
     CONSTRAINT `fk_tenant__audit_ticket` FOREIGN KEY (`ticket_id`)
         REFERENCES `tenant__queue_tickets` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `chk_tenant__audit_prev_state` CHECK (`previous_state` IN ('WAITING', 'CALLING', 'SERVING', 'COMPLETED', 'NO_SHOW')),
+    CONSTRAINT `chk_tenant__audit_new_state` CHECK (`new_state` IN ('WAITING', 'CALLING', 'SERVING', 'COMPLETED', 'NO_SHOW')),
     INDEX `idx_tenant__ticket_audit_time` (`ticket_id`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -210,6 +229,7 @@ CREATE TABLE IF NOT EXISTS `tenant__feedbacks` (
         REFERENCES `tenant__services` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_tenant__fb_provider` FOREIGN KEY (`provider_id`)
         REFERENCES `tenant__staffs` (`id`) ON DELETE SET NULL,
+    CONSTRAINT `chk_tenant__feedbacks_rating` CHECK (`rating_score` BETWEEN 1 AND 5),
     INDEX `idx_tenant__feedbacks_provider_score` (`provider_id`, `rating_score`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -232,6 +252,8 @@ CREATE TABLE IF NOT EXISTS `tenant__notification_logs` (
         REFERENCES `tenant__appointments` (`id`) ON DELETE SET NULL,
     CONSTRAINT `fk_tenant__notif_ticket` FOREIGN KEY (`ticket_id`)
         REFERENCES `tenant__queue_tickets` (`id`) ON DELETE SET NULL,
+    CONSTRAINT `chk_tenant__notifications_channel` CHECK (`channel` IN ('EMAIL', 'PUSH', 'SMS')),
+    CONSTRAINT `chk_tenant__notifications_status` CHECK (`status` IN ('SUCCESS', 'FAILED')),
     INDEX `idx_tenant__notif_status_time` (`status`, `sent_at`),
     INDEX `idx_tenant__notif_ticket` (`ticket_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -245,5 +267,8 @@ CREATE TABLE IF NOT EXISTS `tenant__tenant_settings` (
     `max_advance_booking_days` INT NOT NULL DEFAULT 30,
     `cancellation_deadline_hours` INT NOT NULL DEFAULT 12,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT `pk_tenant__tenant_settings` PRIMARY KEY (`id`)
+    CONSTRAINT `pk_tenant__tenant_settings` PRIMARY KEY (`id`),
+    CONSTRAINT `chk_tenant__settings_lead_time` CHECK (`min_lead_time_hours` >= 0),
+    CONSTRAINT `chk_tenant__settings_advance_days` CHECK (`max_advance_booking_days` >= 1),
+    CONSTRAINT `chk_tenant__settings_cancellation` CHECK (`cancellation_deadline_hours` >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
