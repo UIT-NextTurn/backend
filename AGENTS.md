@@ -25,7 +25,7 @@ Deliver secure, low-latency APIs and real-time queues:
 
 ## HOW
 
-Strictly adhere to the package structure defined in [agent-docs/folder_structure.md](./agent-docs/folder_structure.md) under `src/main/java/studyweb/cus/`:
+Strictly adhere to the package structure defined in [agent-docs/folder_structure.md](./agent-docs/folder_structure.md) under `src/main/java/com/nextturn/`:
 
 - `config/` - `@Configuration` and `@Bean` definitions (CORS, security, async).
 - `constant/` - Static immutable constants (API route prefixes, default pagination).

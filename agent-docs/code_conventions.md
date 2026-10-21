@@ -6,7 +6,7 @@ Coding standards, architecture rules, and implementation patterns for the NextTu
 
 ## 1. Package & Layer Architecture
 
-All code lives in `studyweb.cus.*` adhering to [folder_structure.md](./folder_structure.md):
+All code lives in `com.nextturn.*` adhering to [folder_structure.md](./folder_structure.md):
 
 - **`controller/`**: Thin REST endpoints. Do not place business logic here. Validate incoming payloads using `@Valid` and return standard `ResponseEntity<ApiResponse<T>>`.
 - **`service/`**: Domain and workflow orchestration. Handles database transactions (`@Transactional`), security checks, and cross-repository coordination.
