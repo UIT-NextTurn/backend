@@ -1,0 +1,22 @@
+# Git and IDE metadata
+.git
+.github
+.gitignore
+.gitattributes
+.idea
+.vscode
+*.iml
+
+# Build artifacts and caches
+target/
+*.class
+
+# Environment configuration and local secrets
+.env
+.env.local
+.env.*.local
+
+# Documentation and design system files
+*.md
+docs/
+agent-docs/

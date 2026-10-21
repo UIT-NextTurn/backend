@@ -1,0 +1,81 @@
+name: NextTurn Backend - Continuous Integration (CI)
+
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+      - 'agent-docs/**'
+      - 'docs/**'
+      - '.gitignore'
+      - '.gitattributes'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'agent-docs/**'
+      - 'docs/**'
+      - '.gitignore'
+      - '.gitattributes'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-verify:
+    name: Build, Lint & Test (Java 25)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository (*Tải mã nguồn về máy chủ ảo*)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 25 (*Cài đặt môi trường máy ảo Java 25*)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'oracle'
+          cache: 'maven'
+
+      - name: Grant execute permission for Maven wrapper (*Cấp quyền thực thi cho mvnw*)
+        run: chmod +x ./mvnw
+
+      - name: Verify build tooling versions (*Kiểm tra phiên bản công cụ*)
+        run: |
+          java -version
+          ./mvnw -v
+
+      - name: Run automated unit & integration tests (*Chạy kiểm thử tự động*)
+        run: ./mvnw -B clean test --no-transfer-progress
+
+      - name: Package executable JAR (*Đóng gói ứng dụng để kiểm tra tính toàn vẹn*)
+        run: ./mvnw -B package -DskipTests --no-transfer-progress
+
+      - name: Upload test results artifact (*Lưu trữ báo cáo kiểm thử Surefire*)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: surefire-test-reports
+          path: target/surefire-reports/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Publish Test Results UI
+        uses: dorny/test-reporter@v1
+        if: always() 
+        with:
+          name: Maven Test Report
+          path: target/surefire-reports/*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Upload compiled JAR artifact (*Lưu trữ tệp nhị phân đã biên dịch*)
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: nextturn-backend-jar
+          path: target/*.jar
+          retention-days: 3
