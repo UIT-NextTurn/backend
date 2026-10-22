@@ -35,11 +35,10 @@ Strictly adhere to the package structure defined in [agent-docs/folder_structure
 - `enums/` - Status, queue state, and role enumerations.
 - `event/` - Spring `ApplicationEvent` classes for decoupled pub/sub.
 - `exception/` - Custom domain exceptions and `@RestControllerAdvice` global handlers.
+- `infrastructure/` - Low-level infrastructure adapters and cross-cutting frameworks (`multitenancy/`, `security/`, `valkey/`).
 - `mapper/` - Entity ↔ DTO transformation logic.
-- `valkey/` - Valkey configurations, cache keys, and template operations.
 - `repository/` - Spring Data JPA interfaces extending `JpaRepository`.
 - `scheduler/` - `@Scheduled` cron jobs and background queue cleanup tasks.
-- `security/` - JWT utilities, authentication filters, and security filter chains.
 - `service/` - Business logic orchestration across repositories and services.
 - `util/` - Pure, stateless helper functions.
 - `resources/application.yml` - Environment properties; Flyway SQL migrations go into `db/migration/`.

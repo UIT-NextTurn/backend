@@ -1,13 +1,13 @@
 package com.nextturn.controller;
 
 import com.nextturn.config.CorsConfig;
-import com.nextturn.multitenancy.TenantContextFilter;
-import com.nextturn.security.TestSecurityConfig;
-import com.nextturn.security.config.SecurityConfig;
-import com.nextturn.security.keycloak.KeycloakJwtAuthenticationConverter;
-import com.nextturn.security.keycloak.KeycloakJwtGrantedAuthoritiesConverter;
-import com.nextturn.security.principal.CurrentUserArgumentResolver;
-import com.nextturn.security.service.SecurityContextHelper;
+import com.nextturn.infrastructure.multitenancy.TenantContextFilter;
+import com.nextturn.infrastructure.security.TestSecurityConfig;
+import com.nextturn.infrastructure.security.config.SecurityConfig;
+import com.nextturn.infrastructure.security.keycloak.KeycloakJwtAuthenticationConverter;
+import com.nextturn.infrastructure.security.keycloak.KeycloakJwtGrantedAuthoritiesConverter;
+import com.nextturn.infrastructure.security.principal.CurrentUserArgumentResolver;
+import com.nextturn.infrastructure.security.service.SecurityContextHelper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;

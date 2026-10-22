@@ -10,11 +10,13 @@ src/main/java/com/nextturn/
 ├── enums/         → Enum types used across the app
 ├── event/         → ApplicationEvent classes for pub/sub within the app
 ├── exception/     → Custom exception classes and @ControllerAdvice handlers
+├── infrastructure/→ Infrastructure adapters and cross-cutting concerns
+│   ├── multitenancy/ → Tenant context filter, thread-local holder, routing data source
+│   ├── security/     → Auth filters, JWT utils, Keycloak OIDC, RBAC, method security
+│   └── valkey/       → Valkey keys, repository templates, cache config
 ├── mapper/        → Entity ↔ DTO conversion logic
-├── valkey/        → Valkey keys, repository templates, cache config
 ├── repository/    → Spring Data JPA interfaces (extends JpaRepository)
 ├── scheduler/     → @Scheduled cron jobs and background tasks
-├── security/      → Auth filters, JWT utils, password encoders, security chains
 ├── service/       → Business logic, @Service classes orchestrate repositories & clients
 └── util/          → Stateless utility/helper functions
 

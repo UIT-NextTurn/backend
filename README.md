@@ -40,16 +40,18 @@ backend/
 │   │   │   ├── exception/               # Custom exceptions & @ControllerAdvice handlers
 │   │   │   │   ├── AppException.java
 │   │   │   │   └── GlobalExceptionHandler.java
+│   │   │   ├── infrastructure/          # Infrastructure adapters & cross-cutting concerns
+│   │   │   │   ├── multitenancy/        # Tenant context filter, thread-local holder, routing data source
+│   │   │   │   ├── security/            # Spring Security, Keycloak OIDC, RBAC & Principal
+│   │   │   │   │   ├── annotation/      # Role meta-annotations (@RequireSuperAdmin, @CurrentUser, etc.)
+│   │   │   │   │   ├── config/          # SecurityFilterChain, SessionManagement, WebMvcConfigurer
+│   │   │   │   │   ├── keycloak/        # Keycloak JWT converters & KeycloakProperties
+│   │   │   │   │   ├── principal/       # AuthenticatedUser record & CurrentUserArgumentResolver
+│   │   │   │   │   └── service/         # SecurityContextHelper & SecurityService (@authz)
+│   │   │   │   └── valkey/              # Valkey keys, templates, cache config
 │   │   │   ├── mapper/                  # Entity <-> DTO conversion logic
-│   │   │   ├── valkey/                  # Valkey keys, templates, cache config
 │   │   │   ├── repository/              # Spring Data JPA interfaces
 │   │   │   ├── scheduler/               # @Scheduled cron jobs & background tasks
-│   │   │   ├── security/                # Spring Security, Keycloak OIDC, RBAC & Principal
-│   │   │   │   ├── annotation/          # Role meta-annotations (@RequireSuperAdmin, @CurrentUser, etc.)
-│   │   │   │   ├── config/              # SecurityFilterChain, SessionManagement, WebMvcConfigurer
-│   │   │   │   ├── keycloak/            # Keycloak JWT converters & KeycloakProperties
-│   │   │   │   ├── principal/           # AuthenticatedUser record & CurrentUserArgumentResolver
-│   │   │   │   └── service/             # SecurityContextHelper & SecurityService (@authz)
 │   │   │   ├── service/                 # Business logic orchestration
 │   │   │   ├── util/                    # Stateless utility/helper functions
 │   │   │   └── BackendApplication.java  # Main application entry point
