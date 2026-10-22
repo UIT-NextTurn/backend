@@ -40,6 +40,8 @@ backend/
 │   │   │   ├── exception/               # Custom exceptions & @ControllerAdvice handlers
 │   │   │   │   ├── AppException.java
 │   │   │   │   └── GlobalExceptionHandler.java
+│   │   │   ├── helper/                  # Specialized helper beans (URL builders, token helpers)
+│   │   │   │   └── KeycloakAuthHelper.java
 │   │   │   ├── infrastructure/          # Infrastructure adapters & cross-cutting concerns
 │   │   │   │   ├── multitenancy/        # Tenant context filter, thread-local holder, routing data source
 │   │   │   │   ├── security/            # Spring Security, Keycloak OIDC, RBAC & Principal
@@ -69,7 +71,8 @@ backend/
 │           └── application.yml          # H2 in-memory test profile
 ├── mvnw                                 # Maven wrapper script (Unix)
 ├── mvnw.cmd                             # Maven wrapper script (Windows)
-├── agent-docs/                          # Development & agent docs (structure, conventions, testing)
+├── agent-docs/                          # Architecture, API & agent guides
+│   ├── api_documentation.md             # Complete REST API specification & schemas
 │   ├── folder_structure.md
 │   ├── code_conventions.md
 │   └── testing.md
@@ -77,6 +80,16 @@ backend/
 ├── pom.xml                              # Project Object Model dependencies
 └── README.md
 ```
+
+---
+
+## 📖 API Documentation & Scalar UI
+
+- **Scalar API Reference (Interactive Docs)**: [http://localhost:8080/docs](http://localhost:8080/docs) (or [http://localhost:8080/scalar](http://localhost:8080/scalar))
+- **OpenAPI v3 JSON Spec**: [http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
+- **Interactive Swagger UI**: [http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)
+- **Domain Error Codes Specification**: [doc/ErrorCode.md](./doc/ErrorCode.md)
+- **Comprehensive API Document**: [agent-docs/api_documentation.md](./agent-docs/api_documentation.md)
 
 ---
 
