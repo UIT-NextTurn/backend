@@ -14,6 +14,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
@@ -66,13 +67,24 @@ public class SecurityConfig implements WebMvcConfigurer {
                 .authorizeHttpRequests(authorize -> authorize
                         // 1. Public endpoints
                         .requestMatchers(
+                                "/api/v1/public",
                                 "/api/v1/public/**",
+                                "/api/v1/auth",
                                 "/api/v1/auth/**",
+                                "/api/v1/health",
                                 "/api/v1/health/**",
+                                "/actuator",
                                 "/actuator/**",
+                                "/v3/api-docs",
                                 "/v3/api-docs/**",
+                                "/swagger-ui",
                                 "/swagger-ui/**",
-                                "/swagger-ui.html"
+                                "/swagger-ui.html",
+                                "/scalar",
+                                "/scalar/**",
+                                "/scalar.html",
+                                "/docs",
+                                "/docs/**"
                         ).permitAll()
                         // 2. Central Superadmin endpoints
                         .requestMatchers("/api/v1/central/**").hasRole("SUPERADMIN")
@@ -85,12 +97,36 @@ public class SecurityConfig implements WebMvcConfigurer {
                         // 6. Any other request must be authenticated
                         .anyRequest().authenticated()
                 )
-                .oauth2ResourceServer(oauth2 -> oauth2
-                        .jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakJwtAuthenticationConverter))
-                )
+                .oauth2ResourceServer(oauth2 -> {
+                    DefaultBearerTokenResolver defaultResolver = new DefaultBearerTokenResolver();
+                    oauth2.bearerTokenResolver(request -> {
+                        String uri = request.getRequestURI();
+                        if (isPublicUri(uri)) {
+                            // Skip bearer token decoding on public endpoints so invalid/placeholder tokens from docs don't trigger 401
+                            return null;
+                        }
+                        return defaultResolver.resolve(request);
+                    });
+                    oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakJwtAuthenticationConverter));
+                })
                 .addFilterAfter(tenantContextFilter, BearerTokenAuthenticationFilter.class);
 
         return http.build();
+    }
+
+    private boolean isPublicUri(String uri) {
+        if (uri == null) {
+            return false;
+        }
+        return uri.startsWith("/api/v1/public")
+                || uri.startsWith("/api/v1/auth")
+                || uri.startsWith("/api/v1/health")
+                || uri.startsWith("/actuator")
+                || uri.startsWith("/v3/api-docs")
+                || uri.startsWith("/swagger-ui")
+                || uri.startsWith("/scalar")
+                || uri.startsWith("/docs")
+                || uri.equals("/scalar.html");
     }
 
     @Override

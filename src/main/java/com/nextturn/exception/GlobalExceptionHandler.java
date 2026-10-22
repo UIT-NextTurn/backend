@@ -1,6 +1,6 @@
 package com.nextturn.exception;
 
-import com.nextturn.dto.ApiResponse;
+import com.nextturn.dto.BaseResponse;
 import com.nextturn.exception.system.SystemErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,9 +28,9 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(BaseException.class)
-    public ResponseEntity<ApiResponse<Object>> handleBaseException(BaseException ex) {
+    public ResponseEntity<BaseResponse<Object>> handleBaseException(BaseException ex) {
         log.warn("Application exception: [{}] - {}", ex.getCode(), ex.getMessage());
-        ApiResponse<Object> response = ApiResponse.error(
+        BaseResponse<Object> response = BaseResponse.error(
                 ex.getStatus(),
                 ex.getMessage(),
                 ex.getCode()
@@ -41,11 +41,11 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ApiResponse<Object>> handleAccessDeniedException(AccessDeniedException ex) {
+    public ResponseEntity<BaseResponse<Object>> handleAccessDeniedException(AccessDeniedException ex) {
         log.warn("Access denied: {}", ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
-                .body(ApiResponse.error(
+                .body(BaseResponse.error(
                         HttpStatus.FORBIDDEN.value(),
                         "Access denied: Insufficient permissions to access this resource",
                         SystemErrorCode.FORBIDDEN.code()
@@ -53,11 +53,11 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<ApiResponse<Object>> handleAuthenticationException(AuthenticationException ex) {
+    public ResponseEntity<BaseResponse<Object>> handleAuthenticationException(AuthenticationException ex) {
         log.warn("Authentication required: {}", ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
-                .body(ApiResponse.error(
+                .body(BaseResponse.error(
                         HttpStatus.UNAUTHORIZED.value(),
                         "Unauthorized: Authentication required",
                         SystemErrorCode.UNAUTHORIZED.code()
@@ -65,14 +65,14 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiResponse<Map<String, String>>> handleValidationException(MethodArgumentNotValidException ex) {
+    public ResponseEntity<BaseResponse<Map<String, String>>> handleValidationException(MethodArgumentNotValidException ex) {
         Map<String, String> errors = new HashMap<>();
         for (FieldError error : ex.getBindingResult().getFieldErrors()) {
             errors.put(error.getField(), error.getDefaultMessage());
         }
         String firstMessage = errors.values().stream().findFirst().orElse(SystemErrorCode.VALIDATION_ERROR.message());
 
-        ApiResponse<Map<String, String>> response = ApiResponse.<Map<String, String>>builder()
+        BaseResponse<Map<String, String>> response = BaseResponse.<Map<String, String>>builder()
                 .status(HttpStatus.BAD_REQUEST.value())
                 .success(false)
                 .errorCode(SystemErrorCode.VALIDATION_ERROR.code())
@@ -83,12 +83,12 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(BindException.class)
-    public ResponseEntity<ApiResponse<Map<String, String>>> handleBindException(BindException ex) {
+    public ResponseEntity<BaseResponse<Map<String, String>>> handleBindException(BindException ex) {
         Map<String, String> errors = new HashMap<>();
         for (FieldError error : ex.getBindingResult().getFieldErrors()) {
             errors.put(error.getField(), error.getDefaultMessage());
         }
-        ApiResponse<Map<String, String>> response = ApiResponse.<Map<String, String>>builder()
+        BaseResponse<Map<String, String>> response = BaseResponse.<Map<String, String>>builder()
                 .status(HttpStatus.BAD_REQUEST.value())
                 .success(false)
                 .errorCode(SystemErrorCode.VALIDATION_ERROR.code())
@@ -99,10 +99,10 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<ApiResponse<Object>> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+    public ResponseEntity<BaseResponse<Object>> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
         return ResponseEntity
                 .status(HttpStatus.METHOD_NOT_ALLOWED)
-                .body(ApiResponse.error(
+                .body(BaseResponse.error(
                         HttpStatus.METHOD_NOT_ALLOWED.value(),
                         ex.getMessage(),
                         SystemErrorCode.METHOD_NOT_ALLOWED.code()
@@ -110,11 +110,11 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(DataAccessException.class)
-    public ResponseEntity<ApiResponse<Object>> handleDatabaseException(DataAccessException ex) {
+    public ResponseEntity<BaseResponse<Object>> handleDatabaseException(DataAccessException ex) {
         log.error("Database operation failed: {}", ex.getMessage(), ex);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error(
+                .body(BaseResponse.error(
                         HttpStatus.INTERNAL_SERVER_ERROR.value(),
                         SystemErrorCode.DATABASE_ERROR.message(),
                         SystemErrorCode.DATABASE_ERROR.code()
@@ -122,11 +122,11 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse<Object>> handleGenericException(Exception ex) {
+    public ResponseEntity<BaseResponse<Object>> handleGenericException(Exception ex) {
         log.error("Unhandled server exception: {}", ex.getMessage(), ex);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error(
+                .body(BaseResponse.error(
                         HttpStatus.INTERNAL_SERVER_ERROR.value(),
                         "Internal server error: " + ex.getMessage(),
                         SystemErrorCode.INTERNAL_ERROR.code()

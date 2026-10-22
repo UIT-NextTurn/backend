@@ -7,6 +7,10 @@ server:
 spring:
   application:
     name: nextturn-backend
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
 
   # -------------------------------------------------------------------
   # MySQL DataSource Configuration

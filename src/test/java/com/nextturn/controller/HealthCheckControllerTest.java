@@ -44,4 +44,13 @@ class HealthCheckControllerTest {
                 .andExpect(jsonPath("$.data.status").value("UP"))
                 .andExpect(jsonPath("$.data.system").value("NextTurn Virtual Queue & Booking Platform"));
     }
+
+    @Test
+    void healthCheckShouldReturnUpStatusEvenWithDummyDocsBearerToken() throws Exception {
+        mockMvc.perform(get("/api/v1/health")
+                        .header("Authorization", "Bearer Token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.status").value("UP"));
+    }
 }

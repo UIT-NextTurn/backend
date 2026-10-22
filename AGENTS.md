@@ -35,6 +35,7 @@ Strictly adhere to the package structure defined in [agent-docs/folder_structure
 - `enums/` - Status, queue state, and role enumerations.
 - `event/` - Spring `ApplicationEvent` classes for decoupled pub/sub.
 - `exception/` - Custom domain exceptions and `@RestControllerAdvice` global handlers.
+- `helper/` - Specialized helper beans and URL generators bridging services with external protocols.
 - `infrastructure/` - Low-level infrastructure adapters and cross-cutting frameworks (`multitenancy/`, `security/`, `valkey/`).
 - `mapper/` - Entity ↔ DTO transformation logic.
 - `repository/` - Spring Data JPA interfaces extending `JpaRepository`.

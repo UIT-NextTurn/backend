@@ -18,6 +18,7 @@ All code lives in `com.nextturn.*` adhering to [folder_structure.md](./folder_st
   - `infrastructure/multitenancy/`: Multi-tenant request filters, tenant context, dynamic schema routing.
   - `infrastructure/security/`: Keycloak OIDC configuration, JWT authentication/authorities converters, role annotations.
   - `infrastructure/valkey/`: Valkey cache keys, templates, and connection configurations.
+- **`helper/`**: Specialized helper beans and URL generators that bridge domain workflows with external protocols (e.g. `KeycloakAuthHelper`).
 - **`mapper/`**: Static conversion methods or mapping components transforming between Entity and DTO.
 - **`constant/`**: Immutable `public static final` definitions (e.g. route prefixes, defaults).
 - **`enums/`**: Fixed domain enumerations (e.g. queue statuses, roles, ticket priorities).

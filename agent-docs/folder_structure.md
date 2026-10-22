@@ -10,6 +10,7 @@ src/main/java/com/nextturn/
 ├── enums/         → Enum types used across the app
 ├── event/         → ApplicationEvent classes for pub/sub within the app
 ├── exception/     → Custom exception classes and @ControllerAdvice handlers
+├── helper/        → Stateful or specialized helper beans (URL builders, token parsers)
 ├── infrastructure/→ Infrastructure adapters and cross-cutting concerns
 │   ├── multitenancy/ → Tenant context filter, thread-local holder, routing data source
 │   ├── security/     → Auth filters, JWT utils, Keycloak OIDC, RBAC, method security
