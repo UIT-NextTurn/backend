@@ -1,11 +1,11 @@
 package com.nextturn.controller;
 
 import com.nextturn.config.CorsConfig;
+import com.nextturn.multitenancy.TenantContextFilter;
 import com.nextturn.security.TestSecurityConfig;
 import com.nextturn.security.config.SecurityConfig;
 import com.nextturn.security.keycloak.KeycloakJwtAuthenticationConverter;
 import com.nextturn.security.keycloak.KeycloakJwtGrantedAuthoritiesConverter;
-import com.nextturn.security.keycloak.KeycloakProperties;
 import com.nextturn.security.principal.CurrentUserArgumentResolver;
 import com.nextturn.security.service.SecurityContextHelper;
 import org.junit.jupiter.api.Test;
@@ -25,6 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         SecurityConfig.class,
         TestSecurityConfig.class,
         CorsConfig.class,
+        TenantContextFilter.class,
         KeycloakJwtAuthenticationConverter.class,
         KeycloakJwtGrantedAuthoritiesConverter.class,
         CurrentUserArgumentResolver.class,

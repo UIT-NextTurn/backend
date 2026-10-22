@@ -1,9 +1,11 @@
 package com.nextturn.security.config;
 
+import com.nextturn.multitenancy.TenantContextFilter;
 import com.nextturn.security.keycloak.KeycloakJwtAuthenticationConverter;
 import com.nextturn.security.keycloak.KeycloakProperties;
 import com.nextturn.security.principal.CurrentUserArgumentResolver;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -12,6 +14,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -21,7 +24,9 @@ import java.util.List;
 /**
  * Spring Security configuration for NextTurn OAuth2 Resource Server.
  * Configures SecurityFilterChain, CORS, stateless session management,
- * Keycloak JWT authentication converter, and registers {@link CurrentUserArgumentResolver}.
+ * URL authorization rules, Keycloak JWT authentication converter,
+ * TenantContextFilter for schema-per-tenant multi-tenancy,
+ * and registers {@link CurrentUserArgumentResolver}.
  */
 @Configuration
 @EnableWebSecurity
@@ -31,11 +36,25 @@ public class SecurityConfig implements WebMvcConfigurer {
 
     private final KeycloakJwtAuthenticationConverter keycloakJwtAuthenticationConverter;
     private final CurrentUserArgumentResolver currentUserArgumentResolver;
+    private final TenantContextFilter tenantContextFilter;
 
     public SecurityConfig(KeycloakJwtAuthenticationConverter keycloakJwtAuthenticationConverter,
-                          CurrentUserArgumentResolver currentUserArgumentResolver) {
+                          CurrentUserArgumentResolver currentUserArgumentResolver,
+                          TenantContextFilter tenantContextFilter) {
         this.keycloakJwtAuthenticationConverter = keycloakJwtAuthenticationConverter;
         this.currentUserArgumentResolver = currentUserArgumentResolver;
+        this.tenantContextFilter = tenantContextFilter;
+    }
+
+    /**
+     * Prevents duplicate execution by disabling registration in the standard servlet container filter chain.
+     * The filter is wired specifically inside Spring Security's filter chain after BearerTokenAuthenticationFilter.
+     */
+    @Bean
+    public FilterRegistrationBean<TenantContextFilter> tenantContextFilterRegistration(TenantContextFilter filter) {
+        FilterRegistrationBean<TenantContextFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     @Bean
@@ -45,18 +64,31 @@ public class SecurityConfig implements WebMvcConfigurer {
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
+                        // 1. Public endpoints
                         .requestMatchers(
+                                "/api/v1/public/**",
+                                "/api/v1/auth/**",
                                 "/api/v1/health/**",
                                 "/actuator/**",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html"
                         ).permitAll()
+                        // 2. Central Superadmin endpoints
+                        .requestMatchers("/api/v1/central/**").hasRole("SUPERADMIN")
+                        // 3. Tenant Admin endpoints
+                        .requestMatchers("/api/v1/tenant/admin/**").hasRole("TENANT_ADMIN")
+                        // 4. Counter Staff endpoints
+                        .requestMatchers("/api/v1/tenant/counter/**").hasRole("COUNTER_STAFF")
+                        // 5. End-User customer endpoints
+                        .requestMatchers("/api/v1/customer/**").hasRole("END_USER")
+                        // 6. Any other request must be authenticated
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakJwtAuthenticationConverter))
-                );
+                )
+                .addFilterAfter(tenantContextFilter, BearerTokenAuthenticationFilter.class);
 
         return http.build();
     }

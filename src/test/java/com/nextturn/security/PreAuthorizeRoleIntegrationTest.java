@@ -27,6 +27,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
+import com.nextturn.multitenancy.TenantContextFilter;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -45,6 +46,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         SecurityConfig.class,
         TestSecurityConfig.class,
         CorsConfig.class,
+        TenantContextFilter.class,
         KeycloakJwtAuthenticationConverter.class,
         KeycloakJwtGrantedAuthoritiesConverter.class,
         SecurityService.class,

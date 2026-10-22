@@ -186,6 +186,11 @@ class KeycloakJwtAuthenticationConverterTest {
         AbstractAuthenticationToken authToken = authenticationConverter.convert(jwt);
         SecurityContextHolder.getContext().setAuthentication(authToken);
 
+        List<String> authorities = authToken.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .toList();
+        assertThat(authorities).contains("ROLE_END_USER");
+
         assertThat(securityService.hasRole(UserRole.END_USER)).isTrue();
         assertThat(securityService.isEndUser()).isTrue();
         assertThat(securityService.isStaff()).isFalse();
