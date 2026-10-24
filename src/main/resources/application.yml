@@ -62,6 +62,7 @@ spring:
 # -------------------------------------------------------------------
 keycloak:
   client-id: ${KEYCLOAK_CLIENT_ID:nextturn-backend}
+  client-secret: ${KEYCLOAK_CLIENT_SECRET:}
   realm: ${KEYCLOAK_REALM:nextturn}
   auth-server-url: ${KEYCLOAK_AUTH_SERVER_URL:http://localhost:8180}
   issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/nextturn}

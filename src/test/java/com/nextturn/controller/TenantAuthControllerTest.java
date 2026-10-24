@@ -209,4 +209,53 @@ class TenantAuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(forwardedUrl("/scalar.html"));
     }
+
+    @Test
+    @DisplayName("GET /api/v1/auth/superadmin/login-url should return 200 with Super Admin login URL")
+    void shouldReturnSuperAdminLoginUrl() throws Exception {
+        TenantAuthResponse response = TenantAuthResponse.builder()
+                .loginUrl("http://localhost:8180/realms/nextturn/protocol/openid-connect/auth?client_id=nextturn-backend&response_type=code")
+                .allowedRoles(List.of("SUPERADMIN"))
+                .status("ACTIVE")
+                .build();
+
+        when(tenantAuthService.resolveSuperAdminLogin()).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/auth/superadmin/login-url"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.allowedRoles[0]").value("SUPERADMIN"))
+                .andExpect(jsonPath("$.data.loginUrl").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/token should exchange code and return 200 with AuthTokenResponse")
+    void shouldExchangeCodeSuccessfully() throws Exception {
+        com.nextturn.dto.AuthTokenResponse tokenResponse = com.nextturn.dto.AuthTokenResponse.builder()
+                .accessToken("mock-access-token")
+                .refreshToken("mock-refresh-token")
+                .primaryRole("TENANT_ADMIN")
+                .roles(List.of("TENANT_ADMIN"))
+                .tenantCode("clinic_sai_gon")
+                .targetDashboardUrl("/tenant/dashboard")
+                .build();
+
+        when(tenantAuthService.exchangeAuthorizationCode(any(com.nextturn.dto.TokenExchangeRequest.class)))
+                .thenReturn(tokenResponse);
+
+        String requestJson = """
+                {
+                    "code": "test-auth-code-123"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/auth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.accessToken").value("mock-access-token"))
+                .andExpect(jsonPath("$.data.primaryRole").value("TENANT_ADMIN"))
+                .andExpect(jsonPath("$.data.targetDashboardUrl").value("/tenant/dashboard"));
+    }
 }

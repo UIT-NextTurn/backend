@@ -227,8 +227,13 @@ class TenantAuthServiceTest {
     }
 
     @Test
-    @DisplayName("Should exchange authorization code and delegate tenant affiliation validation to KeycloakAuthHelper")
-    void shouldExchangeCodeAndValidateTenantAffiliationViaHelper() {
+    @DisplayName("Should exchange authorization code and validate tenant affiliation successfully when tenant is active")
+    void shouldExchangeCodeAndValidateActiveTenantSuccessfully() {
+        CentralTenant tenant = CentralTenant.builder()
+                .tenantCode("shop-b")
+                .status(TenantStatus.ACTIVE)
+                .build();
+
         AuthTokenResponse mockResponse = AuthTokenResponse.builder()
                 .accessToken("mock-access-token")
                 .tenantCode("shop-b")
@@ -237,6 +242,8 @@ class TenantAuthServiceTest {
         when(keycloakAuthHelper.getDefaultRedirectUri()).thenReturn("http://localhost:3000/auth/callback");
         when(keycloakTokenService.exchangeAuthorizationCode("auth-code-123", "http://localhost:3000/auth/callback"))
                 .thenReturn(mockResponse);
+        when(centralTenantRepository.findByTenantCodeIgnoreCaseAndIsDeletedFalse("shop-b"))
+                .thenReturn(Optional.of(tenant));
 
         TokenExchangeRequest request = TokenExchangeRequest.builder()
                 .code("auth-code-123")
@@ -246,12 +253,76 @@ class TenantAuthServiceTest {
 
         assertThat(result).isNotNull();
         assertThat(result.getAccessToken()).isEqualTo("mock-access-token");
-        verify(keycloakAuthHelper).validateTenantAffiliationIfPresent(mockResponse);
+        verify(centralTenantRepository).findByTenantCodeIgnoreCaseAndIsDeletedFalse("shop-b");
     }
 
     @Test
-    @DisplayName("Should refresh access token and delegate tenant affiliation validation to KeycloakAuthHelper")
-    void shouldRefreshTokenAndValidateTenantAffiliationViaHelper() {
+    @DisplayName("Should throw TENANT_NOT_FOUND when exchanging code for non-existent tenant facility")
+    void shouldThrowTenantNotFoundWhenExchangingCodeForUnknownTenant() {
+        AuthTokenResponse mockResponse = AuthTokenResponse.builder()
+                .accessToken("mock-access-token")
+                .tenantCode("ghost-shop")
+                .build();
+
+        when(keycloakAuthHelper.getDefaultRedirectUri()).thenReturn("http://localhost:3000/auth/callback");
+        when(keycloakTokenService.exchangeAuthorizationCode("auth-code-123", "http://localhost:3000/auth/callback"))
+                .thenReturn(mockResponse);
+        when(centralTenantRepository.findByTenantCodeIgnoreCaseAndIsDeletedFalse("ghost-shop"))
+                .thenReturn(Optional.empty());
+
+        TokenExchangeRequest request = TokenExchangeRequest.builder()
+                .code("auth-code-123")
+                .build();
+
+        assertThatThrownBy(() -> service.exchangeAuthorizationCode(request))
+                .isInstanceOf(AuthException.class)
+                .satisfies(ex -> {
+                    AuthException authEx = (AuthException) ex;
+                    assertThat(authEx.getCode()).isEqualTo(AuthErrorCode.TENANT_NOT_FOUND.code());
+                    assertThat(authEx.getMessage()).contains("Tenant facility not found: ghost-shop");
+                });
+    }
+
+    @Test
+    @DisplayName("Should throw TENANT_INACTIVE when exchanging code for inactive tenant facility")
+    void shouldThrowTenantInactiveWhenExchangingCodeForInactiveTenant() {
+        CentralTenant tenant = CentralTenant.builder()
+                .tenantCode("blocked-shop")
+                .status(TenantStatus.BLOCKED)
+                .build();
+
+        AuthTokenResponse mockResponse = AuthTokenResponse.builder()
+                .accessToken("mock-access-token")
+                .tenantCode("blocked-shop")
+                .build();
+
+        when(keycloakAuthHelper.getDefaultRedirectUri()).thenReturn("http://localhost:3000/auth/callback");
+        when(keycloakTokenService.exchangeAuthorizationCode("auth-code-123", "http://localhost:3000/auth/callback"))
+                .thenReturn(mockResponse);
+        when(centralTenantRepository.findByTenantCodeIgnoreCaseAndIsDeletedFalse("blocked-shop"))
+                .thenReturn(Optional.of(tenant));
+
+        TokenExchangeRequest request = TokenExchangeRequest.builder()
+                .code("auth-code-123")
+                .build();
+
+        assertThatThrownBy(() -> service.exchangeAuthorizationCode(request))
+                .isInstanceOf(AuthException.class)
+                .satisfies(ex -> {
+                    AuthException authEx = (AuthException) ex;
+                    assertThat(authEx.getCode()).isEqualTo(AuthErrorCode.TENANT_INACTIVE.code());
+                    assertThat(authEx.getMessage()).contains("Tenant facility is not active. Status: BLOCKED");
+                });
+    }
+
+    @Test
+    @DisplayName("Should refresh access token and validate tenant affiliation successfully")
+    void shouldRefreshTokenAndValidateActiveTenantSuccessfully() {
+        CentralTenant tenant = CentralTenant.builder()
+                .tenantCode("shop-b")
+                .status(TenantStatus.ACTIVE)
+                .build();
+
         AuthTokenResponse mockResponse = AuthTokenResponse.builder()
                 .accessToken("mock-refreshed-token")
                 .tenantCode("shop-b")
@@ -259,6 +330,8 @@ class TenantAuthServiceTest {
 
         when(keycloakTokenService.refreshAccessToken("refresh-token-xyz"))
                 .thenReturn(mockResponse);
+        when(centralTenantRepository.findByTenantCodeIgnoreCaseAndIsDeletedFalse("shop-b"))
+                .thenReturn(Optional.of(tenant));
 
         RefreshTokenRequest request = RefreshTokenRequest.builder()
                 .refreshToken("refresh-token-xyz")
@@ -268,6 +341,28 @@ class TenantAuthServiceTest {
 
         assertThat(result).isNotNull();
         assertThat(result.getAccessToken()).isEqualTo("mock-refreshed-token");
-        verify(keycloakAuthHelper).validateTenantAffiliationIfPresent(mockResponse);
+        verify(centralTenantRepository).findByTenantCodeIgnoreCaseAndIsDeletedFalse("shop-b");
+    }
+
+    @Test
+    @DisplayName("Should skip tenant lookup when token response does not contain tenantCode (e.g. Super Admin)")
+    void shouldSkipTenantLookupWhenResponseHasNoTenantCode() {
+        AuthTokenResponse mockResponse = AuthTokenResponse.builder()
+                .accessToken("mock-superadmin-token")
+                .tenantCode(null)
+                .build();
+
+        when(keycloakAuthHelper.getDefaultRedirectUri()).thenReturn("http://localhost:3000/auth/callback");
+        when(keycloakTokenService.exchangeAuthorizationCode("code-sa", "http://localhost:3000/auth/callback"))
+                .thenReturn(mockResponse);
+
+        TokenExchangeRequest request = TokenExchangeRequest.builder()
+                .code("code-sa")
+                .build();
+
+        AuthTokenResponse result = service.exchangeAuthorizationCode(request);
+
+        assertThat(result).isNotNull();
+        verifyNoInteractions(centralTenantRepository);
     }
 }

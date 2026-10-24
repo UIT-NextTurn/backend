@@ -140,18 +140,37 @@ public class SecurityContextHelper {
             return jwt.getClaimAsString("tenant");
         }
 
-        // Support Keycloak organization claim (string or map)
+        // Support Keycloak organization claim (string, collection, or map)
         Object orgClaim = jwt.getClaim("organization");
         if (orgClaim instanceof String orgStr && !orgStr.isBlank()) {
             return orgStr;
+        } else if (orgClaim instanceof java.util.Collection<?> orgList && !orgList.isEmpty()) {
+            Object first = orgList.iterator().next();
+            if (first instanceof String firstStr && !firstStr.isBlank()) {
+                return firstStr;
+            } else if (first instanceof Map<?, ?> firstMap) {
+                Object id = firstMap.get("id");
+                if (id != null) return id.toString();
+                Object alias = firstMap.get("alias");
+                if (alias != null) return alias.toString();
+                Object name = firstMap.get("name");
+                if (name != null) return name.toString();
+            }
         } else if (orgClaim instanceof Map<?, ?> orgMap) {
             Object id = orgMap.get("id");
             if (id != null) {
                 return id.toString();
             }
+            Object alias = orgMap.get("alias");
+            if (alias != null) {
+                return alias.toString();
+            }
             Object name = orgMap.get("name");
             if (name != null) {
                 return name.toString();
+            }
+            if (!orgMap.isEmpty()) {
+                return orgMap.keySet().iterator().next().toString();
             }
         }
         return null;

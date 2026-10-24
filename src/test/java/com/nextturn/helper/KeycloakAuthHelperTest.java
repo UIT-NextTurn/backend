@@ -17,6 +17,7 @@ class KeycloakAuthHelperTest {
     void setUp() {
         KeycloakProperties properties = new KeycloakProperties(
                 "nextturn-backend",
+                "",
                 "nextturn",
                 "http://localhost:8180",
                 "http://localhost:8180/realms/nextturn",
@@ -41,7 +42,7 @@ class KeycloakAuthHelperTest {
                 .startsWith("http://localhost:8180/realms/nextturn/protocol/openid-connect/auth?")
                 .contains("client_id=nextturn-backend")
                 .contains("response_type=code")
-                .contains("scope=openid%20profile%20email%20organization")
+                .contains("scope=openid%20organization")
                 .contains("redirect_uri=http://localhost:3000/auth/callback")
                 .contains("tenant_code=clinic_sai_gon")
                 .contains("organization=kc-org-999");
@@ -70,6 +71,7 @@ class KeycloakAuthHelperTest {
     void shouldBuildLoginUrlWithCustomWebDomainRedirectUri() {
         KeycloakProperties properties = new KeycloakProperties(
                 "nextturn-backend",
+                "",
                 "nextturn",
                 "https://auth.example.com",
                 "https://auth.example.com/realms/nextturn",
@@ -81,5 +83,20 @@ class KeycloakAuthHelperTest {
         assertThat(url)
                 .startsWith("https://auth.example.com/realms/nextturn/protocol/openid-connect/auth?")
                 .contains("redirect_uri=https://myclinic.example.com/auth/callback");
+    }
+
+    @Test
+    @DisplayName("Should build Super Admin login URL without tenant or organization query parameters")
+    void shouldBuildSuperAdminLoginUrl() {
+        String url = helper.buildSuperAdminLoginUrl();
+
+        assertThat(url)
+                .startsWith("http://localhost:8180/realms/nextturn/protocol/openid-connect/auth?")
+                .contains("client_id=nextturn-backend")
+                .contains("response_type=code")
+                .contains("scope=openid")
+                .contains("redirect_uri=http://localhost:3000/auth/callback")
+                .doesNotContain("tenant_code=")
+                .doesNotContain("organization=");
     }
 }

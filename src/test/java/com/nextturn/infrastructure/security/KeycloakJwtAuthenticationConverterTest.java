@@ -34,6 +34,7 @@ class KeycloakJwtAuthenticationConverterTest {
     void setUp() {
         KeycloakProperties properties = new KeycloakProperties(
                 "nextturn-backend",
+                "",
                 "nextturn",
                 "http://localhost:8180",
                 "http://localhost:8180/realms/nextturn",

@@ -25,6 +25,7 @@ public class SecurityService {
 
     private final SecurityContextHelper securityContextHelper;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public SecurityService(SecurityContextHelper securityContextHelper) {
         this.securityContextHelper = securityContextHelper;
     }

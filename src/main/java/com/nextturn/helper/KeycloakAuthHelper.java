@@ -8,8 +8,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.util.UriComponentsBuilder;
 
 /**
- * Helper component for generating Keycloak and OIDC authentication URLs.
- * Encapsulates URL formatting and query parameter composition for login flows.
+ * Stateless helper component for generating Keycloak and OIDC authentication URLs.
+ * Encapsulates URL formatting and query parameter composition to support the service layer.
+ * <p>
+ * This helper contains no persistence or database repository dependencies.
  */
 @Component
 public class KeycloakAuthHelper {

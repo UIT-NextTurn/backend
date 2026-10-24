@@ -149,7 +149,7 @@ public class TenantAuthService {
                 : keycloakAuthHelper.getDefaultRedirectUri();
 
         AuthTokenResponse response = keycloakTokenService.exchangeAuthorizationCode(request.getCode().trim(), redirectUri);
-        keycloakAuthHelper.validateTenantAffiliationIfPresent(response);
+        validateTenantAffiliationIfPresent(response);
         return response;
     }
 
@@ -168,7 +168,21 @@ public class TenantAuthService {
         }
 
         AuthTokenResponse response = keycloakTokenService.refreshAccessToken(request.getRefreshToken().trim());
-        keycloakAuthHelper.validateTenantAffiliationIfPresent(response);
+        validateTenantAffiliationIfPresent(response);
         return response;
+    }
+
+    private void validateTenantAffiliationIfPresent(AuthTokenResponse response) {
+        if (response != null && response.getTenantCode() != null && !response.getTenantCode().isBlank()) {
+            validateTenantCode(response.getTenantCode());
+        }
+    }
+
+    private void validateTenantCode(String tenantCode) {
+        CentralTenant tenant = centralTenantRepository.findByTenantCodeIgnoreCaseAndIsDeletedFalse(tenantCode)
+                .orElseThrow(() -> new AuthException(AuthErrorCode.TENANT_NOT_FOUND, "Tenant facility not found: " + tenantCode));
+        if (tenant.getStatus() != TenantStatus.ACTIVE) {
+            throw new AuthException(AuthErrorCode.TENANT_INACTIVE, "Tenant facility is not active. Status: " + tenant.getStatus());
+        }
     }
 }
