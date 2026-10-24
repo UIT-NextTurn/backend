@@ -32,12 +32,13 @@ public class KeycloakJwtGrantedAuthoritiesConverter implements Converter<Jwt, Co
     private final JwtGrantedAuthoritiesConverter defaultScopesConverter = new JwtGrantedAuthoritiesConverter();
     private final KeycloakProperties keycloakProperties;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public KeycloakJwtGrantedAuthoritiesConverter(KeycloakProperties keycloakProperties) {
         this.keycloakProperties = keycloakProperties;
     }
 
     public KeycloakJwtGrantedAuthoritiesConverter() {
-        this(new KeycloakProperties("nextturn-backend", "nextturn", "http://localhost:8180", null, null));
+        this(new KeycloakProperties("nextturn-backend", "", "nextturn", "http://localhost:8180", null, null));
     }
 
     @Override

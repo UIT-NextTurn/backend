@@ -16,6 +16,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.nextturn.dto.AuthTokenResponse;
+import com.nextturn.dto.RefreshTokenRequest;
+import com.nextturn.dto.TokenExchangeRequest;
+import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
+
 import java.util.List;
 
 /**
@@ -34,15 +39,24 @@ public class TenantAuthService {
             UserRole.COUNTER_STAFF_VALUE
     );
 
+    public static final List<String> MANAGEMENT_ALLOWED_ROLES = List.of(
+            UserRole.SUPERADMIN_VALUE,
+            UserRole.TENANT_ADMIN_VALUE,
+            UserRole.COUNTER_STAFF_VALUE
+    );
+
     private final CentralTenantRepository centralTenantRepository;
     private final KeycloakAuthHelper keycloakAuthHelper;
+    private final KeycloakTokenService keycloakTokenService;
 
     public TenantAuthService(
             CentralTenantRepository centralTenantRepository,
-            KeycloakAuthHelper keycloakAuthHelper
+            KeycloakAuthHelper keycloakAuthHelper,
+            KeycloakTokenService keycloakTokenService
     ) {
         this.centralTenantRepository = centralTenantRepository;
         this.keycloakAuthHelper = keycloakAuthHelper;
+        this.keycloakTokenService = keycloakTokenService;
     }
 
     /**
@@ -96,5 +110,65 @@ public class TenantAuthService {
      */
     public String buildStaffLoginUrl(CentralTenant tenant) {
         return keycloakAuthHelper.buildStaffLoginUrl(tenant);
+    }
+
+    /**
+     * Resolves Super Admin login routing without tenant restriction.
+     *
+     * @return {@link TenantAuthResponse} pre-configured for Super Admin login
+     */
+    public TenantAuthResponse resolveSuperAdminLogin() {
+        String loginUrl = keycloakAuthHelper.buildSuperAdminLoginUrl();
+        return TenantAuthResponse.builder()
+                .tenantId(null)
+                .tenantCode(null)
+                .tenantName("NextTurn Global Platform")
+                .status("ACTIVE")
+                .loginUrl(loginUrl)
+                .allowedRoles(List.of(UserRole.SUPERADMIN_VALUE))
+                .build();
+    }
+
+    /**
+     * Exchanges OAuth2 authorization code with Keycloak, validates tenant status,
+     * and strictly rejects END_USER roles.
+     *
+     * @param request code and optional redirectUri
+     * @return {@link AuthTokenResponse} with tokens, verified roles, and routing targets
+     */
+    public AuthTokenResponse exchangeAuthorizationCode(TokenExchangeRequest request) {
+        if (keycloakTokenService == null) {
+            throw new AuthException(AuthErrorCode.KEYCLOAK_UNAVAILABLE, "Token service is not configured");
+        }
+        if (request == null || request.getCode() == null || request.getCode().isBlank()) {
+            throw new AuthException(AuthErrorCode.INVALID_TOKEN, "Authorization code must not be blank");
+        }
+
+        String redirectUri = (request.getRedirectUri() != null && !request.getRedirectUri().isBlank())
+                ? request.getRedirectUri().trim()
+                : keycloakAuthHelper.getDefaultRedirectUri();
+
+        AuthTokenResponse response = keycloakTokenService.exchangeAuthorizationCode(request.getCode().trim(), redirectUri);
+        keycloakAuthHelper.validateTenantAffiliationIfPresent(response);
+        return response;
+    }
+
+    /**
+     * Refreshes access tokens via Keycloak.
+     *
+     * @param request refresh token payload
+     * @return {@link AuthTokenResponse} with fresh tokens
+     */
+    public AuthTokenResponse refreshAccessToken(RefreshTokenRequest request) {
+        if (keycloakTokenService == null) {
+            throw new AuthException(AuthErrorCode.KEYCLOAK_UNAVAILABLE, "Token service is not configured");
+        }
+        if (request == null || request.getRefreshToken() == null || request.getRefreshToken().isBlank()) {
+            throw new AuthException(AuthErrorCode.INVALID_TOKEN, "Refresh token must not be blank");
+        }
+
+        AuthTokenResponse response = keycloakTokenService.refreshAccessToken(request.getRefreshToken().trim());
+        keycloakAuthHelper.validateTenantAffiliationIfPresent(response);
+        return response;
     }
 }

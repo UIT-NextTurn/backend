@@ -1,12 +1,16 @@
 package com.nextturn.service;
 
+import com.nextturn.dto.AuthTokenResponse;
+import com.nextturn.dto.RefreshTokenRequest;
 import com.nextturn.dto.TenantAuthRequest;
 import com.nextturn.dto.TenantAuthResponse;
+import com.nextturn.dto.TokenExchangeRequest;
 import com.nextturn.entity.CentralTenant;
 import com.nextturn.enums.TenantStatus;
 import com.nextturn.exception.auth.AuthErrorCode;
 import com.nextturn.exception.auth.AuthException;
 import com.nextturn.helper.KeycloakAuthHelper;
+import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
 import com.nextturn.repository.CentralTenantRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,6 +49,9 @@ class TenantAuthServiceTest {
 
     @Mock
     private KeycloakAuthHelper keycloakAuthHelper;
+
+    @Mock
+    private KeycloakTokenService keycloakTokenService;
 
     @InjectMocks
     private TenantAuthService service;
@@ -217,5 +224,50 @@ class TenantAuthServiceTest {
 
         assertThat(loginUrl).isEqualTo("https://auth.nextturn.com/login/hospital_hn");
         verify(keycloakAuthHelper).buildStaffLoginUrl(tenant);
+    }
+
+    @Test
+    @DisplayName("Should exchange authorization code and delegate tenant affiliation validation to KeycloakAuthHelper")
+    void shouldExchangeCodeAndValidateTenantAffiliationViaHelper() {
+        AuthTokenResponse mockResponse = AuthTokenResponse.builder()
+                .accessToken("mock-access-token")
+                .tenantCode("shop-b")
+                .build();
+
+        when(keycloakAuthHelper.getDefaultRedirectUri()).thenReturn("http://localhost:3000/auth/callback");
+        when(keycloakTokenService.exchangeAuthorizationCode("auth-code-123", "http://localhost:3000/auth/callback"))
+                .thenReturn(mockResponse);
+
+        TokenExchangeRequest request = TokenExchangeRequest.builder()
+                .code("auth-code-123")
+                .build();
+
+        AuthTokenResponse result = service.exchangeAuthorizationCode(request);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getAccessToken()).isEqualTo("mock-access-token");
+        verify(keycloakAuthHelper).validateTenantAffiliationIfPresent(mockResponse);
+    }
+
+    @Test
+    @DisplayName("Should refresh access token and delegate tenant affiliation validation to KeycloakAuthHelper")
+    void shouldRefreshTokenAndValidateTenantAffiliationViaHelper() {
+        AuthTokenResponse mockResponse = AuthTokenResponse.builder()
+                .accessToken("mock-refreshed-token")
+                .tenantCode("shop-b")
+                .build();
+
+        when(keycloakTokenService.refreshAccessToken("refresh-token-xyz"))
+                .thenReturn(mockResponse);
+
+        RefreshTokenRequest request = RefreshTokenRequest.builder()
+                .refreshToken("refresh-token-xyz")
+                .build();
+
+        AuthTokenResponse result = service.refreshAccessToken(request);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getAccessToken()).isEqualTo("mock-refreshed-token");
+        verify(keycloakAuthHelper).validateTenantAffiliationIfPresent(mockResponse);
     }
 }

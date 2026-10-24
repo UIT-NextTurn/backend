@@ -1,5 +1,6 @@
 package com.nextturn.controller;
 
+import com.nextturn.dto.AuthTokenResponse;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.TenantAuthRequest;
 import com.nextturn.dto.TenantAuthResponse;
@@ -117,5 +118,81 @@ public class TenantAuthController {
                 .build();
         TenantAuthResponse response = tenantAuthService.authenticateTenant(request);
         return ResponseEntity.ok(BaseResponse.ok("Tenant facility recognized successfully", response));
+    }
+
+    /**
+     * GET endpoint providing Keycloak OIDC authorization URL for Super Admin platform login.
+     *
+     * @return standard {@link BaseResponse} wrapping {@link TenantAuthResponse} for Super Admin
+     */
+    @GetMapping("/superadmin/login-url")
+    @Operation(
+            summary = "Get Superadmin Keycloak login redirect URL (GET)",
+            description = "Constructs pre-configured Keycloak OIDC authorization URL for platform-wide Super Admin login."
+    )
+    public ResponseEntity<BaseResponse<TenantAuthResponse>> getSuperAdminLoginUrl() {
+        TenantAuthResponse response = tenantAuthService.resolveSuperAdminLogin();
+        return ResponseEntity.ok(BaseResponse.ok("Super Admin login route generated successfully", response));
+    }
+
+    /**
+     * POST endpoint exchanging Keycloak authorization code for JWT tokens.
+     * Allows SUPERADMIN, TENANT_ADMIN, and COUNTER_STAFF; strictly rejects END_USER.
+     *
+     * @param request code and optional redirectUri
+     * @return standard {@link BaseResponse} wrapping {@link AuthTokenResponse}
+     */
+    @PostMapping("/token")
+    @Operation(
+            summary = "Exchange OAuth2 authorization code for JWT tokens (POST)",
+            description = "Exchanges Keycloak code for access/refresh tokens. Validates client roles (SUPERADMIN, TENANT_ADMIN, COUNTER_STAFF) and rejects END_USER."
+    )
+    public ResponseEntity<BaseResponse<AuthTokenResponse>> exchangeToken(
+            @Valid @RequestBody com.nextturn.dto.TokenExchangeRequest request
+    ) {
+        AuthTokenResponse response = tenantAuthService.exchangeAuthorizationCode(request);
+        return ResponseEntity.ok(BaseResponse.ok("Authentication completed successfully", response));
+    }
+
+
+    /**
+     * POST endpoint refreshing expired access tokens using a valid refresh token.
+     *
+     * @param request refresh token payload
+     * @return standard {@link BaseResponse} wrapping {@link AuthTokenResponse}
+     */
+    @PostMapping("/refresh")
+    @Operation(
+            summary = "Refresh expired access token (POST)",
+            description = "Renews access tokens using an active Keycloak refresh token."
+    )
+    public ResponseEntity<BaseResponse<AuthTokenResponse>> refreshToken(
+            @Valid @RequestBody com.nextturn.dto.RefreshTokenRequest request
+    ) {
+        AuthTokenResponse response = tenantAuthService.refreshAccessToken(request);
+        return ResponseEntity.ok(BaseResponse.ok("Token refreshed successfully", response));
+    }
+
+    /**
+     * GET endpoint returning currently authenticated user profile and roles.
+     *
+     * @param user injected authenticated user principal
+     * @return standard {@link BaseResponse} wrapping {@link com.nextturn.infrastructure.security.principal.AuthenticatedUser}
+     */
+    @GetMapping("/me")
+    @Operation(
+            summary = "Get currently authenticated user principal details (GET)",
+            description = "Returns active user information, roles, and tenant context extracted from JWT Bearer token."
+    )
+    public ResponseEntity<BaseResponse<com.nextturn.infrastructure.security.principal.AuthenticatedUser>> getCurrentUser(
+            @com.nextturn.infrastructure.security.annotation.CurrentUser com.nextturn.infrastructure.security.principal.AuthenticatedUser user
+    ) {
+        if (user == null) {
+            throw new com.nextturn.exception.auth.AuthException(
+                    com.nextturn.exception.auth.AuthErrorCode.INVALID_TOKEN,
+                    "No authenticated user found in security context"
+            );
+        }
+        return ResponseEntity.ok(BaseResponse.ok("Current user profile retrieved successfully", user));
     }
 }

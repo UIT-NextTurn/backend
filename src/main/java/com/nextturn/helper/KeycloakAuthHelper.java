@@ -53,14 +53,12 @@ public class KeycloakAuthHelper {
      * @return absolute Keycloak OIDC authorization URL
      */
     public String buildStaffLoginUrl(String tenantCode, String organisationId) {
-        String authEndpoint = String.format("%s/realms/%s/protocol/openid-connect/auth",
-                keycloakProperties.authServerUrl(),
-                keycloakProperties.realm());
+        String authEndpoint = keycloakProperties.authEndpoint();
 
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(authEndpoint)
                 .queryParam("client_id", keycloakProperties.clientId())
                 .queryParam("response_type", "code")
-                .queryParam("scope", "openid profile email organization")
+                .queryParam("scope", "openid organization")
                 .queryParam("redirect_uri", defaultRedirectUri);
 
         if (tenantCode != null && !tenantCode.isBlank()) {
@@ -73,5 +71,30 @@ public class KeycloakAuthHelper {
         }
 
         return builder.toUriString();
+    }
+
+    /**
+     * Constructs the Keycloak authorization URL for platform-wide Super Admin login.
+     * Does not attach any tenant-specific or organization-specific query parameters.
+     *
+     * @return absolute Keycloak OIDC authorization URL for Super Admin
+     */
+    public String buildSuperAdminLoginUrl() {
+        String authEndpoint = keycloakProperties.authEndpoint();
+
+        return UriComponentsBuilder.fromUriString(authEndpoint)
+                .queryParam("client_id", keycloakProperties.clientId())
+                .queryParam("response_type", "code")
+                .queryParam("scope", "openid")
+                .queryParam("redirect_uri", defaultRedirectUri)
+                .toUriString();
+    }
+
+    public String getDefaultRedirectUri() {
+        return defaultRedirectUri;
+    }
+
+    public KeycloakProperties getKeycloakProperties() {
+        return keycloakProperties;
     }
 }
