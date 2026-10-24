@@ -2,7 +2,7 @@
 
 ## WHY
 
-NextTurn is a multi-tenant platform engineered for online appointment scheduling, digital ticketing, and real-time virtual queue orchestration. This backend provides resilient REST APIs and real-time event distribution across service counters, clinics, and guest tracking views.
+NextTurn is a multi-tenant platform engineered for online appointment scheduling, digital ticketing, and real-time virtual queue orchestration. Multi-tenancy is handled via embeddable widgets, not subdomains. This backend provides resilient REST APIs and real-time event distribution across service counters, clinics, and guest tracking views.
 
 ## Tech Stack
 

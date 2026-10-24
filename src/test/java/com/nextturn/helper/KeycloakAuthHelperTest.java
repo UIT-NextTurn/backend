@@ -64,4 +64,22 @@ class KeycloakAuthHelperTest {
         String url = helper.buildStaffLoginUrl(null);
         assertThat(url).isNull();
     }
+
+    @Test
+    @DisplayName("Should build login URL with custom web domain redirect URI from configuration")
+    void shouldBuildLoginUrlWithCustomWebDomainRedirectUri() {
+        KeycloakProperties properties = new KeycloakProperties(
+                "nextturn-backend",
+                "nextturn",
+                "https://auth.example.com",
+                "https://auth.example.com/realms/nextturn",
+                "https://auth.example.com/realms/nextturn/protocol/openid-connect/certs"
+        );
+        KeycloakAuthHelper customHelper = new KeycloakAuthHelper(properties, "https://myclinic.example.com/auth/callback");
+        String url = customHelper.buildStaffLoginUrl("clinic_01", null);
+
+        assertThat(url)
+                .startsWith("https://auth.example.com/realms/nextturn/protocol/openid-connect/auth?")
+                .contains("redirect_uri=https://myclinic.example.com/auth/callback");
+    }
 }

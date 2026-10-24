@@ -102,10 +102,7 @@ jobs:
             CENTRAL_MIGRATIONS_DIR="${DEPLOY_DIR}/migrations/central"
 
             # Locate .env configuration file
-            ENV_FILE="${DEPLOY_DIR}/.env"
-            if [ ! -f "$ENV_FILE" ] && [ -f "${DEPLOY_DIR}/backend/.env" ]; then
-              ENV_FILE="${DEPLOY_DIR}/backend/.env"
-            fi
+            ENV_FILE="${DEPLOY_DIR}/backend/.env"
 
             if [ ! -f "$ENV_FILE" ]; then
               echo "::error::Configuration file not found at ${ENV_FILE}. Cannot determine database connection details."

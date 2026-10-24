@@ -43,7 +43,7 @@ spring:
   # Flyway Database Migration Configuration
   # -------------------------------------------------------------------
   flyway:
-    enabled: ${SPRING_FLYWAY_ENABLED:true}
+    enabled: ${SPRING_FLYWAY_ENABLED:false}
     locations: ${SPRING_FLYWAY_LOCATIONS:classpath:db/migration/central}
     baseline-on-migrate: true
 
@@ -66,6 +66,13 @@ keycloak:
   auth-server-url: ${KEYCLOAK_AUTH_SERVER_URL:http://localhost:8180}
   issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/nextturn}
   jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/nextturn/protocol/openid-connect/certs}
+
+# -------------------------------------------------------------------
+# Application Authentication & Frontend Redirect Configuration
+# -------------------------------------------------------------------
+app:
+  auth:
+    default-redirect-uri: ${AUTH_DEFAULT_REDIRECT_URI:${APP_AUTH_DEFAULT_REDIRECT_URI:http://localhost:3000/auth/callback}}
 
 
 # -------------------------------------------------------------------
