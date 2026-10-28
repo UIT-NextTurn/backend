@@ -645,7 +645,7 @@ public class KeycloakTokenService {
         String adminToken = getServiceAccountToken();
         if (adminToken == null || adminToken.startsWith("mock-")) {
             log.debug("Mock environment: returning mock staff user ID for [{}]", email);
-            return "mock-staff-" + java.util.UUID.randomUUID();
+            return java.util.UUID.randomUUID().toString();
         }
 
         String adminUsersUrl = properties.adminUsersEndpoint();

@@ -79,4 +79,21 @@ public class OpenApiConfig {
                                 .bearerFormat("JWT")
                                 .description("Keycloak OIDC JWT Access Token with `ROLE_*` authority claims")));
     }
+
+    /**
+     * Operation customizer ensuring Swagger UI renders an optional 'X-Tenant-Code' header input field
+     * on every endpoint, allowing manual tenant facility routing override during testing.
+     */
+    @Bean
+    public org.springdoc.core.customizers.OperationCustomizer customizeTenantHeader() {
+        return (operation, handlerMethod) -> {
+            operation.addParametersItem(new io.swagger.v3.oas.models.parameters.Parameter()
+                    .in("header")
+                    .name("X-Tenant-Code")
+                    .description("Optional Tenant facility code (e.g. shop-b, spa-a). If omitted, automatically resolved from JWT claim 'tenant_code' or authenticated email.")
+                    .required(false)
+                    .schema(new io.swagger.v3.oas.models.media.StringSchema().example("shop-b")));
+            return operation;
+        };
+    }
 }

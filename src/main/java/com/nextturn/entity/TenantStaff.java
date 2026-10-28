@@ -50,7 +50,7 @@ public class TenantStaff {
     @Column(name = "staff_code", length = 30, nullable = false, unique = true)
     private String staffCode;
 
-    @Column(name = "keycloak_user_id", length = 36)
+    @Column(name = "keycloak_user_id", length = 64)
     private String keycloakUserId;
 
     @Column(name = "full_name", length = 150, nullable = false)

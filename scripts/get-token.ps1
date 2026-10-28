@@ -191,6 +191,32 @@ function Ensure-UserAndRole() {
             "Content-Type" = "application/json"
         }
 
+        # 4.1.1 Ensure Keycloak User Profile allows tenant_code attribute
+        try {
+            $profile = Invoke-RestMethod -Uri "$ServerUrl/admin/realms/$Realm/users/profile" -Method Get -Headers $headers -ErrorAction SilentlyContinue
+            if ($profile) {
+                $hasTenantAttr = $false
+                foreach ($a in $profile.attributes) {
+                    if ($a.name -eq "tenant_code") { $hasTenantAttr = $true; break }
+                }
+                if (-not $hasTenantAttr) {
+                    $tenantAttr = @{
+                        name = "tenant_code"
+                        displayName = "Tenant Code"
+                        permissions = @{
+                            view = @("admin", "user")
+                            edit = @("admin")
+                        }
+                        multivalued = $false
+                    }
+                    $profile | Add-Member -MemberType NoteProperty -Name "unmanagedAttributePolicy" -Value "ENABLED" -Force
+                    $profile.attributes = @($profile.attributes) + $tenantAttr
+                    $profileJson = $profile | ConvertTo-Json -Depth 10
+                    Invoke-RestMethod -Uri "$ServerUrl/admin/realms/$Realm/users/profile" -Method Put -Headers $headers -Body $profileJson -ErrorAction SilentlyContinue | Out-Null
+                }
+            }
+        } catch {}
+
         # 4.2 Ensure Client has Direct Access Grants Enabled
         $clientsUri = "$ServerUrl/admin/realms/$Realm/clients?clientId=$ClientId"
         $clientList = Invoke-RestMethod -Uri $clientsUri -Method Get -Headers $headers -ErrorAction SilentlyContinue
@@ -203,6 +229,38 @@ function Ensure-UserAndRole() {
                 Invoke-RestMethod -Uri "$ServerUrl/admin/realms/$Realm/clients/$clientUuid" -Method Put -Headers $headers -Body $updatePayload -ErrorAction SilentlyContinue | Out-Null
             }
 
+            # 4.2.1 Ensure Protocol Mapper for tenant_code exists on client
+            $mappersUri = "$ServerUrl/admin/realms/$Realm/clients/$clientUuid/protocol-mappers/models"
+            $existingMappers = Invoke-RestMethod -Uri $mappersUri -Method Get -Headers $headers -ErrorAction SilentlyContinue
+            $hasTenantMapper = $false
+            if ($existingMappers) {
+                foreach ($m in $existingMappers) {
+                    if ($m.name -eq "tenant-code-mapper" -or ($m.config -and $m.config."claim.name" -eq "tenant_code")) {
+                        $hasTenantMapper = $true
+                        break
+                    }
+                }
+            }
+            if (-not $hasTenantMapper) {
+                $mapperPayload = @{
+                    name           = "tenant-code-mapper"
+                    protocol       = "openid-connect"
+                    protocolMapper = "oidc-usermodel-attribute-mapper"
+                    consentRequired = $false
+                    config         = @{
+                        "user.attribute"         = "tenant_code"
+                        "claim.name"             = "tenant_code"
+                        "jsonType.label"         = "String"
+                        "id.token.claim"         = "true"
+                        "access.token.claim"     = "true"
+                        "userinfo.token.claim"   = "true"
+                        "multivalued"            = "false"
+                        "aggregate.attrs"        = "false"
+                    }
+                } | ConvertTo-Json -Depth 5
+                Invoke-RestMethod -Uri $mappersUri -Method Post -Headers $headers -Body $mapperPayload -ErrorAction SilentlyContinue | Out-Null
+            }
+
             # 4.3 Search for User
             $usersUri = "$ServerUrl/admin/realms/$Realm/users?email=$([System.Web.HttpUtility]::UrlEncode($Username))&exact=true"
             $userList = Invoke-RestMethod -Uri $usersUri -Method Get -Headers $headers -ErrorAction SilentlyContinue
@@ -210,6 +268,11 @@ function Ensure-UserAndRole() {
             $userUuid = $null
             if ($userList -and $userList.Count -gt 0) {
                 $userUuid = $userList[0].id
+                # Ensure user has tenant_code attribute
+                $existingUser = $userList[0]
+                $existingUser | Add-Member -MemberType NoteProperty -Name "attributes" -Value @{ tenant_code = @($TenantCode) } -Force
+                $userUpdateJson = $existingUser | ConvertTo-Json -Depth 10
+                Invoke-RestMethod -Uri "$ServerUrl/admin/realms/$Realm/users/$userUuid" -Method Put -Headers $headers -Body $userUpdateJson -ErrorAction SilentlyContinue | Out-Null
             } else {
                 # Create user
                 $newUser = @{

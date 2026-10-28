@@ -26,6 +26,7 @@ import java.time.LocalDateTime;
 @Entity
 @Table(
         name = "central__tenants",
+        catalog = "nextturn_master",
         uniqueConstraints = {
                 @UniqueConstraint(name = "uk_central__tenants_tenant_code", columnNames = "tenant_code"),
                 @UniqueConstraint(name = "uk_central__tenants_admin_email", columnNames = "admin_email"),

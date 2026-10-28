@@ -40,6 +40,19 @@ public class TenantContextFilter extends OncePerRequestFilter {
     public static final String X_TENANT_CODE_HEADER = TenantHeaderConstant.X_TENANT_CODE_HEADER;
     public static final String X_TENANT_ID_HEADER = TenantHeaderConstant.X_TENANT_ID_HEADER;
 
+    private final com.nextturn.repository.auth.CentralTenantRepository centralTenantRepository;
+
+    public TenantContextFilter(
+            @org.springframework.beans.factory.annotation.Autowired(required = false)
+            com.nextturn.repository.auth.CentralTenantRepository centralTenantRepository
+    ) {
+        this.centralTenantRepository = centralTenantRepository;
+    }
+
+    public TenantContextFilter() {
+        this(null);
+    }
+
     @Override
     protected void doFilterInternal(
             @NonNull HttpServletRequest request,
@@ -68,12 +81,14 @@ public class TenantContextFilter extends OncePerRequestFilter {
     protected String resolveTenantCode(HttpServletRequest request) {
         // 1. Extract from active SecurityContext authentication
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Jwt jwt = null;
         if (authentication instanceof JwtAuthenticationToken jwtAuth) {
-            String tenantFromJwt = extractTenantCodeFromJwt(jwtAuth.getToken());
-            if (tenantFromJwt != null && !tenantFromJwt.isBlank()) {
-                return tenantFromJwt;
-            }
-        } else if (authentication != null && authentication.getPrincipal() instanceof Jwt jwt) {
+            jwt = jwtAuth.getToken();
+        } else if (authentication != null && authentication.getPrincipal() instanceof Jwt principalJwt) {
+            jwt = principalJwt;
+        }
+
+        if (jwt != null) {
             String tenantFromJwt = extractTenantCodeFromJwt(jwt);
             if (tenantFromJwt != null && !tenantFromJwt.isBlank()) {
                 return tenantFromJwt;
@@ -88,6 +103,27 @@ public class TenantContextFilter extends OncePerRequestFilter {
         String headerTenantId = request.getHeader(X_TENANT_ID_HEADER);
         if (headerTenantId != null && !headerTenantId.isBlank()) {
             return headerTenantId.trim();
+        }
+
+        // 3. Fallback to Central Tenant lookup by authenticated user's email
+        if (centralTenantRepository != null && jwt != null && jwt.hasClaim("email")) {
+            String email = jwt.getClaimAsString("email");
+            if (email != null && !email.isBlank()) {
+                String cleanEmail = email.trim();
+                var tenantOpt = centralTenantRepository.findByAdminEmailIgnoreCaseAndIsDeletedFalse(cleanEmail);
+                if (tenantOpt.isPresent()) {
+                    return tenantOpt.get().getTenantCode();
+                }
+
+                // Check domain format e.g. admin@shop-b.internal or counter01@shop-b.internal
+                if (cleanEmail.contains("@") && cleanEmail.endsWith(".internal")) {
+                    String domain = cleanEmail.substring(cleanEmail.indexOf('@') + 1);
+                    String potentialCode = domain.substring(0, domain.indexOf(".internal")).trim();
+                    if (centralTenantRepository.existsByTenantCodeIgnoreCaseAndIsDeletedFalse(potentialCode)) {
+                        return potentialCode;
+                    }
+                }
+            }
         }
 
         return null;
@@ -132,21 +168,42 @@ public class TenantContextFilter extends OncePerRequestFilter {
             }
         }
 
-        // 3. Keycloak organization claim (string or map)
+        // 3. Keycloak organization claim (string, map, or collection)
         Object orgClaim = jwt.getClaim(ORGANIZATION_CLAIM);
         if (orgClaim instanceof String orgStr && !orgStr.isBlank()) {
             return orgStr.trim();
-        } else if (orgClaim instanceof Map<?, ?> orgMap) {
-            Object id = orgMap.get("id");
-            if (id != null && !id.toString().isBlank()) {
-                return id.toString().trim();
+        } else if (orgClaim instanceof java.util.Collection<?> orgColl && !orgColl.isEmpty()) {
+            Object first = orgColl.iterator().next();
+            if (first instanceof String firstStr && !firstStr.isBlank()) {
+                return firstStr.trim();
+            } else if (first instanceof Map<?, ?> firstMap) {
+                String parsed = parseOrgMap(firstMap);
+                if (parsed != null) return parsed;
             }
-            Object name = orgMap.get("name");
-            if (name != null && !name.toString().isBlank()) {
-                return name.toString().trim();
+        } else if (orgClaim instanceof Map<?, ?> orgMap) {
+            String parsed = parseOrgMap(orgMap);
+            if (parsed != null) return parsed;
+            if (!orgMap.isEmpty()) {
+                Object firstKey = orgMap.keySet().iterator().next();
+                if (firstKey != null && !firstKey.toString().isBlank()) {
+                    return firstKey.toString().trim();
+                }
             }
         }
 
+        return null;
+    }
+
+    private static String parseOrgMap(Map<?, ?> orgMap) {
+        if (orgMap.containsKey("alias") && orgMap.get("alias") != null) {
+            return orgMap.get("alias").toString().trim();
+        }
+        if (orgMap.containsKey("name") && orgMap.get("name") != null) {
+            return orgMap.get("name").toString().trim();
+        }
+        if (orgMap.containsKey("id") && orgMap.get("id") != null) {
+            return orgMap.get("id").toString().trim();
+        }
         return null;
     }
 }

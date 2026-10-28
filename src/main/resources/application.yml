@@ -57,19 +57,19 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/nextturn}
-          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/nextturn/protocol/openid-connect/certs}
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://ryan-a1:8180/realms/nextturn}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://ryan-a1:8180/realms/nextturn/protocol/openid-connect/certs}
 
 # -------------------------------------------------------------------
 # Keycloak Client Configuration
 # -------------------------------------------------------------------
 keycloak:
   client-id: ${KEYCLOAK_CLIENT_ID:nextturn-backend}
-  client-secret: ${KEYCLOAK_CLIENT_SECRET:}
+  client-secret: ${KEYCLOAK_CLIENT_SECRET:DRR4GTeG8CiVL21NRKwZ7ZndJIqmhxRQl9hPXYb8QaMSIuHSx1BvkEzD44dvcPTLwbsBBNM7XgracB44B2dOS7}
   realm: ${KEYCLOAK_REALM:nextturn}
-  auth-server-url: ${KEYCLOAK_AUTH_SERVER_URL:http://localhost:8180}
-  issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/nextturn}
-  jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/nextturn/protocol/openid-connect/certs}
+  auth-server-url: ${KEYCLOAK_AUTH_SERVER_URL:http://ryan-a1:8180}
+  issuer-uri: ${KEYCLOAK_ISSUER_URI:http://ryan-a1:8180/realms/nextturn}
+  jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://ryan-a1:8180/realms/nextturn/protocol/openid-connect/certs}
 
 # -------------------------------------------------------------------
 # Application Authentication & Frontend Redirect Configuration

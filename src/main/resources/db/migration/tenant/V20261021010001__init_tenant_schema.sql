@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS `tenant__services` (
 CREATE TABLE IF NOT EXISTS `tenant__staffs` (
     `id` CHAR(36) NOT NULL,
     `staff_code` VARCHAR(30) NOT NULL,
-    `keycloak_user_id` CHAR(36) NULL,
+    `keycloak_user_id` VARCHAR(64) NULL,
     `full_name` VARCHAR(150) NOT NULL,
     `email` VARCHAR(255) NOT NULL,
     `phone_number` VARCHAR(20) NOT NULL,
