@@ -1,6 +1,7 @@
 package com.nextturn.service.auth;
 
 import com.nextturn.dto.auth.AuthTokenResponse;
+import com.nextturn.dto.auth.LogoutRequest;
 import com.nextturn.dto.auth.RefreshTokenRequest;
 import com.nextturn.dto.auth.TenantAuthRequest;
 import com.nextturn.dto.auth.TenantAuthResponse;
@@ -11,10 +12,12 @@ import com.nextturn.enums.UserRole;
 import com.nextturn.exception.auth.AuthErrorCode;
 import com.nextturn.exception.auth.AuthException;
 import com.nextturn.helper.KeycloakAuthHelper;
+import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
 import com.nextturn.repository.auth.CentralTenantRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -181,5 +184,22 @@ public class TenantAuthService {
         if (tenant.getStatus() != TenantStatus.ACTIVE) {
             throw new AuthException(AuthErrorCode.TENANT_INACTIVE, "Tenant facility is not active. Status: " + tenant.getStatus());
         }
+    }
+
+    /**
+     * Logs out the user session, revokes refresh token in Keycloak, and clears Security and Tenant contexts.
+     *
+     * @param request    optional {@link LogoutRequest} containing the refresh token
+     * @param authHeader optional Authorization header
+     */
+    public void logout(LogoutRequest request, String authHeader) {
+        if (request != null && request.refreshToken() != null && !request.refreshToken().isBlank()) {
+            if (keycloakTokenService != null) {
+                keycloakTokenService.logout(request.refreshToken());
+            }
+        }
+        SecurityContextHolder.clearContext();
+        TenantContextHolder.clear();
+        log.info("Cleared security context and processed logout request");
     }
 }

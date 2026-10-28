@@ -4,14 +4,17 @@ import com.nextturn.dto.auth.AuthTokenResponse;
 import com.nextturn.dto.auth.CustomerOtpResponse;
 import com.nextturn.dto.auth.CustomerSendOtpRequest;
 import com.nextturn.dto.auth.CustomerVerifyOtpRequest;
+import com.nextturn.dto.auth.LogoutRequest;
 import com.nextturn.entity.CentralUser;
 import com.nextturn.enums.UserStatus;
 import com.nextturn.exception.auth.AuthErrorCode;
 import com.nextturn.exception.auth.AuthException;
+import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
 import com.nextturn.repository.auth.CentralUserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -167,5 +170,21 @@ public class CustomerAuthService {
             }
         }
         return sb.toString().trim();
+    }
+
+    /**
+     * Logs out the customer, revoking the active Keycloak refresh token and clearing SecurityContext.
+     *
+     * @param request optional {@link LogoutRequest} containing the refresh token
+     */
+    public void logout(LogoutRequest request) {
+        if (request != null && request.refreshToken() != null && !request.refreshToken().isBlank()) {
+            if (keycloakTokenService != null) {
+                keycloakTokenService.logout(request.refreshToken());
+            }
+        }
+        SecurityContextHolder.clearContext();
+        TenantContextHolder.clear();
+        log.info("Cleared security context and processed customer logout request");
     }
 }

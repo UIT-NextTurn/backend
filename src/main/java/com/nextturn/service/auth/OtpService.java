@@ -4,6 +4,7 @@ import com.nextturn.constant.ValkeyKeyConstant;
 import com.nextturn.dto.auth.CustomerOtpResponse;
 import com.nextturn.exception.auth.AuthErrorCode;
 import com.nextturn.exception.auth.AuthException;
+import com.nextturn.service.notification.EmailService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +33,7 @@ public class OtpService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final StringRedisTemplate redisTemplate;
+    private final EmailService emailService;
     private final long ttlSeconds;
     private final int maxAttempts;
 
@@ -41,16 +43,22 @@ public class OtpService {
     @Autowired
     public OtpService(
             @Autowired(required = false) StringRedisTemplate redisTemplate,
+            @Autowired(required = false) EmailService emailService,
             @Value("${app.auth.otp.ttl-seconds:300}") long ttlSeconds,
             @Value("${app.auth.otp.max-attempts:5}") int maxAttempts
     ) {
         this.redisTemplate = redisTemplate;
+        this.emailService = emailService != null ? emailService : new EmailService(null, "", "", "no-reply@nextturn.com", "NextTurn");
         this.ttlSeconds = ttlSeconds;
         this.maxAttempts = maxAttempts;
     }
 
+    public OtpService(StringRedisTemplate redisTemplate, long ttlSeconds, int maxAttempts) {
+        this(redisTemplate, null, ttlSeconds, maxAttempts);
+    }
+
     public OtpService(long ttlSeconds, int maxAttempts) {
-        this(null, ttlSeconds, maxAttempts);
+        this(null, null, ttlSeconds, maxAttempts);
     }
 
     /**
@@ -87,11 +95,15 @@ public class OtpService {
             }
         }
 
-        // Delivery mechanism: Logs to console/logger in development environment
-        log.info("================================================================================");
-        log.info("[OTP DISPATCH] Verification code for [{}] is: [{}]", normalizedEmail, otpCode);
-        log.info("               Expires at: {} (in {} seconds)", expiresAt, ttlSeconds);
-        log.info("================================================================================");
+        // Delivery mechanism: Dispatches branded HTML email via SMTP if configured, with console fallback
+        if (emailService != null) {
+            emailService.sendOtpEmail(normalizedEmail, otpCode, ttlSeconds);
+        } else {
+            log.info("================================================================================");
+            log.info("[OTP DISPATCH] Verification code for [{}] is: [{}]", normalizedEmail, otpCode);
+            log.info("               Expires at: {} (in {} seconds)", expiresAt, ttlSeconds);
+            log.info("================================================================================");
+        }
 
         return CustomerOtpResponse.builder()
                 .email(normalizedEmail)

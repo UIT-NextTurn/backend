@@ -6,6 +6,7 @@ import com.nextturn.dto.auth.AuthTokenResponse;
 import com.nextturn.dto.auth.CustomerOtpResponse;
 import com.nextturn.dto.auth.CustomerSendOtpRequest;
 import com.nextturn.dto.auth.CustomerVerifyOtpRequest;
+import com.nextturn.dto.auth.LogoutRequest;
 import com.nextturn.service.auth.CustomerAuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -114,5 +115,30 @@ public class CustomerAuthController {
     ) {
         AuthTokenResponse response = customerAuthService.verifyOtp(request);
         return ResponseEntity.ok(BaseResponse.ok("Customer authenticated successfully", response));
+    }
+
+    /**
+     * Logs out the customer and revokes the active Keycloak refresh token.
+     *
+     * @param request optional {@link LogoutRequest} containing the refresh token
+     * @return standard {@link BaseResponse} confirming logout
+     */
+    @PostMapping(AuthEndpointConstant.LOGOUT)
+    @Operation(
+            summary = "Logout customer and revoke session",
+            description = "Revokes the active customer refresh token in Keycloak IAM and terminates the session."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Logged out successfully",
+                    content = @Content(schema = @Schema(implementation = BaseResponse.class))
+            )
+    })
+    public ResponseEntity<BaseResponse<Void>> logout(
+            @RequestBody(required = false) LogoutRequest request
+    ) {
+        customerAuthService.logout(request);
+        return ResponseEntity.ok(BaseResponse.ok("Logged out successfully"));
     }
 }

@@ -26,6 +26,7 @@ public final class AuthEndpointConstant {
     public static final String TOKEN_EXCHANGE = "/token";
     public static final String TOKEN_EXCHANGE_ALIAS = "/exchange";
     public static final String TOKEN_REFRESH = "/refresh";
+    public static final String LOGOUT = "/logout";
 
     // Tenant Admin auth management endpoints
     public static final String TENANT_ADMIN_STAFF_BASE = "/api/v1/auth/staff";

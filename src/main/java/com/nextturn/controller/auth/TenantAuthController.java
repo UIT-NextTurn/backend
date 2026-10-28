@@ -3,6 +3,7 @@ package com.nextturn.controller.auth;
 import com.nextturn.constant.AuthEndpointConstant;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.auth.AuthTokenResponse;
+import com.nextturn.dto.auth.LogoutRequest;
 import com.nextturn.dto.auth.RefreshTokenRequest;
 import com.nextturn.dto.auth.TenantAuthRequest;
 import com.nextturn.dto.auth.TenantAuthResponse;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -213,5 +215,32 @@ public class TenantAuthController {
     ) {
         AuthTokenResponse response = tenantAuthService.refreshAccessToken(request);
         return ResponseEntity.ok(BaseResponse.ok("Access token refreshed successfully", response));
+    }
+
+    /**
+     * Logs out the user, revoking the active Keycloak refresh token and terminating SSO session.
+     *
+     * @param request    optional {@link LogoutRequest} containing the refresh token
+     * @param authHeader optional Authorization header
+     * @return standard {@link BaseResponse} confirming logout
+     */
+    @PostMapping(AuthEndpointConstant.LOGOUT)
+    @Operation(
+            summary = "Logout user and revoke refresh token",
+            description = "Revokes the active OAuth2 refresh token with Keycloak IAM, terminates the session, and clears the security context."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Logged out successfully",
+                    content = @Content(schema = @Schema(implementation = BaseResponse.class))
+            )
+    })
+    public ResponseEntity<BaseResponse<Void>> logout(
+            @RequestBody(required = false) LogoutRequest request,
+            @RequestHeader(value = "Authorization", required = false) String authHeader
+    ) {
+        tenantAuthService.logout(request, authHeader);
+        return ResponseEntity.ok(BaseResponse.ok("Logged out successfully"));
     }
 }

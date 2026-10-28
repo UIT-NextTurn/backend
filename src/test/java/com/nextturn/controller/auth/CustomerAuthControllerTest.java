@@ -151,4 +151,21 @@ class CustomerAuthControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("AUTH_013"));
     }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/customer/logout - Should return 200 on successful logout")
+    void shouldLogoutSuccessfully() throws Exception {
+        String requestJson = """
+                {
+                    "refreshToken": "sample-refresh-token"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/auth/customer/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Logged out successfully"));
+    }
 }

@@ -98,4 +98,16 @@ public record KeycloakProperties(
                 authServerUrl.replaceAll("/+$", ""),
                 realm);
     }
+
+    /**
+     * Resolves absolute OAuth2 logout endpoint URL (e.g. {@code http://ryan-a1:8180/realms/nextturn/protocol/openid-connect/logout}).
+     */
+    public String logoutEndpoint() {
+        if (issuerUri != null && !issuerUri.isBlank()) {
+            return issuerUri.replaceAll("/+$", "") + "/protocol/openid-connect/logout";
+        }
+        return String.format("%s/realms/%s/protocol/openid-connect/logout",
+                authServerUrl.replaceAll("/+$", ""),
+                realm);
+    }
 }

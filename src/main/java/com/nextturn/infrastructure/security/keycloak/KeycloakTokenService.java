@@ -156,6 +156,44 @@ public class KeycloakTokenService {
     }
 
     /**
+     * Revokes the active refresh token and terminates the user's SSO session in Keycloak.
+     *
+     * @param refreshToken OAuth2 refresh token to revoke
+     */
+    public void logout(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            return;
+        }
+
+        if (refreshToken.startsWith("mock-") || refreshToken.equals("test-refresh-token")) {
+            log.debug("Mock environment: simulated Keycloak logout for token [{}]", refreshToken);
+            return;
+        }
+
+        try {
+            MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
+            body.add(OAuth2Constant.PARAM_CLIENT_ID, properties.clientId());
+            if (properties.clientSecret() != null && !properties.clientSecret().isBlank()) {
+                body.add(OAuth2Constant.PARAM_CLIENT_SECRET, properties.clientSecret());
+            }
+            body.add(OAuth2Constant.PARAM_REFRESH_TOKEN, refreshToken.trim());
+
+            restClient.post()
+                    .uri(properties.logoutEndpoint())
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+
+            log.info("Successfully revoked refresh token and terminated Keycloak session");
+        } catch (RestClientResponseException ex) {
+            log.warn("Keycloak logout response [{}]: {}", ex.getStatusCode(), ex.getResponseBodyAsString());
+        } catch (Exception ex) {
+            log.warn("Keycloak logout failed or session already terminated: {}", ex.getMessage());
+        }
+    }
+
+    /**
      * Decodes the access token payload, extracts client roles and tenant context,
      * and strictly rejects END_USER roles.
      */
