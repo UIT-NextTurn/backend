@@ -48,6 +48,7 @@ public final class OAuth2Constant {
     public static final String FIELD_EMAIL = "email";
     public static final String FIELD_USERNAME = "username";
     public static final String FIELD_FIRST_NAME = "firstName";
+    public static final String FIELD_LAST_NAME = "lastName";
     public static final String FIELD_ENABLED = "enabled";
     public static final String FIELD_EMAIL_VERIFIED = "emailVerified";
 }

@@ -50,6 +50,15 @@ public class BaseResponse<T> {
                 .build();
     }
 
+    public static <T> BaseResponse<T> created(String message, T data) {
+        return BaseResponse.<T>builder()
+                .status(201)
+                .success(true)
+                .message(message)
+                .data(data)
+                .build();
+    }
+
     public static <T> BaseResponse<T> error(int status, String message) {
         return BaseResponse.<T>builder()
                 .status(status)
