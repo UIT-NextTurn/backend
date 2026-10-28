@@ -1,5 +1,6 @@
 package com.nextturn.controller.auth;
 
+import com.nextturn.constant.AuthEndpointConstant;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.auth.AuthTokenResponse;
 import com.nextturn.dto.auth.CustomerOtpResponse;
@@ -29,7 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 3. Centralized Keycloak authentication returning official tokens with END_USER role.
  */
 @RestController
-@RequestMapping("/api/v1/auth/customer")
+@RequestMapping(AuthEndpointConstant.CUSTOMER_AUTH_BASE)
 @Tag(name = "Customer Authentication", description = "Passwordless Email OTP authentication for public customers (END_USER)")
 @SecurityRequirements
 public class CustomerAuthController {
@@ -46,7 +47,7 @@ public class CustomerAuthController {
      * @param request email payload
      * @return {@link BaseResponse} containing {@link CustomerOtpResponse}
      */
-    @PostMapping({"/otp/send", "/otp/request"})
+    @PostMapping({AuthEndpointConstant.OTP_SEND, AuthEndpointConstant.OTP_REQUEST})
     @Operation(
             summary = "Request email OTP verification code",
             description = "Generates and sends a 6-digit OTP code to the customer's email. If the email already exists in the database, it flags it as an existing account."
@@ -81,7 +82,7 @@ public class CustomerAuthController {
      * @param request email and OTP payload
      * @return {@link BaseResponse} containing {@link AuthTokenResponse}
      */
-    @PostMapping("/otp/verify")
+    @PostMapping(AuthEndpointConstant.OTP_VERIFY)
     @Operation(
             summary = "Verify OTP and authenticate as END_USER",
             description = "Verifies the 6-digit OTP. Reuses existing central user record to preserve booking history, or auto-provisions a new account if the email is new. Issues official Keycloak tokens."

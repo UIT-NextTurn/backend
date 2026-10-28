@@ -97,13 +97,16 @@ public class CustomerAuthService {
         String cleanEmail = request.getEmail().trim().toLowerCase();
         String submittedOtp = request.getOtp().trim();
 
-        // 1. Verify OTP with OtpService
+        // 1. Verify OTP with OtpService (Valkey / in-memory rate-limiting)
         otpService.verifyOtp(cleanEmail, submittedOtp);
 
-        // 2. Resolve or provision CentralUser record in master schema
+        // 2. Resolve or provision CentralUser record in master schema (preserves history)
         CentralUser user = resolveOrCreateUser(cleanEmail);
 
-        // 3. Issue centralized Keycloak tokens for END_USER persona
+        // 3. Synchronize identity with Keycloak IAM (validates account lock & provisions Keycloak record)
+        keycloakTokenService.syncCustomerIdentity(cleanEmail, user.getFullName());
+
+        // 4. Issue centralized Keycloak tokens for END_USER persona
         return keycloakTokenService.issueCustomerTokens(cleanEmail, user.getId());
     }
 

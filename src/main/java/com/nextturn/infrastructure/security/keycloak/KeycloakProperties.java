@@ -62,4 +62,13 @@ public record KeycloakProperties(
                 authServerUrl.replaceAll("/+$", ""),
                 realm);
     }
+
+    /**
+     * Resolves absolute Keycloak Admin Users REST API endpoint (e.g. {@code http://localhost:8180/admin/realms/nextturn/users}).
+     */
+    public String adminUsersEndpoint() {
+        return String.format("%s/admin/realms/%s/users",
+                authServerUrl.replaceAll("/+$", ""),
+                realm);
+    }
 }

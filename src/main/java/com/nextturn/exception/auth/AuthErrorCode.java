@@ -25,7 +25,11 @@ public enum AuthErrorCode implements BaseErrorCode {
     TENANT_MISMATCH("AUTH_009", "Authenticated user tenant claim does not match requested tenant", HttpStatus.FORBIDDEN),
     ROLE_NOT_PERMITTED("AUTH_010", "User role is not permitted for this action or portal", HttpStatus.FORBIDDEN),
     KEYCLOAK_UNAVAILABLE("AUTH_011", "Keycloak identity provider service is currently unavailable", HttpStatus.SERVICE_UNAVAILABLE),
-    LOGIN_URL_BUILD_FAILED("AUTH_012", "Failed to generate staff login redirect URL", HttpStatus.INTERNAL_SERVER_ERROR);
+    LOGIN_URL_BUILD_FAILED("AUTH_012", "Failed to generate staff login redirect URL", HttpStatus.INTERNAL_SERVER_ERROR),
+    INVALID_OTP("AUTH_013", "Invalid or expired verification code", HttpStatus.BAD_REQUEST),
+    OTP_EXPIRED("AUTH_014", "Verification code has expired. Please request a new code.", HttpStatus.BAD_REQUEST),
+    OTP_TOO_MANY_ATTEMPTS("AUTH_015", "Too many invalid OTP attempts. Please request a new code.", HttpStatus.TOO_MANY_REQUESTS),
+    USER_BLOCKED("AUTH_016", "User account is suspended or blocked", HttpStatus.FORBIDDEN);
 
     private final String code;
     private final String message;
