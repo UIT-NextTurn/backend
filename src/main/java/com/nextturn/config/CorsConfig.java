@@ -16,7 +16,7 @@ public class CorsConfig {
     @Value("${cors.allowed-origin-patterns:http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173}")
     private List<String> allowedOriginPatterns;
 
-    @Value("${cors.allowed-headers:Origin,Content-Type,Accept,Authorization,X-Requested-With}")
+    @Value("${cors.allowed-headers:Origin,Content-Type,Accept,Authorization,X-Requested-With,X-Widget-Key}")
     private List<String> allowedHeaders;
 
     @Value("${cors.allowed-methods:GET,POST,PUT,PATCH,DELETE,OPTIONS}")
@@ -45,7 +45,17 @@ public class CorsConfig {
         config.setAllowedMethods(trimmedMethods);
         config.setMaxAge(maxAge);
 
+        // Widget endpoints embedded in external websites must allow cross-origin requests
+        // Domain whitelist validation is enforced at application layer (REQ-AUTH-06)
+        CorsConfiguration widgetConfig = new CorsConfiguration();
+        widgetConfig.setAllowCredentials(true);
+        widgetConfig.setAllowedOriginPatterns(List.of("*"));
+        widgetConfig.setAllowedHeaders(List.of("*"));
+        widgetConfig.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+        widgetConfig.setMaxAge(maxAge);
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/api/v1/auth/customer/**", widgetConfig);
         source.registerCorsConfiguration("/**", config);
         return source;
     }

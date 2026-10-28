@@ -31,6 +31,14 @@
 | ROLE_NOT_PERMITTED | AUTH_010 | User role is not permitted for this action or portal |
 | KEYCLOAK_UNAVAILABLE | AUTH_011 | Keycloak identity provider service is currently unavailable |
 | LOGIN_URL_BUILD_FAILED | AUTH_012 | Failed to generate staff login redirect URL |
+| INVALID_OTP | AUTH_013 | Invalid or expired verification code |
+| OTP_EXPIRED | AUTH_014 | Verification code has expired. Please request a new code. |
+| OTP_TOO_MANY_ATTEMPTS | AUTH_015 | Too many invalid OTP attempts. Please request a new code. |
+| USER_BLOCKED | AUTH_016 | User account is suspended or blocked |
+| OTP_COOLDOWN_ACTIVE | AUTH_017 | Please wait before requesting a new verification code |
+| OTP_DAILY_LIMIT_EXCEEDED | AUTH_018 | Daily limit of 5 verification codes reached for this contact. Please try again after 24 hours. |
+| WIDGET_KEY_INVALID | AUTH_019 | Invalid or unrecognized widget integration key |
+| UNAUTHORIZED_ORIGIN_DOMAIN | AUTH_020 | Website domain is not authorized to embed the widget for this facility |
 
 ## Tenant (`TenantErrorCode`)
 

@@ -5,9 +5,12 @@ import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Contact;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.info.License;
+import io.swagger.v3.oas.models.media.StringSchema;
+import io.swagger.v3.oas.models.parameters.Parameter;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 import io.swagger.v3.oas.models.servers.Server;
+import org.springdoc.core.customizers.OperationCustomizer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -85,14 +88,14 @@ public class OpenApiConfig {
      * on every endpoint, allowing manual tenant facility routing override during testing.
      */
     @Bean
-    public org.springdoc.core.customizers.OperationCustomizer customizeTenantHeader() {
+    public OperationCustomizer customizeTenantHeader() {
         return (operation, handlerMethod) -> {
-            operation.addParametersItem(new io.swagger.v3.oas.models.parameters.Parameter()
+            operation.addParametersItem(new Parameter()
                     .in("header")
                     .name("X-Tenant-Code")
                     .description("Optional Tenant facility code (e.g. shop-b, spa-a). If omitted, automatically resolved from JWT claim 'tenant_code' or authenticated email.")
                     .required(false)
-                    .schema(new io.swagger.v3.oas.models.media.StringSchema().example("shop-b")));
+                    .schema(new StringSchema().example("shop-b")));
             return operation;
         };
     }

@@ -31,4 +31,12 @@ public interface CentralTenantRepository extends JpaRepository<CentralTenant, St
      * @return {@code true} if the tenant exists, {@code false} otherwise
      */
     boolean existsByTenantCodeIgnoreCaseAndIsDeletedFalse(String tenantCode);
+
+    /**
+     * Finds an active, non-deleted tenant by public widget API key (REQ-AUTH-06).
+     *
+     * @param widgetApiKey public widget integration key
+     * @return an Optional containing the matched {@link CentralTenant}, or empty if not found
+     */
+    Optional<CentralTenant> findByWidgetApiKeyAndIsDeletedFalse(String widgetApiKey);
 }

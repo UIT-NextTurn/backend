@@ -29,7 +29,11 @@ public enum AuthErrorCode implements BaseErrorCode {
     INVALID_OTP("AUTH_013", "Invalid or expired verification code", HttpStatus.BAD_REQUEST),
     OTP_EXPIRED("AUTH_014", "Verification code has expired. Please request a new code.", HttpStatus.BAD_REQUEST),
     OTP_TOO_MANY_ATTEMPTS("AUTH_015", "Too many invalid OTP attempts. Please request a new code.", HttpStatus.TOO_MANY_REQUESTS),
-    USER_BLOCKED("AUTH_016", "User account is suspended or blocked", HttpStatus.FORBIDDEN);
+    USER_BLOCKED("AUTH_016", "User account is suspended or blocked", HttpStatus.FORBIDDEN),
+    OTP_COOLDOWN_ACTIVE("AUTH_017", "Please wait before requesting a new verification code", HttpStatus.TOO_MANY_REQUESTS),
+    OTP_DAILY_LIMIT_EXCEEDED("AUTH_018", "Daily limit of 5 verification codes reached for this contact. Please try again after 24 hours.", HttpStatus.TOO_MANY_REQUESTS),
+    WIDGET_KEY_INVALID("AUTH_019", "Invalid or unrecognized widget integration key", HttpStatus.UNAUTHORIZED),
+    UNAUTHORIZED_ORIGIN_DOMAIN("AUTH_020", "Website domain is not authorized to embed the widget for this facility", HttpStatus.FORBIDDEN);
 
     private final String code;
     private final String message;

@@ -29,19 +29,58 @@ class OtpServiceTest {
 
     @BeforeEach
     void setUp() {
-        // TTL = 300 seconds, max attempts = 3
-        otpService = new OtpService(300, 3);
+        // TTL = 300 seconds (5 min), max attempts = 3, cooldown = 60s, max daily = 5
+        otpService = new OtpService(null, null, 300, 3, 60, 5);
     }
 
     @Test
-    @DisplayName("Should generate 6-digit OTP and return proper metadata")
+    @DisplayName("Should generate 6-digit OTP and return proper metadata with 60s cooldown (REQ-AUTH-06)")
     void shouldGenerateAndSendOtpSuccessfully() {
         CustomerOtpResponse response = otpService.generateAndSendOtp("customer@example.com", true);
 
         assertThat(response).isNotNull();
         assertThat(response.getEmail()).isEqualTo("customer@example.com");
         assertThat(response.getExpiresInSeconds()).isEqualTo(300);
+        assertThat(response.getResendCooldownSeconds()).isEqualTo(60);
         assertThat(response.isExistingUser()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Should enforce 60-second cooldown between consecutive requests (REQ-AUTH-06 Exception 1)")
+    void shouldEnforceCooldownBetweenConsecutiveRequests() {
+        otpService.generateAndSendOtp("cooldown@example.com", false);
+
+        // Immediate second request must be rejected with 429 OTP_COOLDOWN_ACTIVE
+        assertThatThrownBy(() -> otpService.generateAndSendOtp("cooldown@example.com", false))
+                .isInstanceOf(AuthException.class)
+                .satisfies(ex -> {
+                    AuthException authEx = (AuthException) ex;
+                    assertThat(authEx.getCode()).isEqualTo(AuthErrorCode.OTP_COOLDOWN_ACTIVE.code());
+                    assertThat(authEx.getMessage()).contains("Please wait");
+                    assertThat(authEx.getMessage()).contains("seconds before requesting a new verification code.");
+                });
+    }
+
+    @Test
+    @DisplayName("Should enforce 5 requests per 24 hours daily limit (REQ-AUTH-06 Exception 2)")
+    void shouldEnforceDailyLimitOf5Requests() {
+        String contact = "daily@example.com";
+
+        for (int i = 1; i <= 5; i++) {
+            otpService.clearCooldown(contact); // bypass cooldown to simulate 5 requests over the day
+            CustomerOtpResponse resp = otpService.generateAndSendOtp(contact, false);
+            assertThat(resp).isNotNull();
+        }
+
+        // 6th request within 24h must be rejected with OTP_DAILY_LIMIT_EXCEEDED
+        otpService.clearCooldown(contact);
+        assertThatThrownBy(() -> otpService.generateAndSendOtp(contact, false))
+                .isInstanceOf(AuthException.class)
+                .satisfies(ex -> {
+                    AuthException authEx = (AuthException) ex;
+                    assertThat(authEx.getCode()).isEqualTo(AuthErrorCode.OTP_DAILY_LIMIT_EXCEEDED.code());
+                    assertThat(authEx.getMessage()).contains("Daily limit of 5 verification codes reached");
+                });
     }
 
     @Test
@@ -53,7 +92,7 @@ class OtpServiceTest {
     }
 
     @Test
-    @DisplayName("Should verify valid OTP successfully and clear it after use")
+    @DisplayName("Should verify valid OTP successfully and clear it after use (REQ-AUTH-07)")
     void shouldVerifyValidOtpSuccessfullyAndClearAfterUse() {
         otpService.generateAndSendOtp("test@example.com", false);
 
@@ -65,14 +104,14 @@ class OtpServiceTest {
         // Verification should succeed
         otpService.verifyOtp("test@example.com", validCode);
 
-        // Subsequent verification must fail because code was cleared
+        // Subsequent verification must fail because code was cleared immediately
         assertThatThrownBy(() -> otpService.verifyOtp("test@example.com", validCode))
                 .isInstanceOf(AuthException.class)
                 .satisfies(ex -> assertThat(((AuthException) ex).getCode()).isEqualTo(AuthErrorCode.INVALID_OTP.code()));
     }
 
     @Test
-    @DisplayName("Should throw INVALID_OTP on code mismatch and track remaining attempts")
+    @DisplayName("Should throw INVALID_OTP on code mismatch and track remaining attempts (REQ-AUTH-07 Exception 1)")
     void shouldThrowOnOtpMismatchAndTrackAttempts() {
         otpService.generateAndSendOtp("test@example.com", false);
 
@@ -86,19 +125,22 @@ class OtpServiceTest {
     }
 
     @Test
-    @DisplayName("Should lock and throw OTP_TOO_MANY_ATTEMPTS when max attempts exceeded")
+    @DisplayName("Should lock and throw OTP_TOO_MANY_ATTEMPTS on 3rd failed attempt (REQ-AUTH-07 Exception 1)")
     void shouldLockWhenMaxAttemptsExceeded() {
         otpService.generateAndSendOtp("test@example.com", false);
 
-        // Fail 1
-        assertThatThrownBy(() -> otpService.verifyOtp("test@example.com", "111111")).isInstanceOf(AuthException.class);
-        // Fail 2
-        assertThatThrownBy(() -> otpService.verifyOtp("test@example.com", "222222")).isInstanceOf(AuthException.class);
-        // Fail 3
-        assertThatThrownBy(() -> otpService.verifyOtp("test@example.com", "333333")).isInstanceOf(AuthException.class);
+        // Fail 1: 2 attempts remaining
+        assertThatThrownBy(() -> otpService.verifyOtp("test@example.com", "111111"))
+                .isInstanceOf(AuthException.class)
+                .hasMessageContaining("Attempts remaining: 2");
 
-        // 4th attempt exceeds max attempts
-        assertThatThrownBy(() -> otpService.verifyOtp("test@example.com", "444444"))
+        // Fail 2: 1 attempt remaining
+        assertThatThrownBy(() -> otpService.verifyOtp("test@example.com", "222222"))
+                .isInstanceOf(AuthException.class)
+                .hasMessageContaining("Attempts remaining: 1");
+
+        // Fail 3: Max 3 attempts reached -> immediately destroyed and locked
+        assertThatThrownBy(() -> otpService.verifyOtp("test@example.com", "333333"))
                 .isInstanceOf(AuthException.class)
                 .satisfies(ex -> assertThat(((AuthException) ex).getCode()).isEqualTo(AuthErrorCode.OTP_TOO_MANY_ATTEMPTS.code()));
     }
@@ -111,7 +153,7 @@ class OtpServiceTest {
         ValueOperations<String, String> mockOps = mock(ValueOperations.class);
         when(mockRedis.opsForValue()).thenReturn(mockOps);
 
-        OtpService valkeyOtpService = new OtpService(mockRedis, 300, 3);
+        OtpService valkeyOtpService = new OtpService(mockRedis, null, 300, 3, 60, 5);
         valkeyOtpService.generateAndSendOtp("valkey@example.com", false);
 
         verify(mockOps).set(

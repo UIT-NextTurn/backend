@@ -417,7 +417,8 @@ public class KeycloakTokenService {
                 String refreshToken = tokenJson.path(OAuth2Constant.FIELD_REFRESH_TOKEN).asText(null);
                 String idToken = tokenJson.path(OAuth2Constant.FIELD_ID_TOKEN).asText(null);
                 Long expiresIn = tokenJson.has(OAuth2Constant.FIELD_EXPIRES_IN) ? tokenJson.path(OAuth2Constant.FIELD_EXPIRES_IN).asLong() : 3600L;
-                Long refreshExpiresIn = tokenJson.has(OAuth2Constant.FIELD_REFRESH_EXPIRES_IN) ? tokenJson.path(OAuth2Constant.FIELD_REFRESH_EXPIRES_IN).asLong() : 7200L;
+                // 30-day session identifier validity (30 * 24 * 3600 = 2592000s) as specified in REQ-AUTH-07
+                Long refreshExpiresIn = 2592000L;
                 String tokenType = tokenJson.path(OAuth2Constant.FIELD_TOKEN_TYPE).asText(OAuth2Constant.TOKEN_TYPE_BEARER);
 
                 if (accessToken != null && !accessToken.isBlank()) {
@@ -428,13 +429,13 @@ public class KeycloakTokenService {
             log.warn("Direct Keycloak token communication returned [{}]. Using fallback token session for customer [{}]", ex.getMessage(), email);
         }
 
-        // Safe fallback session for offline/development test environments
+        // Safe fallback session for offline/development test environments (30 days session validity per REQ-AUTH-07)
         return AuthTokenResponse.builder()
                 .accessToken("mock-keycloak-customer-access-token-" + email)
                 .refreshToken("mock-keycloak-customer-refresh-token-" + email)
                 .idToken(null)
                 .expiresIn(3600L)
-                .refreshExpiresIn(7200L)
+                .refreshExpiresIn(2592000L)
                 .tokenType(OAuth2Constant.TOKEN_TYPE_BEARER)
                 .userId(centralUserId)
                 .email(email)

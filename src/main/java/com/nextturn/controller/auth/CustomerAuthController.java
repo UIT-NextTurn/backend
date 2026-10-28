@@ -19,6 +19,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -71,9 +72,12 @@ public class CustomerAuthController {
             )
     })
     public ResponseEntity<BaseResponse<CustomerOtpResponse>> sendOtp(
-            @Valid @RequestBody CustomerSendOtpRequest request
+            @Valid @RequestBody CustomerSendOtpRequest request,
+            @RequestHeader(value = "X-Widget-Key", required = false) String widgetKeyHeader,
+            @RequestHeader(value = "Origin", required = false) String originHeader,
+            @RequestHeader(value = "Referer", required = false) String refererHeader
     ) {
-        CustomerOtpResponse response = customerAuthService.sendOtp(request);
+        CustomerOtpResponse response = customerAuthService.sendOtp(request, widgetKeyHeader, originHeader, refererHeader);
         return ResponseEntity.ok(BaseResponse.ok("Verification code dispatched successfully", response));
     }
 

@@ -33,6 +33,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -73,7 +74,7 @@ class CustomerAuthControllerTest {
                 .existingUser(true)
                 .build();
 
-        when(customerAuthService.sendOtp(any())).thenReturn(mockResponse);
+        when(customerAuthService.sendOtp(any(), any(), any(), any())).thenReturn(mockResponse);
 
         CustomerSendOtpRequest request = CustomerSendOtpRequest.builder()
                 .email("patient@example.com")
@@ -88,6 +89,34 @@ class CustomerAuthControllerTest {
                 .andExpect(jsonPath("$.data.email").value("patient@example.com"))
                 .andExpect(jsonPath("$.data.expiresInSeconds").value(300))
                 .andExpect(jsonPath("$.data.existingUser").value(true));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/customer/otp/send - Should pass widget header parameters (REQ-AUTH-06)")
+    void shouldPassWidgetHeaderParameters() throws Exception {
+        CustomerOtpResponse mockResponse = CustomerOtpResponse.builder()
+                .email("widget@example.com")
+                .expiresInSeconds(300)
+                .resendCooldownSeconds(60)
+                .message("Verification code has been dispatched")
+                .existingUser(false)
+                .build();
+
+        when(customerAuthService.sendOtp(any(), eq("wtk_public_key"), eq("https://spa.example.com"), any()))
+                .thenReturn(mockResponse);
+
+        CustomerSendOtpRequest request = CustomerSendOtpRequest.builder()
+                .email("widget@example.com")
+                .build();
+
+        mockMvc.perform(post("/api/v1/auth/customer/otp/send")
+                        .header("X-Widget-Key", "wtk_public_key")
+                        .header("Origin", "https://spa.example.com")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.resendCooldownSeconds").value(60));
     }
 
     @Test
