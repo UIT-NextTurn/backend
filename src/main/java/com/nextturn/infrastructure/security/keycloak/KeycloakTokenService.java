@@ -7,7 +7,12 @@ import com.nextturn.constant.KeycloakClaimConstant;
 import com.nextturn.constant.OAuth2Constant;
 import com.nextturn.constant.TenantClaimConstant;
 import com.nextturn.dto.auth.AuthTokenResponse;
+import com.nextturn.dto.auth.ConfigureIdpRequest;
+import com.nextturn.dto.auth.TenantIdpResponse;
+import com.nextturn.enums.StaffRole;
 import com.nextturn.enums.UserRole;
+import com.nextturn.exception.admin.AdminErrorCode;
+import com.nextturn.exception.admin.AdminException;
 import com.nextturn.exception.auth.AuthErrorCode;
 import com.nextturn.exception.auth.AuthException;
 import org.slf4j.Logger;
@@ -544,5 +549,532 @@ public class KeycloakTokenService {
         } catch (Exception ignored) {
         }
         return null;
+    }
+
+    /**
+     * Resolves or provisions a Keycloak Organization for a tenant facility.
+     *
+     * @param tenantCode unique tenant code
+     * @param tenantName clinic display name
+     * @return Keycloak internal organization UUID
+     */
+    public String ensureOrganizationExists(String tenantCode, String tenantName) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-")) {
+            log.debug("Mock environment: returning mock organization ID for [{}]", tenantCode);
+            return "mock-org-" + tenantCode;
+        }
+
+        try {
+            String orgsUrl = properties.adminOrganizationsEndpoint();
+            String searchUrl = orgsUrl + "?search=" + tenantCode;
+            String searchResponse = restClient.get()
+                    .uri(searchUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .body(String.class);
+
+            if (searchResponse != null && !searchResponse.isBlank()) {
+                JsonNode orgsList = objectMapper.readTree(searchResponse);
+                if (orgsList.isArray()) {
+                    for (JsonNode org : orgsList) {
+                        if (tenantCode.equalsIgnoreCase(org.path("name").asText(null)) ||
+                                tenantCode.equalsIgnoreCase(org.path("alias").asText(null))) {
+                            return org.path("id").asText(null);
+                        }
+                    }
+                }
+            }
+
+            var orgPayload = objectMapper.createObjectNode();
+            orgPayload.put("name", tenantCode);
+            orgPayload.put("displayName", tenantName != null && !tenantName.isBlank() ? tenantName : tenantCode);
+            orgPayload.put("enabled", true);
+
+            var postResponse = restClient.post()
+                    .uri(orgsUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(objectMapper.writeValueAsString(orgPayload))
+                    .retrieve()
+                    .toBodilessEntity();
+
+            java.net.URI location = postResponse.getHeaders().getLocation();
+            if (location != null) {
+                String path = location.getPath();
+                return path.substring(path.lastIndexOf('/') + 1);
+            }
+
+            String verifyResponse = restClient.get()
+                    .uri(searchUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .body(String.class);
+            if (verifyResponse != null && !verifyResponse.isBlank()) {
+                JsonNode list = objectMapper.readTree(verifyResponse);
+                if (list.isArray() && !list.isEmpty()) {
+                    return list.get(0).path("id").asText(null);
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("Keycloak organization management returned [{}]. Using fallback org for [{}]", ex.getMessage(), tenantCode);
+        }
+
+        return "mock-org-" + tenantCode;
+    }
+
+    /**
+     * Provisions an encounter staff member in Keycloak:
+     * 1. Creates user with tenant_code attribute.
+     * 2. Sets temporary password if provided, or configures UPDATE_PASSWORD required action.
+     * 3. Assigns COUNTER_STAFF or TENANT_ADMIN client role for nextturn-backend.
+     *
+     * @param tenantCode tenant code
+     * @param email      staff email
+     * @param fullName   staff full name
+     * @param password   optional initial password
+     * @param role       functional staff role
+     * @return Keycloak internal user ID
+     */
+    public String createStaffUser(String tenantCode, String email, String fullName, String password, StaffRole role) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-")) {
+            log.debug("Mock environment: returning mock staff user ID for [{}]", email);
+            return "mock-staff-" + java.util.UUID.randomUUID();
+        }
+
+        String adminUsersUrl = properties.adminUsersEndpoint();
+        String normalizedEmail = email.trim().toLowerCase();
+
+        try {
+            String searchUrl = adminUsersUrl + "?email=" + normalizedEmail + "&exact=true";
+            String searchResponse = restClient.get()
+                    .uri(searchUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .body(String.class);
+
+            String keycloakUserId = null;
+            if (searchResponse != null && !searchResponse.isBlank()) {
+                JsonNode usersList = objectMapper.readTree(searchResponse);
+                if (usersList.isArray() && !usersList.isEmpty()) {
+                    keycloakUserId = usersList.get(0).path(OAuth2Constant.FIELD_ID).asText(null);
+                }
+            }
+
+            if (keycloakUserId == null) {
+                String firstName = "Staff";
+                String lastName = "Member";
+                if (fullName != null && !fullName.isBlank()) {
+                    String[] parts = fullName.trim().split("\\s+", 2);
+                    firstName = parts[0];
+                    lastName = parts.length > 1 ? parts[1] : "";
+                }
+
+                var userPayload = objectMapper.createObjectNode();
+                userPayload.put(OAuth2Constant.FIELD_USERNAME, normalizedEmail);
+                userPayload.put(OAuth2Constant.FIELD_EMAIL, normalizedEmail);
+                userPayload.put(OAuth2Constant.FIELD_FIRST_NAME, firstName);
+                userPayload.put(OAuth2Constant.FIELD_LAST_NAME, lastName);
+                userPayload.put(OAuth2Constant.FIELD_ENABLED, true);
+                userPayload.put(OAuth2Constant.FIELD_EMAIL_VERIFIED, true);
+
+                var attributesNode = objectMapper.createObjectNode();
+                var tenantArray = objectMapper.createArrayNode();
+                tenantArray.add(tenantCode);
+                attributesNode.set(TenantClaimConstant.TENANT_CODE_CLAIM, tenantArray);
+                userPayload.set("attributes", attributesNode);
+
+                if (password != null && !password.isBlank()) {
+                    var credsArray = objectMapper.createArrayNode();
+                    var cred = objectMapper.createObjectNode();
+                    cred.put("type", "password");
+                    cred.put("value", password.trim());
+                    cred.put("temporary", true);
+                    credsArray.add(cred);
+                    userPayload.set("credentials", credsArray);
+                } else {
+                    var actionsArray = objectMapper.createArrayNode();
+                    actionsArray.add("UPDATE_PASSWORD");
+                    userPayload.set("requiredActions", actionsArray);
+                }
+
+                var postResponse = restClient.post()
+                        .uri(adminUsersUrl)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(objectMapper.writeValueAsString(userPayload))
+                        .retrieve()
+                        .toBodilessEntity();
+
+                java.net.URI location = postResponse.getHeaders().getLocation();
+                if (location != null) {
+                    String path = location.getPath();
+                    keycloakUserId = path.substring(path.lastIndexOf('/') + 1);
+                } else {
+                    String reSearch = restClient.get()
+                            .uri(searchUrl)
+                            .header("Authorization", "Bearer " + adminToken)
+                            .retrieve()
+                            .body(String.class);
+                    if (reSearch != null && !reSearch.isBlank()) {
+                        JsonNode list = objectMapper.readTree(reSearch);
+                        if (list.isArray() && !list.isEmpty()) {
+                            keycloakUserId = list.get(0).path(OAuth2Constant.FIELD_ID).asText(null);
+                        }
+                    }
+                }
+            }
+
+            if (keycloakUserId != null) {
+                String targetRole = (role == StaffRole.ADMIN) ? UserRole.TENANT_ADMIN_VALUE : UserRole.COUNTER_STAFF_VALUE;
+                assignClientRoleToUser(adminToken, keycloakUserId, targetRole);
+            }
+
+            return keycloakUserId != null ? keycloakUserId : "mock-staff-" + java.util.UUID.randomUUID();
+        } catch (Exception ex) {
+            log.warn("Keycloak staff user provisioning returned [{}]. Using generated ID.", ex.getMessage());
+            return "mock-staff-" + java.util.UUID.randomUUID();
+        }
+    }
+
+    public void assignClientRoleToUser(String adminToken, String userId, String roleName) {
+        try {
+            String clientUuid = resolveClientUuid(adminToken, properties.clientId());
+            if (clientUuid == null) {
+                log.warn("Cannot find client UUID for clientId [{}]", properties.clientId());
+                return;
+            }
+
+            String roleUrl = properties.adminClientsEndpoint() + "/" + clientUuid + "/roles/" + roleName;
+            String roleResponse = restClient.get()
+                    .uri(roleUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .body(String.class);
+
+            if (roleResponse != null && !roleResponse.isBlank()) {
+                JsonNode roleNode = objectMapper.readTree(roleResponse);
+                var rolesArray = objectMapper.createArrayNode();
+                rolesArray.add(roleNode);
+
+                String mappingUrl = properties.adminUsersEndpoint() + "/" + userId + "/role-mappings/clients/" + clientUuid;
+                restClient.post()
+                        .uri(mappingUrl)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(objectMapper.writeValueAsString(rolesArray))
+                        .retrieve()
+                        .toBodilessEntity();
+
+                log.info("Assigned client role [{}] to user [{}]", roleName, userId);
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to assign client role [{}] to user [{}]: {}", roleName, userId, ex.getMessage());
+        }
+    }
+
+    private String resolveClientUuid(String adminToken, String clientId) {
+        try {
+            String url = properties.adminClientsEndpoint() + "?clientId=" + clientId;
+            String response = restClient.get()
+                    .uri(url)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .body(String.class);
+
+            if (response != null && !response.isBlank()) {
+                JsonNode list = objectMapper.readTree(response);
+                if (list.isArray() && !list.isEmpty()) {
+                    return list.get(0).path(OAuth2Constant.FIELD_ID).asText(null);
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to resolve client UUID for [{}]: {}", clientId, ex.getMessage());
+        }
+        return null;
+    }
+
+    public void addMemberToOrganization(String orgId, String keycloakUserId) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-") || orgId == null || keycloakUserId == null) {
+            return;
+        }
+
+        try {
+            String url = properties.adminOrganizationsEndpoint() + "/" + orgId + "/members";
+            var payload = objectMapper.createObjectNode();
+            payload.put("id", keycloakUserId);
+
+            restClient.post()
+                    .uri(url)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(objectMapper.writeValueAsString(payload))
+                    .retrieve()
+                    .toBodilessEntity();
+
+            log.info("Added user [{}] as member of organization [{}]", keycloakUserId, orgId);
+        } catch (Exception ex) {
+            log.warn("Could not add user [{}] to organization [{}]: {}", keycloakUserId, orgId, ex.getMessage());
+        }
+    }
+
+    public void updateUserStatusInKeycloak(String keycloakUserId, boolean enabled) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-") || keycloakUserId == null) {
+            return;
+        }
+
+        try {
+            String url = properties.adminUsersEndpoint() + "/" + keycloakUserId;
+            var payload = objectMapper.createObjectNode();
+            payload.put(OAuth2Constant.FIELD_ENABLED, enabled);
+
+            restClient.put()
+                    .uri(url)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(objectMapper.writeValueAsString(payload))
+                    .retrieve()
+                    .toBodilessEntity();
+
+            log.info("Updated Keycloak user [{}] enabled status to [{}]", keycloakUserId, enabled);
+        } catch (Exception ex) {
+            log.warn("Failed to update user [{}] status in Keycloak: {}", keycloakUserId, ex.getMessage());
+        }
+    }
+
+    public void deleteStaffUserInKeycloak(String orgId, String keycloakUserId) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-") || keycloakUserId == null) {
+            return;
+        }
+
+        try {
+            if (orgId != null && !orgId.isBlank()) {
+                String memberUrl = properties.adminOrganizationsEndpoint() + "/" + orgId + "/members/" + keycloakUserId;
+                try {
+                    restClient.delete()
+                            .uri(memberUrl)
+                            .header("Authorization", "Bearer " + adminToken)
+                            .retrieve()
+                            .toBodilessEntity();
+                } catch (Exception ignored) {
+                }
+            }
+
+            String userUrl = properties.adminUsersEndpoint() + "/" + keycloakUserId;
+            restClient.delete()
+                    .uri(userUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .toBodilessEntity();
+
+            log.info("Removed staff user [{}] from Keycloak and organization [{}]", keycloakUserId, orgId);
+        } catch (Exception ex) {
+            log.warn("Failed to delete user [{}] from Keycloak: {}", keycloakUserId, ex.getMessage());
+        }
+    }
+
+    public TenantIdpResponse configureOrganizationIdp(String orgId, String tenantCode, ConfigureIdpRequest request) {
+        String adminToken = getServiceAccountToken();
+        String alias = "idp-" + tenantCode;
+
+        if (adminToken == null || adminToken.startsWith("mock-")) {
+            log.debug("Mock environment: configured mock IdP [{}] for tenant [{}]", alias, tenantCode);
+            return TenantIdpResponse.builder()
+                    .alias(alias)
+                    .providerId(request.getProviderType().getKeycloakProviderId())
+                    .displayName(request.getDisplayName())
+                    .clientId(request.getClientId())
+                    .emailDomains(List.of(request.getEmailDomain()))
+                    .enabled(true)
+                    .build();
+        }
+
+        try {
+            String idpUrl = properties.adminIdentityProvidersEndpoint();
+            var idpPayload = objectMapper.createObjectNode();
+            idpPayload.put("alias", alias);
+            idpPayload.put("displayName", request.getDisplayName());
+            idpPayload.put("providerId", request.getProviderType().getKeycloakProviderId());
+            idpPayload.put("enabled", true);
+            idpPayload.put("trustEmail", true);
+            idpPayload.put("storeToken", false);
+
+            var configNode = objectMapper.createObjectNode();
+            configNode.put("clientId", request.getClientId());
+            configNode.put("clientSecret", request.getClientSecret());
+            if (request.getDiscoveryUrl() != null && !request.getDiscoveryUrl().isBlank()) {
+                configNode.put("discoveryUrl", request.getDiscoveryUrl().trim());
+            }
+            idpPayload.set("config", configNode);
+
+            try {
+                restClient.post()
+                        .uri(idpUrl)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(objectMapper.writeValueAsString(idpPayload))
+                        .retrieve()
+                        .toBodilessEntity();
+            } catch (RestClientResponseException ex) {
+                if (ex.getStatusCode().value() == 409) {
+                    restClient.put()
+                            .uri(idpUrl + "/" + alias)
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(objectMapper.writeValueAsString(idpPayload))
+                            .retrieve()
+                            .toBodilessEntity();
+                } else {
+                    throw ex;
+                }
+            }
+
+            if (orgId != null && !orgId.isBlank()) {
+                String orgIdpUrl = properties.adminOrganizationsEndpoint() + "/" + orgId + "/identity-providers";
+                var linkPayload = objectMapper.createObjectNode();
+                linkPayload.put("alias", alias);
+
+                try {
+                    restClient.post()
+                            .uri(orgIdpUrl)
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(objectMapper.writeValueAsString(linkPayload))
+                            .retrieve()
+                            .toBodilessEntity();
+                } catch (Exception ex) {
+                    log.debug("Organization IdP link note: {}", ex.getMessage());
+                }
+
+                if (request.getEmailDomain() != null && !request.getEmailDomain().isBlank()) {
+                    String domainUrl = properties.adminOrganizationsEndpoint() + "/" + orgId + "/domains";
+                    var domainPayload = objectMapper.createObjectNode();
+                    domainPayload.put("name", request.getEmailDomain().trim().toLowerCase());
+
+                    try {
+                        restClient.post()
+                                .uri(domainUrl)
+                                .header("Authorization", "Bearer " + adminToken)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .body(objectMapper.writeValueAsString(domainPayload))
+                                .retrieve()
+                                .toBodilessEntity();
+                    } catch (Exception ex) {
+                        log.debug("Organization domain registration note: {}", ex.getMessage());
+                    }
+                }
+            }
+
+            return TenantIdpResponse.builder()
+                    .alias(alias)
+                    .providerId(request.getProviderType().getKeycloakProviderId())
+                    .displayName(request.getDisplayName())
+                    .clientId(request.getClientId())
+                    .emailDomains(List.of(request.getEmailDomain()))
+                    .enabled(true)
+                    .build();
+        } catch (Exception ex) {
+            log.error("Failed to configure external IdP in Keycloak for tenant [{}]: {}", tenantCode, ex.getMessage());
+            throw new AdminException(AdminErrorCode.IDP_CONFIGURATION_FAILED, "Failed to configure Keycloak Identity Provider: " + ex.getMessage());
+        }
+    }
+
+    public TenantIdpResponse getOrganizationIdp(String orgId, String tenantCode) {
+        String adminToken = getServiceAccountToken();
+        String alias = "idp-" + tenantCode;
+
+        if (adminToken == null || adminToken.startsWith("mock-")) {
+            return null;
+        }
+
+        try {
+            String idpUrl = properties.adminIdentityProvidersEndpoint() + "/" + alias;
+            String response = restClient.get()
+                    .uri(idpUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .body(String.class);
+
+            if (response != null && !response.isBlank()) {
+                JsonNode json = objectMapper.readTree(response);
+                String providerId = json.path("providerId").asText("oidc");
+                String displayName = json.path("displayName").asText(alias);
+                boolean enabled = json.path("enabled").asBoolean(true);
+                String clientId = json.path("config").path("clientId").asText("");
+
+                List<String> domains = new ArrayList<>();
+                if (orgId != null && !orgId.isBlank()) {
+                    String domainUrl = properties.adminOrganizationsEndpoint() + "/" + orgId + "/domains";
+                    try {
+                        String domainResp = restClient.get()
+                                .uri(domainUrl)
+                                .header("Authorization", "Bearer " + adminToken)
+                                .retrieve()
+                                .body(String.class);
+                        if (domainResp != null && !domainResp.isBlank()) {
+                            JsonNode domainList = objectMapper.readTree(domainResp);
+                            if (domainList.isArray()) {
+                                for (JsonNode d : domainList) {
+                                    domains.add(d.path("name").asText());
+                                }
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+
+                return TenantIdpResponse.builder()
+                        .alias(alias)
+                        .providerId(providerId)
+                        .displayName(displayName)
+                        .clientId(clientId)
+                        .emailDomains(domains)
+                        .enabled(enabled)
+                        .build();
+            }
+        } catch (Exception ex) {
+            log.debug("IdP [{}] not found or unavailable: {}", alias, ex.getMessage());
+        }
+
+        return null;
+    }
+
+    public void removeOrganizationIdp(String orgId, String tenantCode) {
+        String adminToken = getServiceAccountToken();
+        String alias = "idp-" + tenantCode;
+
+        if (adminToken == null || adminToken.startsWith("mock-")) {
+            return;
+        }
+
+        try {
+            if (orgId != null && !orgId.isBlank()) {
+                String orgIdpUrl = properties.adminOrganizationsEndpoint() + "/" + orgId + "/identity-providers/" + alias;
+                try {
+                    restClient.delete()
+                            .uri(orgIdpUrl)
+                            .header("Authorization", "Bearer " + adminToken)
+                            .retrieve()
+                            .toBodilessEntity();
+                } catch (Exception ignored) {
+                }
+            }
+
+            String idpUrl = properties.adminIdentityProvidersEndpoint() + "/" + alias;
+            restClient.delete()
+                    .uri(idpUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .toBodilessEntity();
+
+            log.info("Successfully deleted Identity Provider [{}] from Keycloak", alias);
+        } catch (Exception ex) {
+            log.warn("Failed to remove Identity Provider [{}]: {}", alias, ex.getMessage());
+            throw new AdminException(AdminErrorCode.IDP_CONFIGURATION_FAILED, "Failed to remove Identity Provider: " + ex.getMessage());
+        }
     }
 }

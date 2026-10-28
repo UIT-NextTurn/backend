@@ -71,4 +71,31 @@ public record KeycloakProperties(
                 authServerUrl.replaceAll("/+$", ""),
                 realm);
     }
+
+    /**
+     * Resolves absolute Keycloak Admin Organizations REST API endpoint (e.g. {@code http://localhost:8180/admin/realms/nextturn/organizations}).
+     */
+    public String adminOrganizationsEndpoint() {
+        return String.format("%s/admin/realms/%s/organizations",
+                authServerUrl.replaceAll("/+$", ""),
+                realm);
+    }
+
+    /**
+     * Resolves absolute Keycloak Admin Clients REST API endpoint (e.g. {@code http://localhost:8180/admin/realms/nextturn/clients}).
+     */
+    public String adminClientsEndpoint() {
+        return String.format("%s/admin/realms/%s/clients",
+                authServerUrl.replaceAll("/+$", ""),
+                realm);
+    }
+
+    /**
+     * Resolves absolute Keycloak Admin Identity Providers REST API endpoint (e.g. {@code http://localhost:8180/admin/realms/nextturn/identity-provider/instances}).
+     */
+    public String adminIdentityProvidersEndpoint() {
+        return String.format("%s/admin/realms/%s/identity-provider/instances",
+                authServerUrl.replaceAll("/+$", ""),
+                realm);
+    }
 }

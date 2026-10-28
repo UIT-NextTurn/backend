@@ -20,6 +20,8 @@ public interface CentralTenantRepository extends JpaRepository<CentralTenant, St
      */
     Optional<CentralTenant> findByTenantCodeIgnoreCaseAndIsDeletedFalse(String tenantCode);
 
+    Optional<CentralTenant> findByTenantCodeAndIsDeletedFalse(String tenantCode);
+
     /**
      * Checks if a tenant exists with the given code and is not soft-deleted.
      *
