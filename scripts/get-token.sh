@@ -89,40 +89,10 @@ if [ "${RAW:-false}" = "true" ]; then
 fi
 
 # Try clipboard copy (macOS pbcopy or Linux xclip)
-COPIED=false
 if command -v pbcopy > /dev/null 2>&1; then
     echo -n "$ACCESS_TOKEN" | pbcopy
-    COPIED=true
 elif command -v xclip > /dev/null 2>&1; then
     echo -n "$ACCESS_TOKEN" | xclip -selection clipboard
-    COPIED=true
 fi
 
-echo ""
-echo "================================================================================"
-echo " [NEXTTURN] Keycloak Token Retrieved Successfully!"
-echo "================================================================================"
-echo " Target Role:    $TARGET_ROLE"
-echo " User:           $TARGET_USER"
-echo " Tenant:         $TENANT"
-echo " Keycloak Realm: $REALM ($KEYCLOAK_URL)"
-echo " Expires In:     ${EXPIRES_IN}s"
-if [ "$COPIED" = "true" ]; then
-    echo " Clipboard:      COPIED TO CLIPBOARD! Ready to paste into Swagger UI (Ctrl+V)"
-else
-    echo " Clipboard:      Copy token below manually."
-fi
-echo "--------------------------------------------------------------------------------"
-echo "Access Token (Bearer):"
-echo "$ACCESS_TOKEN"
-echo "--------------------------------------------------------------------------------"
-echo "How to use in Swagger UI (http://localhost:8080/swagger-ui.html):"
-echo "  1. Open http://localhost:8080/swagger-ui.html in your browser."
-echo "  2. Click the green 'Authorize' button at the top-right."
-echo "  3. Paste the token into 'bearerAuth' (or BearerAuth) and click 'Authorize'."
-echo "  4. Click 'Close'. All protected endpoints will now execute with $TARGET_ROLE role!"
-echo ""
-echo "How to use with cURL:"
-echo "  curl -H \"Authorization: Bearer $ACCESS_TOKEN\" http://localhost:8080/api/v1/auth/staff"
-echo "================================================================================"
-echo ""
+echo "COPIED TO CLIPBOARD!"

@@ -19,28 +19,28 @@ endif
 # ------------------------------------------------------------------------------
 token-admin:
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/get-token.ps1 -Role admin -Username "$(USER)" -Password "$(PASS)" -TenantCode "$(TENANT)"
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/get-token.ps1 -Role admin -Username "$(USER)" -Password "$(PASS)" -TenantCode "$(TENANT)"
 else
-	bash scripts/get-token.sh admin "$(USER)" "$(PASS)"
+	@bash scripts/get-token.sh admin "$(USER)" "$(PASS)"
 endif
 
 token-counter:
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/get-token.ps1 -Role counter -Username "$(USER)" -Password "$(PASS)" -TenantCode "$(TENANT)"
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/get-token.ps1 -Role counter -Username "$(USER)" -Password "$(PASS)" -TenantCode "$(TENANT)"
 else
-	bash scripts/get-token.sh counter "$(USER)" "$(PASS)"
+	@bash scripts/get-token.sh counter "$(USER)" "$(PASS)"
 endif
 
 token-superadmin:
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/get-token.ps1 -Role superadmin -Username "$(USER)" -Password "$(PASS)"
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/get-token.ps1 -Role superadmin -Username "$(USER)" -Password "$(PASS)"
 else
-	bash scripts/get-token.sh superadmin "$(USER)" "$(PASS)"
+	@bash scripts/get-token.sh superadmin "$(USER)" "$(PASS)"
 endif
 
 token:
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/get-token.ps1 -Role "$(ROLE)" -Username "$(USER)" -Password "$(PASS)" -TenantCode "$(TENANT)"
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/get-token.ps1 -Role "$(ROLE)" -Username "$(USER)" -Password "$(PASS)" -TenantCode "$(TENANT)"
 else
-	bash scripts/get-token.sh "$(ROLE)" "$(USER)" "$(PASS)"
+	@bash scripts/get-token.sh "$(ROLE)" "$(USER)" "$(PASS)"
 endif

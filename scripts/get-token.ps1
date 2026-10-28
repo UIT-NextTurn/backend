@@ -323,31 +323,4 @@ if ($Raw) {
     exit 0
 }
 
-Write-Host ""
-Write-Host "================================================================================" -ForegroundColor Cyan
-Write-Host " [NEXTTURN] Keycloak Token Retrieved Successfully!" -ForegroundColor Green
-Write-Host "================================================================================" -ForegroundColor Cyan
-Write-Host " Target Role:    " -NoNewline; Write-Host "$targetRole" -ForegroundColor Yellow
-Write-Host " User:           " -NoNewline; Write-Host "$Username" -ForegroundColor White
-Write-Host " Tenant:         " -NoNewline; Write-Host "$TenantCode" -ForegroundColor White
-Write-Host " Keycloak Realm: " -NoNewline; Write-Host "$Realm ($ServerUrl)" -ForegroundColor Gray
-Write-Host " Expires In:     " -NoNewline; Write-Host "$($expiresIn)s ($([math]::Round($expiresIn/60)) minutes)" -ForegroundColor Gray
-if ($copiedToClipboard) {
-    Write-Host " Clipboard:      " -NoNewline; Write-Host "COPIED TO CLIPBOARD! Ready to paste into Swagger UI (Ctrl+V)" -ForegroundColor Green
-} else {
-    Write-Host " Clipboard:      " -NoNewline; Write-Host "Auto-copy unavailable in current shell. Copy token below manually." -ForegroundColor Yellow
-}
-Write-Host "--------------------------------------------------------------------------------" -ForegroundColor Cyan
-Write-Host "Access Token (Bearer):" -ForegroundColor Magenta
-Write-Host $accessToken -ForegroundColor White
-Write-Host "--------------------------------------------------------------------------------" -ForegroundColor Cyan
-Write-Host "How to use in Swagger UI (http://localhost:8080/swagger-ui.html):" -ForegroundColor Yellow
-Write-Host "  1. Open http://localhost:8080/swagger-ui.html in your browser."
-Write-Host "  2. Click the green 'Authorize' button at the top-right."
-Write-Host "  3. Paste the token into 'bearerAuth' (or BearerAuth) and click 'Authorize'."
-Write-Host "  4. Click 'Close'. All protected endpoints will now execute with $targetRole role!"
-Write-Host ""
-Write-Host "How to use with cURL:" -ForegroundColor Yellow
-Write-Host "  curl -H `"Authorization: Bearer $accessToken`" http://localhost:8080/api/v1/auth/staff"
-Write-Host "================================================================================" -ForegroundColor Cyan
-Write-Host ""
+Write-Host "COPIED TO CLIPBOARD!" -ForegroundColor Green
