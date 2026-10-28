@@ -50,7 +50,7 @@ public class TenantStaffController {
     @PostMapping
     @Operation(
             summary = "Onboard and provision encounter staff member",
-            description = "Creates staff user in Keycloak, assigns COUNTER_STAFF role, links to clinic Organization, and saves to tenant database."
+            description = "Creates staff member in the tenant database. For ADMIN and COUNTER roles, provisions login credentials in Keycloak and binds to the tenant Organization. For SPECIALIST, only stores the internal specialist roster (specialists do not log in)."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Staff created and provisioned successfully",

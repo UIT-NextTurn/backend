@@ -83,19 +83,27 @@ public class TenantStaffService {
         }
 
         StaffRole role = request.getRole() != null ? request.getRole() : StaffRole.COUNTER;
+        String keycloakUserId = null;
 
-        // 1. Provision user in Keycloak IAM
-        String keycloakUserId = keycloakTokenService.createStaffUser(
-                tenantCode,
-                normalizedEmail,
-                request.getFullName(),
-                request.getInitialPassword(),
-                role
-        );
+        // In NextTurn tenant staff management:
+        // - Only ADMIN and COUNTER have login access via Keycloak.
+        // - SPECIALIST is internal roster-only (danh sách chuyên gia); no Keycloak user is created.
+        if (role != StaffRole.SPECIALIST) {
+            // 1. Provision user in Keycloak IAM
+            keycloakUserId = keycloakTokenService.createStaffUser(
+                    tenantCode,
+                    normalizedEmail,
+                    request.getFullName(),
+                    request.getInitialPassword(),
+                    role
+            );
 
-        // 2. Associate with Keycloak Organization
-        if (orgId != null && keycloakUserId != null) {
-            keycloakTokenService.addMemberToOrganization(orgId, keycloakUserId);
+            // 2. Associate with Keycloak Organization
+            if (orgId != null && keycloakUserId != null) {
+                keycloakTokenService.addMemberToOrganization(orgId, keycloakUserId);
+            }
+        } else {
+            log.info("Staff member [{}] is a SPECIALIST. Storing in tenant roster only (no Keycloak login account created)", normalizedEmail);
         }
 
         // 3. Generate badge code (e.g. STF-A8C2D1)
@@ -147,7 +155,7 @@ public class TenantStaffService {
      */
     @Transactional
     public StaffResponse updateStaff(String staffId, UpdateStaffRequest request) {
-        resolveCurrentTenantCode();
+        String tenantCode = resolveCurrentTenantCode();
         TenantStaff staff = staffRepository.findByIdAndIsDeletedFalse(staffId)
                 .orElseThrow(() -> new AdminException(AdminErrorCode.STAFF_USER_NOT_FOUND, "Staff member not found with ID: " + staffId));
 
@@ -163,8 +171,41 @@ public class TenantStaffService {
             staff.setPhoneNumber(newPhone);
         }
 
-        if (request.getRole() != null) {
-            staff.setRole(request.getRole());
+        if (request.getRole() != null && request.getRole() != staff.getRole()) {
+            StaffRole oldRole = staff.getRole();
+            StaffRole newRole = request.getRole();
+            staff.setRole(newRole);
+
+            CentralTenant tenant = resolveCentralTenant(tenantCode);
+
+            // Upgraded from roster-only specialist to interactive login role -> provision Keycloak user
+            if (oldRole == StaffRole.SPECIALIST && (newRole == StaffRole.COUNTER || newRole == StaffRole.ADMIN)) {
+                if (staff.getKeycloakUserId() == null) {
+                    String orgId = tenant.getOrganisationId();
+                    if (orgId == null || orgId.isBlank()) {
+                        orgId = keycloakTokenService.ensureOrganizationExists(tenantCode, tenant.getTenantName());
+                        tenant.setOrganisationId(orgId);
+                        centralTenantRepository.save(tenant);
+                    }
+                    String keycloakUserId = keycloakTokenService.createStaffUser(
+                            tenantCode,
+                            staff.getEmail(),
+                            staff.getFullName(),
+                            null,
+                            newRole
+                    );
+                    if (orgId != null && keycloakUserId != null) {
+                        keycloakTokenService.addMemberToOrganization(orgId, keycloakUserId);
+                    }
+                    staff.setKeycloakUserId(keycloakUserId);
+                }
+            } else if ((oldRole == StaffRole.COUNTER || oldRole == StaffRole.ADMIN) && newRole == StaffRole.SPECIALIST) {
+                // Downgraded to specialist roster-only -> remove Keycloak login identity
+                if (staff.getKeycloakUserId() != null) {
+                    keycloakTokenService.deleteStaffUserInKeycloak(tenant.getOrganisationId(), staff.getKeycloakUserId());
+                    staff.setKeycloakUserId(null);
+                }
+            }
         }
 
         if (request.getStatus() != null && request.getStatus() != staff.getStatus()) {

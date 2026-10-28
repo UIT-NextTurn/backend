@@ -34,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -208,5 +209,94 @@ class TenantStaffServiceTest {
         assertThat(staff.getStatus()).isEqualTo(StaffStatus.INACTIVE);
         verify(keycloakTokenService).deleteStaffUserInKeycloak(ORG_ID, "kc-user-uuid-1");
         verify(staffRepository).save(staff);
+    }
+
+    @Test
+    @DisplayName("Should create specialist staff in roster without creating Keycloak user")
+    void shouldCreateSpecialistStaffInRosterWithoutKeycloakUser() {
+        CreateStaffRequest request = CreateStaffRequest.builder()
+                .fullName("Dr. Specialist Nguyen")
+                .email("specialist@clinic.vn")
+                .phoneNumber("+84909999888")
+                .role(StaffRole.SPECIALIST)
+                .build();
+
+        when(staffRepository.existsByEmailAndIsDeletedFalse("specialist@clinic.vn")).thenReturn(false);
+        when(staffRepository.existsByPhoneNumberAndIsDeletedFalse("+84909999888")).thenReturn(false);
+        when(centralTenantRepository.findByTenantCodeAndIsDeletedFalse(TENANT_CODE)).thenReturn(Optional.of(mockTenant));
+        when(staffRepository.save(any(TenantStaff.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        StaffResponse response = staffService.createStaff(request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getFullName()).isEqualTo("Dr. Specialist Nguyen");
+        assertThat(response.getEmail()).isEqualTo("specialist@clinic.vn");
+        assertThat(response.getRole()).isEqualTo(StaffRole.SPECIALIST);
+        assertThat(response.getStatus()).isEqualTo(StaffStatus.ACTIVE);
+        assertThat(response.getKeycloakUserId()).isNull();
+
+        verify(keycloakTokenService, never()).createStaffUser(any(), any(), any(), any(), any());
+        verify(keycloakTokenService, never()).addMemberToOrganization(any(), any());
+        verify(staffRepository).save(any(TenantStaff.class));
+    }
+
+    @Test
+    @DisplayName("Should provision Keycloak user when specialist is promoted to counter staff")
+    void shouldProvisionKeycloakWhenSpecialistPromotedToCounter() {
+        TenantStaff staff = TenantStaff.builder()
+                .id("specialist-1")
+                .staffCode("STF-000009")
+                .keycloakUserId(null)
+                .fullName("Dr. Promotee")
+                .email("promotee@clinic.vn")
+                .phoneNumber("+84901112233")
+                .role(StaffRole.SPECIALIST)
+                .status(StaffStatus.ACTIVE)
+                .build();
+
+        when(staffRepository.findByIdAndIsDeletedFalse("specialist-1")).thenReturn(Optional.of(staff));
+        when(centralTenantRepository.findByTenantCodeAndIsDeletedFalse(TENANT_CODE)).thenReturn(Optional.of(mockTenant));
+        when(keycloakTokenService.createStaffUser(eq(TENANT_CODE), eq("promotee@clinic.vn"), eq("Dr. Promotee"), eq(null), eq(StaffRole.COUNTER)))
+                .thenReturn("kc-promoted-uuid");
+        when(staffRepository.save(any(TenantStaff.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UpdateStaffRequest updateRequest = UpdateStaffRequest.builder()
+                .role(StaffRole.COUNTER)
+                .build();
+
+        StaffResponse response = staffService.updateStaff("specialist-1", updateRequest);
+
+        assertThat(response.getRole()).isEqualTo(StaffRole.COUNTER);
+        assertThat(response.getKeycloakUserId()).isEqualTo("kc-promoted-uuid");
+        verify(keycloakTokenService).addMemberToOrganization(ORG_ID, "kc-promoted-uuid");
+    }
+
+    @Test
+    @DisplayName("Should remove Keycloak user when counter staff is reassigned to specialist roster-only")
+    void shouldRemoveKeycloakWhenCounterReassignedToSpecialist() {
+        TenantStaff staff = TenantStaff.builder()
+                .id("counter-1")
+                .staffCode("STF-000008")
+                .keycloakUserId("kc-counter-uuid")
+                .fullName("Counter Staff A")
+                .email("counter.a@clinic.vn")
+                .phoneNumber("+84902223344")
+                .role(StaffRole.COUNTER)
+                .status(StaffStatus.ACTIVE)
+                .build();
+
+        when(staffRepository.findByIdAndIsDeletedFalse("counter-1")).thenReturn(Optional.of(staff));
+        when(centralTenantRepository.findByTenantCodeAndIsDeletedFalse(TENANT_CODE)).thenReturn(Optional.of(mockTenant));
+        when(staffRepository.save(any(TenantStaff.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UpdateStaffRequest updateRequest = UpdateStaffRequest.builder()
+                .role(StaffRole.SPECIALIST)
+                .build();
+
+        StaffResponse response = staffService.updateStaff("counter-1", updateRequest);
+
+        assertThat(response.getRole()).isEqualTo(StaffRole.SPECIALIST);
+        assertThat(response.getKeycloakUserId()).isNull();
+        verify(keycloakTokenService).deleteStaffUserInKeycloak(ORG_ID, "kc-counter-uuid");
     }
 }

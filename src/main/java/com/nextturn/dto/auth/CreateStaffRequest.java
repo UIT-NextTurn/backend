@@ -35,9 +35,9 @@ public class CreateStaffRequest {
     private String phoneNumber;
 
     @Builder.Default
-    @Schema(description = "Operational role within the clinic", example = "COUNTER", allowableValues = {"COUNTER", "SPECIALIST", "ADMIN"})
+    @Schema(description = "Operational role within clinic. ADMIN and COUNTER have login access; SPECIALIST is roster-only (no Keycloak account created).", example = "COUNTER", allowableValues = {"COUNTER", "SPECIALIST", "ADMIN"})
     private StaffRole role = StaffRole.COUNTER;
 
-    @Schema(description = "Optional initial temporary password. If omitted, Keycloak triggers an email invite with password setup.", example = "TempP@ssw0rd123!")
+    @Schema(description = "Optional initial temporary password. Only applicable for ADMIN or COUNTER roles with login access.", example = "TempP@ssw0rd123!")
     private String initialPassword;
 }

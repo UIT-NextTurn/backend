@@ -637,6 +637,11 @@ public class KeycloakTokenService {
      * @return Keycloak internal user ID
      */
     public String createStaffUser(String tenantCode, String email, String fullName, String password, StaffRole role) {
+        if (role == StaffRole.SPECIALIST) {
+            log.info("Role SPECIALIST is internal roster-only; skipping Keycloak user provisioning for [{}]", email);
+            return null;
+        }
+
         String adminToken = getServiceAccountToken();
         if (adminToken == null || adminToken.startsWith("mock-")) {
             log.debug("Mock environment: returning mock staff user ID for [{}]", email);
