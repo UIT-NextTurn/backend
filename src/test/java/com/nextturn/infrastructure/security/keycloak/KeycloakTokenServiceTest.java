@@ -1,7 +1,7 @@
 package com.nextturn.infrastructure.security.keycloak;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nextturn.dto.AuthTokenResponse;
+import com.nextturn.dto.auth.AuthTokenResponse;
 import com.nextturn.enums.UserRole;
 import com.nextturn.exception.auth.AuthErrorCode;
 import com.nextturn.exception.auth.AuthException;

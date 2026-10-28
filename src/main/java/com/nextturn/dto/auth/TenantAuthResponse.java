@@ -1,4 +1,4 @@
-package com.nextturn.dto;
+package com.nextturn.dto.auth;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;

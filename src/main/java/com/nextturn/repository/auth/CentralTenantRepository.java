@@ -1,4 +1,4 @@
-package com.nextturn.repository;
+package com.nextturn.repository.auth;
 
 import com.nextturn.entity.CentralTenant;
 import org.springframework.data.jpa.repository.JpaRepository;

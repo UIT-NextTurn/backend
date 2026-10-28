@@ -1,4 +1,4 @@
-package com.nextturn.dto;
+package com.nextturn.dto.auth;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;

@@ -1,8 +1,11 @@
-package com.nextturn.controller;
+package com.nextturn.controller.auth;
 
 import com.nextturn.config.CorsConfig;
-import com.nextturn.dto.TenantAuthRequest;
-import com.nextturn.dto.TenantAuthResponse;
+import com.nextturn.config.ScalarConfig;
+import com.nextturn.dto.auth.AuthTokenResponse;
+import com.nextturn.dto.auth.TenantAuthRequest;
+import com.nextturn.dto.auth.TenantAuthResponse;
+import com.nextturn.dto.auth.TokenExchangeRequest;
 import com.nextturn.exception.AppException;
 import com.nextturn.exception.GlobalExceptionHandler;
 import com.nextturn.exception.auth.AuthErrorCode;
@@ -15,7 +18,7 @@ import com.nextturn.infrastructure.security.keycloak.KeycloakJwtAuthenticationCo
 import com.nextturn.infrastructure.security.keycloak.KeycloakJwtGrantedAuthoritiesConverter;
 import com.nextturn.infrastructure.security.principal.CurrentUserArgumentResolver;
 import com.nextturn.infrastructure.security.service.SecurityContextHelper;
-import com.nextturn.service.TenantAuthService;
+import com.nextturn.service.auth.TenantAuthService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,9 +35,8 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import com.nextturn.config.ScalarConfig;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -231,7 +233,7 @@ class TenantAuthControllerTest {
     @Test
     @DisplayName("POST /api/v1/auth/token should exchange code and return 200 with AuthTokenResponse")
     void shouldExchangeCodeSuccessfully() throws Exception {
-        com.nextturn.dto.AuthTokenResponse tokenResponse = com.nextturn.dto.AuthTokenResponse.builder()
+        AuthTokenResponse tokenResponse = AuthTokenResponse.builder()
                 .accessToken("mock-access-token")
                 .refreshToken("mock-refresh-token")
                 .primaryRole("TENANT_ADMIN")
@@ -240,7 +242,7 @@ class TenantAuthControllerTest {
                 .targetDashboardUrl("/tenant/dashboard")
                 .build();
 
-        when(tenantAuthService.exchangeAuthorizationCode(any(com.nextturn.dto.TokenExchangeRequest.class)))
+        when(tenantAuthService.exchangeAuthorizationCode(any(TokenExchangeRequest.class)))
                 .thenReturn(tokenResponse);
 
         String requestJson = """

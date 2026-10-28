@@ -1,4 +1,4 @@
-package com.nextturn.dto;
+package com.nextturn.dto.auth;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -45,10 +45,10 @@ public class AuthTokenResponse {
     @Schema(description = "Authenticated user email", example = "admin@clinic.vn")
     private String email;
 
-    @Schema(description = "List of verified application client roles (SUPERADMIN, TENANT_ADMIN, COUNTER_STAFF)")
+    @Schema(description = "List of verified application client roles (SUPERADMIN, TENANT_ADMIN, COUNTER_STAFF, END_USER)")
     private List<String> roles;
 
-    @Schema(description = "Highest precedence role (SUPERADMIN > TENANT_ADMIN > COUNTER_STAFF)", example = "TENANT_ADMIN")
+    @Schema(description = "Highest precedence role (SUPERADMIN > TENANT_ADMIN > COUNTER_STAFF > END_USER)", example = "TENANT_ADMIN")
     private String primaryRole;
 
     @Schema(description = "Tenant identifier / code if user is affiliated with a facility", example = "clinic_sai_gon")

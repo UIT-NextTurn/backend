@@ -1,25 +1,22 @@
-package com.nextturn.service;
+package com.nextturn.service.auth;
 
-import com.nextturn.dto.TenantAuthRequest;
-import com.nextturn.dto.TenantAuthResponse;
+import com.nextturn.dto.auth.AuthTokenResponse;
+import com.nextturn.dto.auth.RefreshTokenRequest;
+import com.nextturn.dto.auth.TenantAuthRequest;
+import com.nextturn.dto.auth.TenantAuthResponse;
+import com.nextturn.dto.auth.TokenExchangeRequest;
 import com.nextturn.entity.CentralTenant;
 import com.nextturn.enums.TenantStatus;
 import com.nextturn.enums.UserRole;
-import com.nextturn.exception.AppException;
 import com.nextturn.exception.auth.AuthErrorCode;
 import com.nextturn.exception.auth.AuthException;
 import com.nextturn.helper.KeycloakAuthHelper;
-import com.nextturn.repository.CentralTenantRepository;
+import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
+import com.nextturn.repository.auth.CentralTenantRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import com.nextturn.dto.AuthTokenResponse;
-import com.nextturn.dto.RefreshTokenRequest;
-import com.nextturn.dto.TokenExchangeRequest;
-import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
 
 import java.util.List;
 
