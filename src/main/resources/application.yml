@@ -7,6 +7,9 @@ server:
 spring:
   application:
     name: nextturn-backend
+  threads:
+    virtual:
+      enabled: ${SPRING_THREADS_VIRTUAL_ENABLED:true}
   config:
     import:
       - optional:file:.env[.properties]
