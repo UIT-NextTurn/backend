@@ -1,5 +1,6 @@
 package com.nextturn.infrastructure.security.keycloak;
 
+import com.nextturn.constant.KeycloakClaimConstant;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -22,12 +23,12 @@ import java.util.Set;
 @Component
 public class KeycloakJwtGrantedAuthoritiesConverter implements Converter<Jwt, Collection<GrantedAuthority>> {
 
-    private static final String DEFAULT_CLIENT_ID = "nextturn-backend";
-    private static final String RESOURCE_ACCESS_CLAIM = "resource_access";
-    private static final String REALM_ACCESS_CLAIM = "realm_access";
-    private static final String ROLES_CLAIM = "roles";
-    private static final String AZP_CLAIM = "azp";
-    private static final String ROLE_PREFIX = "ROLE_";
+    private static final String DEFAULT_CLIENT_ID = KeycloakClaimConstant.DEFAULT_CLIENT_ID;
+    private static final String RESOURCE_ACCESS_CLAIM = KeycloakClaimConstant.RESOURCE_ACCESS_CLAIM;
+    private static final String REALM_ACCESS_CLAIM = KeycloakClaimConstant.REALM_ACCESS_CLAIM;
+    private static final String ROLES_CLAIM = KeycloakClaimConstant.ROLES_CLAIM;
+    private static final String AZP_CLAIM = KeycloakClaimConstant.AZP_CLAIM;
+    private static final String ROLE_PREFIX = KeycloakClaimConstant.ROLE_PREFIX;
 
     private final JwtGrantedAuthoritiesConverter defaultScopesConverter = new JwtGrantedAuthoritiesConverter();
     private final KeycloakProperties keycloakProperties;

@@ -1,5 +1,6 @@
 package com.nextturn.helper;
-
+ 
+import com.nextturn.constant.OAuth2Constant;
 import com.nextturn.entity.CentralTenant;
 import com.nextturn.infrastructure.security.keycloak.KeycloakProperties;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,18 +59,18 @@ public class KeycloakAuthHelper {
         String authEndpoint = keycloakProperties.authEndpoint();
 
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(authEndpoint)
-                .queryParam("client_id", keycloakProperties.clientId())
-                .queryParam("response_type", "code")
-                .queryParam("scope", "openid organization")
-                .queryParam("redirect_uri", defaultRedirectUri);
+                .queryParam(OAuth2Constant.PARAM_CLIENT_ID, keycloakProperties.clientId())
+                .queryParam(OAuth2Constant.PARAM_RESPONSE_TYPE, OAuth2Constant.RESPONSE_TYPE_CODE)
+                .queryParam(OAuth2Constant.PARAM_SCOPE, OAuth2Constant.SCOPE_OPENID_ORGANIZATION)
+                .queryParam(OAuth2Constant.PARAM_REDIRECT_URI, defaultRedirectUri);
 
         if (tenantCode != null && !tenantCode.isBlank()) {
-            builder.queryParam("tenant_code", tenantCode.trim());
+            builder.queryParam(OAuth2Constant.PARAM_TENANT_CODE, tenantCode.trim());
         }
 
         // When Keycloak Organization feature is linked, pass organization parameter
         if (organisationId != null && !organisationId.isBlank()) {
-            builder.queryParam("organization", organisationId.trim());
+            builder.queryParam(OAuth2Constant.PARAM_ORGANIZATION, organisationId.trim());
         }
 
         return builder.toUriString();
@@ -85,10 +86,10 @@ public class KeycloakAuthHelper {
         String authEndpoint = keycloakProperties.authEndpoint();
 
         return UriComponentsBuilder.fromUriString(authEndpoint)
-                .queryParam("client_id", keycloakProperties.clientId())
-                .queryParam("response_type", "code")
-                .queryParam("scope", "openid")
-                .queryParam("redirect_uri", defaultRedirectUri)
+                .queryParam(OAuth2Constant.PARAM_CLIENT_ID, keycloakProperties.clientId())
+                .queryParam(OAuth2Constant.PARAM_RESPONSE_TYPE, OAuth2Constant.RESPONSE_TYPE_CODE)
+                .queryParam(OAuth2Constant.PARAM_SCOPE, OAuth2Constant.SCOPE_OPENID)
+                .queryParam(OAuth2Constant.PARAM_REDIRECT_URI, defaultRedirectUri)
                 .toUriString();
     }
 
