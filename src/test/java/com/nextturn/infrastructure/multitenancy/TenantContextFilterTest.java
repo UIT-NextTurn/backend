@@ -8,6 +8,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -19,6 +20,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.fail;
 
 class TenantContextFilterTest {
 
@@ -140,6 +142,89 @@ class TenantContextFilterTest {
         filter.doFilter(request, response, (req, res) -> captured.set(TenantContextHolder.getTenantCode()));
 
         assertThat(captured.get()).isEqualTo("header_tenant_xyz");
+        assertThat(TenantContextHolder.getTenantCode()).isNull();
+    }
+
+    @Test
+    @DisplayName("Should return 403 Forbidden when tenant caller provides conflicting X-Tenant-Code header")
+    void shouldBlockCrossTenantAccessWhenHeaderConflictsWithJwt() throws ServletException, IOException {
+        Jwt jwt = Jwt.withTokenValue("mock-token")
+                .header("alg", "RS256")
+                .issuer("http://ryan-a1:8180/realms/nextturn")
+                .subject("admin-shop-b")
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(300))
+                .claim("tenant_code", "shop-b")
+                .build();
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new JwtAuthenticationToken(jwt, Collections.singletonList(new SimpleGrantedAuthority("ROLE_TENANT_ADMIN")), "admin-shop-b")
+        );
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/auth/staff");
+        request.addHeader("X-Tenant-Code", "spa-a");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, (req, res) -> {
+            fail("Filter chain should NOT be called on cross-tenant violation");
+        });
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("ADMIN_002");
+        assertThat(response.getContentAsString()).contains("Cross-tenant access is strictly prohibited");
+        assertThat(TenantContextHolder.getTenantCode()).isNull();
+    }
+
+    @Test
+    @DisplayName("Should allow SUPERADMIN to route to any tenant using X-Tenant-Code header")
+    void shouldAllowSuperAdminToRouteViaHeader() throws ServletException, IOException {
+        Jwt jwt = Jwt.withTokenValue("mock-token")
+                .header("alg", "RS256")
+                .issuer("http://ryan-a1:8180/realms/nextturn")
+                .subject("superadmin")
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(300))
+                .build();
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new JwtAuthenticationToken(jwt, Collections.singletonList(new SimpleGrantedAuthority("ROLE_SUPERADMIN")), "superadmin")
+        );
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/auth/staff");
+        request.addHeader("X-Tenant-Code", "spa-a");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        AtomicReference<String> captured = new AtomicReference<>();
+        filter.doFilter(request, response, (req, res) -> captured.set(TenantContextHolder.getTenantCode()));
+
+        assertThat(captured.get()).isEqualTo("spa-a");
+        assertThat(TenantContextHolder.getTenantCode()).isNull();
+    }
+
+    @Test
+    @DisplayName("Should allow tenant user when X-Tenant-Code matches their JWT tenant_code")
+    void shouldAllowMatchingTenantHeader() throws ServletException, IOException {
+        Jwt jwt = Jwt.withTokenValue("mock-token")
+                .header("alg", "RS256")
+                .issuer("http://ryan-a1:8180/realms/nextturn")
+                .subject("admin-spa-a")
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(300))
+                .claim("tenant_code", "spa-a")
+                .build();
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new JwtAuthenticationToken(jwt, Collections.singletonList(new SimpleGrantedAuthority("ROLE_TENANT_ADMIN")), "admin-spa-a")
+        );
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/auth/staff");
+        request.addHeader("X-Tenant-Code", "spa-a");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        AtomicReference<String> captured = new AtomicReference<>();
+        filter.doFilter(request, response, (req, res) -> captured.set(TenantContextHolder.getTenantCode()));
+
+        assertThat(captured.get()).isEqualTo("spa-a");
         assertThat(TenantContextHolder.getTenantCode()).isNull();
     }
 }

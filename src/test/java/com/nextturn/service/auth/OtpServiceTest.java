@@ -1,14 +1,27 @@
 package com.nextturn.service.auth;
 
+import com.nextturn.constant.ValkeyKeyConstant;
 import com.nextturn.dto.auth.CustomerOtpResponse;
 import com.nextturn.exception.auth.AuthErrorCode;
 import com.nextturn.exception.auth.AuthException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
+
+import java.time.Duration;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class OtpServiceTest {
 
@@ -94,26 +107,26 @@ class OtpServiceTest {
     @DisplayName("Should persist and verify OTP via StringRedisTemplate when Valkey is available")
     @SuppressWarnings("unchecked")
     void shouldPersistAndVerifyOtpViaValkey() {
-        org.springframework.data.redis.core.StringRedisTemplate mockRedis = org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class);
-        org.springframework.data.redis.core.ValueOperations<String, String> mockOps = org.mockito.Mockito.mock(org.springframework.data.redis.core.ValueOperations.class);
-        org.mockito.Mockito.when(mockRedis.opsForValue()).thenReturn(mockOps);
+        StringRedisTemplate mockRedis = mock(StringRedisTemplate.class);
+        ValueOperations<String, String> mockOps = mock(ValueOperations.class);
+        when(mockRedis.opsForValue()).thenReturn(mockOps);
 
         OtpService valkeyOtpService = new OtpService(mockRedis, 300, 3);
         valkeyOtpService.generateAndSendOtp("valkey@example.com", false);
 
-        org.mockito.Mockito.verify(mockOps).set(
-                org.mockito.ArgumentMatchers.eq(com.nextturn.constant.ValkeyKeyConstant.otpCodeKey("valkey@example.com")),
-                org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.any(java.time.Duration.class)
+        verify(mockOps).set(
+                eq(ValkeyKeyConstant.otpCodeKey("valkey@example.com")),
+                anyString(),
+                any(Duration.class)
         );
 
         // Mock successful lookup
-        org.mockito.Mockito.when(mockOps.get(com.nextturn.constant.ValkeyKeyConstant.otpCodeKey("valkey@example.com"))).thenReturn("654321");
-        org.mockito.Mockito.when(mockOps.get(com.nextturn.constant.ValkeyKeyConstant.otpAttemptsKey("valkey@example.com"))).thenReturn("0");
+        when(mockOps.get(ValkeyKeyConstant.otpCodeKey("valkey@example.com"))).thenReturn("654321");
+        when(mockOps.get(ValkeyKeyConstant.otpAttemptsKey("valkey@example.com"))).thenReturn("0");
 
         valkeyOtpService.verifyOtp("valkey@example.com", "654321");
 
-        org.mockito.Mockito.verify(mockRedis).delete(org.mockito.ArgumentMatchers.anyList());
+        verify(mockRedis).delete(anyList());
     }
 
     private OtpService.OtpRecord getRecord(String email) {
@@ -121,7 +134,7 @@ class OtpServiceTest {
             var field = OtpService.class.getDeclaredField("otpStore");
             field.setAccessible(true);
             @SuppressWarnings("unchecked")
-            var map = (java.util.Map<String, OtpService.OtpRecord>) field.get(otpService);
+            var map = (Map<String, OtpService.OtpRecord>) field.get(otpService);
             return map.get(email.toLowerCase());
         } catch (Exception e) {
             throw new RuntimeException(e);

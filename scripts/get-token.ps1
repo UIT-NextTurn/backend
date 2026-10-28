@@ -24,7 +24,7 @@ param(
     [Parameter(Position = 2)]
     [string]$Password = "",
 
-    [string]$TenantCode = "shop-b",
+    [string]$TenantCode = "",
     [string]$ServerUrl = "",
     [string]$ClientId = "",
     [string]$ClientSecret = "",
@@ -85,29 +85,38 @@ if (-not $Realm) {
 $normalizedRole = $Role.ToLower()
 $targetRole = ""
 $defaultUser = ""
-$scope = "openid profile email"
+$scope = "openid"
+
+# Dynamically infer TenantCode from Username pattern if not explicitly passed
+if (-not $TenantCode -and $Username) {
+    if ($Username -match "^(?:admin|counter|staff)[-_]([a-zA-Z0-9_-]+)$") {
+        $TenantCode = $Matches[1]
+    } elseif ($Username -match "@([a-zA-Z0-9_-]+)\.[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)?$") {
+        $TenantCode = $Matches[1]
+    }
+}
 
 switch -Regex ($normalizedRole) {
     "^(admin|tenant_admin)$" {
         $targetRole = "TENANT_ADMIN"
-        $defaultUser = "admin@shop-b.internal"
+        $defaultUser = "admin@$TenantCode.internal"
         $scope = "openid"
     }
     "^(counter|counter_staff)$" {
         $targetRole = "COUNTER_STAFF"
-        $defaultUser = "counter01@shop-b.internal"
+        $defaultUser = "counter01@$TenantCode.internal"
         $scope = "openid"
     }
     "^superadmin$" {
         $targetRole = "SUPERADMIN"
         $defaultUser = "superadmin@nextturn.com"
+        $TenantCode = ""
         $scope = "openid"
     }
 }
 
 if (-not $Username) { $Username = $defaultUser }
 if (-not $Password) { $Password = "Nextturn123!@#" }
-if (-not $TenantCode) { $TenantCode = "shop-b" }
 
 # ------------------------------------------------------------------------------
 # 3. Test Keycloak Reachability (fallback from ryan-a1 to localhost if needed)
@@ -261,30 +270,52 @@ function Ensure-UserAndRole() {
                 Invoke-RestMethod -Uri $mappersUri -Method Post -Headers $headers -Body $mapperPayload -ErrorAction SilentlyContinue | Out-Null
             }
 
-            # 4.3 Search for User
-            $usersUri = "$ServerUrl/admin/realms/$Realm/users?email=$([System.Web.HttpUtility]::UrlEncode($Username))&exact=true"
+            # 4.3 Search for User (first by username, then by email)
+            $usersUri = "$ServerUrl/admin/realms/$Realm/users?username=$([System.Web.HttpUtility]::UrlEncode($Username))&exact=true"
             $userList = Invoke-RestMethod -Uri $usersUri -Method Get -Headers $headers -ErrorAction SilentlyContinue
+            if (-not $userList -or $userList.Count -eq 0) {
+                $usersUri = "$ServerUrl/admin/realms/$Realm/users?email=$([System.Web.HttpUtility]::UrlEncode($Username))&exact=true"
+                $userList = Invoke-RestMethod -Uri $usersUri -Method Get -Headers $headers -ErrorAction SilentlyContinue
+            }
 
-            $userUuid = $null
             if ($userList -and $userList.Count -gt 0) {
                 $userUuid = $userList[0].id
-                # Ensure user has tenant_code attribute
                 $existingUser = $userList[0]
-                $existingUser | Add-Member -MemberType NoteProperty -Name "attributes" -Value @{ tenant_code = @($TenantCode) } -Force
-                $userUpdateJson = $existingUser | ConvertTo-Json -Depth 10
-                Invoke-RestMethod -Uri "$ServerUrl/admin/realms/$Realm/users/$userUuid" -Method Put -Headers $headers -Body $userUpdateJson -ErrorAction SilentlyContinue | Out-Null
+                $needsUpdate = $false
+
+                if ($TenantCode) {
+                    $existingUser | Add-Member -MemberType NoteProperty -Name "attributes" -Value @{ tenant_code = @($TenantCode) } -Force
+                    $needsUpdate = $true
+                }
+                if ($existingUser.requiredActions -and $existingUser.requiredActions.Count -gt 0) {
+                    $existingUser.requiredActions = @()
+                    $existingUser.emailVerified = $true
+                    $needsUpdate = $true
+                }
+                if ($needsUpdate) {
+                    $userUpdateJson = $existingUser | ConvertTo-Json -Depth 10
+                    Invoke-RestMethod -Uri "$ServerUrl/admin/realms/$Realm/users/$userUuid" -Method Put -Headers $headers -Body $userUpdateJson -ErrorAction SilentlyContinue | Out-Null
+                }
+
+                # Sync/reset password to match provided parameter
+                if ($Password) {
+                    $pwdPayload = @{
+                        type      = "password"
+                        value     = $Password
+                        temporary = $false
+                    } | ConvertTo-Json
+                    Invoke-RestMethod -Uri "$ServerUrl/admin/realms/$Realm/users/$userUuid/reset-password" -Method Put -Headers $headers -Body $pwdPayload -ErrorAction SilentlyContinue | Out-Null
+                }
             } else {
                 # Create user
                 $newUser = @{
                     username      = $Username
-                    email         = $Username
+                    email         = (if ($Username.Contains("@")) { $Username } else { "$Username@$TenantCode.internal" })
                     enabled       = $true
                     emailVerified = $true
                     firstName     = ($Username.Split('@')[0])
                     lastName      = $targetRole
-                    attributes    = @{
-                        tenant_code = @($TenantCode)
-                    }
+                    attributes    = (if ($TenantCode) { @{ tenant_code = @($TenantCode) } } else { @{} })
                     credentials   = @(
                         @{
                             type      = "password"

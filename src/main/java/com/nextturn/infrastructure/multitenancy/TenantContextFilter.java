@@ -1,13 +1,23 @@
 package com.nextturn.infrastructure.multitenancy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.nextturn.constant.TenantClaimConstant;
 import com.nextturn.constant.TenantHeaderConstant;
+import com.nextturn.dto.BaseResponse;
+import com.nextturn.exception.admin.AdminErrorCode;
+import com.nextturn.exception.admin.AdminException;
+import com.nextturn.repository.auth.CentralTenantRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.lang.NonNull;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -17,6 +27,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Collection;
 import java.util.Map;
 
 /**
@@ -40,17 +52,30 @@ public class TenantContextFilter extends OncePerRequestFilter {
     public static final String X_TENANT_CODE_HEADER = TenantHeaderConstant.X_TENANT_CODE_HEADER;
     public static final String X_TENANT_ID_HEADER = TenantHeaderConstant.X_TENANT_ID_HEADER;
 
-    private final com.nextturn.repository.auth.CentralTenantRepository centralTenantRepository;
+    private final CentralTenantRepository centralTenantRepository;
+    private final ObjectMapper objectMapper;
 
     public TenantContextFilter(
-            @org.springframework.beans.factory.annotation.Autowired(required = false)
-            com.nextturn.repository.auth.CentralTenantRepository centralTenantRepository
+            @Autowired(required = false)
+            CentralTenantRepository centralTenantRepository,
+            @Autowired(required = false)
+            ObjectMapper objectMapper
     ) {
         this.centralTenantRepository = centralTenantRepository;
+        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper()
+                .registerModule(new JavaTimeModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    }
+
+    public TenantContextFilter(
+            @Autowired(required = false)
+            CentralTenantRepository centralTenantRepository
+    ) {
+        this(centralTenantRepository, null);
     }
 
     public TenantContextFilter() {
-        this(null);
+        this(null, null);
     }
 
     @Override
@@ -66,20 +91,49 @@ public class TenantContextFilter extends OncePerRequestFilter {
                 log.debug("Bound tenant context: [{}] for URI: [{}]", tenantCode, request.getRequestURI());
             }
             filterChain.doFilter(request, response);
+        } catch (AdminException ex) {
+            log.warn("Multi-tenant security violation for URI [{}]: {}", request.getRequestURI(), ex.getMessage());
+            handleCrossTenantException(response, ex);
         } finally {
             TenantContextHolder.clear();
             log.trace("Cleared tenant context for URI: [{}]", request.getRequestURI());
         }
     }
 
+    private void handleCrossTenantException(HttpServletResponse response, AdminException ex) throws IOException {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+
+        BaseResponse<Object> errorResponse = BaseResponse.error(
+                HttpStatus.FORBIDDEN.value(),
+                ex.getMessage(),
+                ex.getCode()
+        );
+        objectMapper.writeValue(response.getWriter(), errorResponse);
+    }
+
     /**
-     * Resolves the tenant code from the active SecurityContext JWT or fallback headers.
+     * Resolves the tenant code from the active SecurityContext JWT or fallback headers,
+     * strictly enforcing tenant boundary checks.
      *
      * @param request the current HTTP servlet request
      * @return the extracted tenant code, or {@code null} if none is found
      */
     protected String resolveTenantCode(HttpServletRequest request) {
-        // 1. Extract from active SecurityContext authentication
+        // 1. Extract header tenant
+        String headerTenant = request.getHeader(X_TENANT_CODE_HEADER);
+        if (headerTenant == null || headerTenant.isBlank()) {
+            headerTenant = request.getHeader(X_TENANT_ID_HEADER);
+        }
+        if (headerTenant != null) {
+            headerTenant = headerTenant.trim();
+            if (headerTenant.isBlank()) {
+                headerTenant = null;
+            }
+        }
+
+        // 2. Extract JWT and caller details
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         Jwt jwt = null;
         if (authentication instanceof JwtAuthenticationToken jwtAuth) {
@@ -88,42 +142,65 @@ public class TenantContextFilter extends OncePerRequestFilter {
             jwt = principalJwt;
         }
 
+        String jwtTenant = null;
         if (jwt != null) {
-            String tenantFromJwt = extractTenantCodeFromJwt(jwt);
-            if (tenantFromJwt != null && !tenantFromJwt.isBlank()) {
-                return tenantFromJwt;
-            }
-        }
-
-        // 2. Fallback to custom HTTP headers
-        String headerTenant = request.getHeader(X_TENANT_CODE_HEADER);
-        if (headerTenant != null && !headerTenant.isBlank()) {
-            return headerTenant.trim();
-        }
-        String headerTenantId = request.getHeader(X_TENANT_ID_HEADER);
-        if (headerTenantId != null && !headerTenantId.isBlank()) {
-            return headerTenantId.trim();
-        }
-
-        // 3. Fallback to Central Tenant lookup by authenticated user's email
-        if (centralTenantRepository != null && jwt != null && jwt.hasClaim("email")) {
-            String email = jwt.getClaimAsString("email");
-            if (email != null && !email.isBlank()) {
-                String cleanEmail = email.trim();
-                var tenantOpt = centralTenantRepository.findByAdminEmailIgnoreCaseAndIsDeletedFalse(cleanEmail);
-                if (tenantOpt.isPresent()) {
-                    return tenantOpt.get().getTenantCode();
-                }
-
-                // Check domain format e.g. admin@shop-b.internal or counter01@shop-b.internal
-                if (cleanEmail.contains("@") && cleanEmail.endsWith(".internal")) {
-                    String domain = cleanEmail.substring(cleanEmail.indexOf('@') + 1);
-                    String potentialCode = domain.substring(0, domain.indexOf(".internal")).trim();
-                    if (centralTenantRepository.existsByTenantCodeIgnoreCaseAndIsDeletedFalse(potentialCode)) {
-                        return potentialCode;
+            jwtTenant = extractTenantCodeFromJwt(jwt);
+            if (jwtTenant == null && centralTenantRepository != null && jwt.hasClaim("email")) {
+                String email = jwt.getClaimAsString("email");
+                if (email != null && !email.isBlank()) {
+                    String cleanEmail = email.trim();
+                    var tenantOpt = centralTenantRepository.findByAdminEmailIgnoreCaseAndIsDeletedFalse(cleanEmail);
+                    if (tenantOpt.isPresent()) {
+                        jwtTenant = tenantOpt.get().getTenantCode();
+                    } else if (cleanEmail.contains("@") && cleanEmail.endsWith(".internal")) {
+                        String domain = cleanEmail.substring(cleanEmail.indexOf('@') + 1);
+                        String potentialCode = domain.substring(0, domain.indexOf(".internal")).trim();
+                        if (centralTenantRepository.existsByTenantCodeIgnoreCaseAndIsDeletedFalse(potentialCode)) {
+                            jwtTenant = potentialCode;
+                        }
                     }
                 }
             }
+        }
+
+        // 3. Check if caller has SUPERADMIN authority
+        boolean isSuperAdmin = false;
+        if (authentication != null && authentication.getAuthorities() != null) {
+            isSuperAdmin = authentication.getAuthorities().stream().anyMatch(a ->
+                    "ROLE_SUPERADMIN".equalsIgnoreCase(a.getAuthority())
+                    || "SUPERADMIN".equalsIgnoreCase(a.getAuthority())
+            );
+        }
+
+        // 4. Strict multi-tenant isolation rules:
+        // SUPERADMIN can query any tenant specified in X-Tenant-Code, or fallback to their JWT tenant
+        if (isSuperAdmin) {
+            if (headerTenant != null) {
+                return headerTenant;
+            }
+            if (jwtTenant != null && !jwtTenant.isBlank()) {
+                return jwtTenant.trim();
+            }
+            return null;
+        }
+
+        // Regular tenant users (TENANT_ADMIN, COUNTER_STAFF, etc.) are bound strictly to their JWT tenant
+        if (jwtTenant != null && !jwtTenant.isBlank()) {
+            String callerTenant = jwtTenant.trim();
+            if (headerTenant != null && !headerTenant.equalsIgnoreCase(callerTenant)) {
+                log.warn("Cross-tenant attempt blocked: User [{}] belonging to [{}] requested [{}]",
+                        authentication != null ? authentication.getName() : "unknown", callerTenant, headerTenant);
+                throw new AdminException(
+                        AdminErrorCode.CROSS_TENANT_ACCESS_DENIED,
+                        "Cross-tenant access is strictly prohibited: caller belongs to tenant [" + callerTenant + "] but requested [" + headerTenant + "]"
+                );
+            }
+            return callerTenant;
+        }
+
+        // 5. Unauthenticated / public endpoints: fallback to header
+        if (headerTenant != null) {
+            return headerTenant;
         }
 
         return null;
@@ -172,7 +249,7 @@ public class TenantContextFilter extends OncePerRequestFilter {
         Object orgClaim = jwt.getClaim(ORGANIZATION_CLAIM);
         if (orgClaim instanceof String orgStr && !orgStr.isBlank()) {
             return orgStr.trim();
-        } else if (orgClaim instanceof java.util.Collection<?> orgColl && !orgColl.isEmpty()) {
+        } else if (orgClaim instanceof Collection<?> orgColl && !orgColl.isEmpty()) {
             Object first = orgColl.iterator().next();
             if (first instanceof String firstStr && !firstStr.isBlank()) {
                 return firstStr.trim();

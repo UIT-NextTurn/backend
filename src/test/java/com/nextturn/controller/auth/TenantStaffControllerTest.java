@@ -156,7 +156,10 @@ class TenantStaffControllerTest {
                         .with(authentication(tenantAdminAuth)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.content[0].staffCode").value("STF-000001"));
+                .andExpect(jsonPath("$.data[0].staffCode").value("STF-000001"))
+                .andExpect(jsonPath("$.pagination.page").value(0))
+                .andExpect(jsonPath("$.pagination.totalElements").value(1))
+                .andExpect(jsonPath("$.pagination.totalPages").value(1));
     }
 
     @Test

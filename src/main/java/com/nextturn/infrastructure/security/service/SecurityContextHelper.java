@@ -9,6 +9,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Component;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
@@ -144,7 +145,7 @@ public class SecurityContextHelper {
         Object orgClaim = jwt.getClaim("organization");
         if (orgClaim instanceof String orgStr && !orgStr.isBlank()) {
             return orgStr;
-        } else if (orgClaim instanceof java.util.Collection<?> orgList && !orgList.isEmpty()) {
+        } else if (orgClaim instanceof Collection<?> orgList && !orgList.isEmpty()) {
             Object first = orgList.iterator().next();
             if (first instanceof String firstStr && !firstStr.isBlank()) {
                 return firstStr;

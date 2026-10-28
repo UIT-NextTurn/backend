@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -68,11 +69,11 @@ public class TenantStaffController {
 
     @GetMapping
     @Operation(summary = "List staff members with pagination", description = "Retrieves all active staff members belonging to the caller's tenant.")
-    public ResponseEntity<BaseResponse<Page<StaffResponse>>> getStaffList(
+    public ResponseEntity<BaseResponse<List<StaffResponse>>> getStaffList(
             @PageableDefault(size = 20) Pageable pageable
     ) {
         Page<StaffResponse> page = staffService.getStaffList(pageable);
-        return ResponseEntity.ok(BaseResponse.ok("Staff list retrieved successfully", page));
+        return ResponseEntity.ok(BaseResponse.okPaged("Staff list retrieved successfully", page));
     }
 
     @GetMapping("/{staffId}")

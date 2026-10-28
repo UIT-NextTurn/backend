@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,7 +52,7 @@ class KeycloakTokenServiceTest {
                 "email", "sa@nextturn.com",
                 "resource_access", Map.of(
                         "nextturn-backend", Map.of(
-                                "roles", java.util.List.of("SUPERADMIN")
+                                "roles", List.of("SUPERADMIN")
                         )
                 )
         ));
@@ -74,7 +75,7 @@ class KeycloakTokenServiceTest {
                 "tenant_code", "clinic_sai_gon",
                 "resource_access", Map.of(
                         "nextturn-backend", Map.of(
-                                "roles", java.util.List.of("TENANT_ADMIN")
+                                "roles", List.of("TENANT_ADMIN")
                         )
                 )
         ));
@@ -96,7 +97,7 @@ class KeycloakTokenServiceTest {
                 "tenant_code", "clinic_sai_gon",
                 "resource_access", Map.of(
                         "nextturn-backend", Map.of(
-                                "roles", java.util.List.of("COUNTER_STAFF")
+                                "roles", List.of("COUNTER_STAFF")
                         )
                 )
         ));
@@ -116,7 +117,7 @@ class KeycloakTokenServiceTest {
                 "email", "guest@gmail.com",
                 "resource_access", Map.of(
                         "nextturn-backend", Map.of(
-                                "roles", java.util.List.of("END_USER")
+                                "roles", List.of("END_USER")
                         )
                 )
         ));
@@ -136,13 +137,13 @@ class KeycloakTokenServiceTest {
         String token = createRawJwt(Map.of(
                 "sub", "d0c4911d-a83c-42e1-8463-9ba8fec1157f",
                 "email", "admin@shop-b.com",
-                "organization", java.util.List.of("shop-b"),
+                "organization", List.of("shop-b"),
                 "resource_access", Map.of(
                         "nextturn-backend", Map.of(
-                                "roles", java.util.List.of("TENANT_ADMIN")
+                                "roles", List.of("TENANT_ADMIN")
                         ),
                         "account", Map.of(
-                                "roles", java.util.List.of("manage-account", "view-profile")
+                                "roles", List.of("manage-account", "view-profile")
                         )
                 )
         ));

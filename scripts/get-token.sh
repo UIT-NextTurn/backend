@@ -6,7 +6,16 @@
 ROLE="${1:-admin}"
 USER="${2:-}"
 PASS="${3:-}"
-TENANT="${TENANT_CODE:-shop-b}"
+TENANT="${4:-${TENANT:-${TENANT_CODE:-}}}"
+
+# Dynamically infer tenant from USER if not specified
+if [ -z "$TENANT" ] && [ -n "$USER" ]; then
+    if [[ "$USER" =~ ^(admin|counter|staff)[-_]([a-zA-Z0-9_-]+)$ ]]; then
+        TENANT="${BASH_REMATCH[2]}"
+    elif [[ "$USER" =~ @([a-zA-Z0-9_-]+)\.[a-zA-Z0-9]+ ]]; then
+        TENANT="${BASH_REMATCH[1]}"
+    fi
+fi
 
 # Load .env if present
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,17 +48,18 @@ fi
 case "${ROLE,,}" in
     admin|tenant_admin)
         TARGET_ROLE="TENANT_ADMIN"
-        DEFAULT_USER="admin@shop-b.internal"
+        DEFAULT_USER="admin@${TENANT}.internal"
         SCOPE="openid"
         ;;
     counter|counter_staff)
         TARGET_ROLE="COUNTER_STAFF"
-        DEFAULT_USER="counter01@shop-b.internal"
+        DEFAULT_USER="counter01@${TENANT}.internal"
         SCOPE="openid"
         ;;
     superadmin)
         TARGET_ROLE="SUPERADMIN"
         DEFAULT_USER="superadmin@nextturn.com"
+        TENANT=""
         SCOPE="openid"
         ;;
     *)

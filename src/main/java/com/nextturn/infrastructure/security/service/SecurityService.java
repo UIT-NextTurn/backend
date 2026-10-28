@@ -2,6 +2,7 @@ package com.nextturn.infrastructure.security.service;
 
 import com.nextturn.enums.UserRole;
 import com.nextturn.infrastructure.security.principal.AuthenticatedUser;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -25,7 +26,7 @@ public class SecurityService {
 
     private final SecurityContextHelper securityContextHelper;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public SecurityService(SecurityContextHelper securityContextHelper) {
         this.securityContextHelper = securityContextHelper;
     }

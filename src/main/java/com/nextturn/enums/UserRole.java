@@ -2,6 +2,7 @@ package com.nextturn.enums;
 
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Core user roles for NextTurn multi-tenant virtual queue and appointment platform.
@@ -23,7 +24,7 @@ public enum UserRole {
     public static final String ROLE_COUNTER_STAFF = "ROLE_COUNTER_STAFF";
     public static final String ROLE_END_USER = "ROLE_END_USER";
 
-    public static final java.util.Set<String> MANAGEMENT_ROLES = java.util.Set.of(
+    public static final Set<String> MANAGEMENT_ROLES = Set.of(
             SUPERADMIN_VALUE,
             TENANT_ADMIN_VALUE,
             COUNTER_STAFF_VALUE

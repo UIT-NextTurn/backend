@@ -1,6 +1,7 @@
 package com.nextturn.infrastructure.security.keycloak;
 
 import com.nextturn.constant.KeycloakClaimConstant;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -33,7 +34,7 @@ public class KeycloakJwtGrantedAuthoritiesConverter implements Converter<Jwt, Co
     private final JwtGrantedAuthoritiesConverter defaultScopesConverter = new JwtGrantedAuthoritiesConverter();
     private final KeycloakProperties keycloakProperties;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public KeycloakJwtGrantedAuthoritiesConverter(KeycloakProperties keycloakProperties) {
         this.keycloakProperties = keycloakProperties;
     }

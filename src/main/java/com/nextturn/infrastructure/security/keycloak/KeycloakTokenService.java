@@ -11,12 +11,16 @@ import com.nextturn.dto.auth.ConfigureIdpRequest;
 import com.nextturn.dto.auth.TenantIdpResponse;
 import com.nextturn.enums.StaffRole;
 import com.nextturn.enums.UserRole;
+import com.nextturn.exception.BaseException;
 import com.nextturn.exception.admin.AdminErrorCode;
 import com.nextturn.exception.admin.AdminException;
 import com.nextturn.exception.auth.AuthErrorCode;
 import com.nextturn.exception.auth.AuthException;
+import com.nextturn.exception.system.SystemErrorCode;
+import com.nextturn.exception.system.SystemException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
@@ -24,10 +28,13 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Iterator;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Service orchestrating OAuth2 token lifecycle with Keycloak IAM:
@@ -45,7 +52,7 @@ public class KeycloakTokenService {
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public KeycloakTokenService(
             KeycloakProperties properties,
             RestClient.Builder restClientBuilder,
@@ -525,7 +532,7 @@ public class KeycloakTokenService {
                 if (org.hasNonNull("alias")) return org.path("alias").asText().trim();
                 if (org.hasNonNull("name")) return org.path("name").asText().trim();
                 if (org.hasNonNull("id")) return org.path("id").asText().trim();
-                java.util.Iterator<String> fieldNames = org.fieldNames();
+                Iterator<String> fieldNames = org.fieldNames();
                 if (fieldNames.hasNext()) {
                     return fieldNames.next();
                 }
@@ -599,7 +606,7 @@ public class KeycloakTokenService {
                     .retrieve()
                     .toBodilessEntity();
 
-            java.net.URI location = postResponse.getHeaders().getLocation();
+            URI location = postResponse.getHeaders().getLocation();
             if (location != null) {
                 String path = location.getPath();
                 return path.substring(path.lastIndexOf('/') + 1);
@@ -645,7 +652,7 @@ public class KeycloakTokenService {
         String adminToken = getServiceAccountToken();
         if (adminToken == null || adminToken.startsWith("mock-")) {
             log.debug("Mock environment: returning mock staff user ID for [{}]", email);
-            return java.util.UUID.randomUUID().toString();
+            return UUID.randomUUID().toString();
         }
 
         String adminUsersUrl = properties.adminUsersEndpoint();
@@ -695,7 +702,7 @@ public class KeycloakTokenService {
                     var cred = objectMapper.createObjectNode();
                     cred.put("type", "password");
                     cred.put("value", password.trim());
-                    cred.put("temporary", true);
+                    cred.put("temporary", false);
                     credsArray.add(cred);
                     userPayload.set("credentials", credsArray);
                 } else {
@@ -712,13 +719,14 @@ public class KeycloakTokenService {
                         .retrieve()
                         .toBodilessEntity();
 
-                java.net.URI location = postResponse.getHeaders().getLocation();
+                URI location = postResponse.getHeaders().getLocation();
                 if (location != null) {
                     String path = location.getPath();
                     keycloakUserId = path.substring(path.lastIndexOf('/') + 1);
                 } else {
+                    String searchUrlByEmail = adminUsersUrl + "?email=" + normalizedEmail + "&exact=true";
                     String reSearch = restClient.get()
-                            .uri(searchUrl)
+                            .uri(searchUrlByEmail)
                             .header("Authorization", "Bearer " + adminToken)
                             .retrieve()
                             .body(String.class);
@@ -736,10 +744,17 @@ public class KeycloakTokenService {
                 assignClientRoleToUser(adminToken, keycloakUserId, targetRole);
             }
 
-            return keycloakUserId != null ? keycloakUserId : "mock-staff-" + java.util.UUID.randomUUID();
+            if (keycloakUserId == null) {
+                log.error("Failed to provision staff user in Keycloak for [{}]", normalizedEmail);
+                throw new SystemException(SystemErrorCode.INTERNAL_ERROR, "Failed to provision staff member in Keycloak IAM");
+            }
+
+            return keycloakUserId;
+        } catch (BaseException ex) {
+            throw ex;
         } catch (Exception ex) {
-            log.warn("Keycloak staff user provisioning returned [{}]. Using generated ID.", ex.getMessage());
-            return "mock-staff-" + java.util.UUID.randomUUID();
+            log.error("Keycloak staff user provisioning failed for [{}]: {}", email, ex.getMessage(), ex);
+            throw new SystemException(SystemErrorCode.INTERNAL_ERROR, "Keycloak staff user provisioning failed: " + ex.getMessage());
         }
     }
 

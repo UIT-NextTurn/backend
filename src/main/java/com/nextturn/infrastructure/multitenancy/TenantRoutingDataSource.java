@@ -67,7 +67,8 @@ public class TenantRoutingDataSource extends AbstractRoutingDataSource {
                 log.trace("Switched database catalog/schema to: [{}]", schema);
             }
         } catch (SQLException e) {
-            log.debug("Database driver does not support dynamic catalog switching for [{}]: {}", schema, e.getMessage());
+            log.error("Failed to switch database catalog to [{}]: {}", schema, e.getMessage());
+            throw new IllegalStateException("Failed to switch database catalog to [" + schema + "]", e);
         }
     }
 }
