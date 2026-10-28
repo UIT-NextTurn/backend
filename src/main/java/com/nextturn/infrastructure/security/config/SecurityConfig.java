@@ -65,7 +65,10 @@ public class SecurityConfig implements WebMvcConfigurer {
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
-                        // 1. Public endpoints
+                        // 1. Authenticated Auth endpoints for Tenant Admin
+                        .requestMatchers("/api/v1/auth/staff", "/api/v1/auth/staff/**").hasRole("TENANT_ADMIN")
+                        .requestMatchers("/api/v1/auth/idp", "/api/v1/auth/idp/**").hasRole("TENANT_ADMIN")
+                        // 2. Public endpoints
                         .requestMatchers(
                                 "/api/v1/public",
                                 "/api/v1/public/**",
@@ -86,15 +89,15 @@ public class SecurityConfig implements WebMvcConfigurer {
                                 "/docs",
                                 "/docs/**"
                         ).permitAll()
-                        // 2. Central Superadmin endpoints
+                        // 3. Central Superadmin endpoints
                         .requestMatchers("/api/v1/central/**").hasRole("SUPERADMIN")
-                        // 3. Tenant Admin endpoints
+                        // 4. Tenant Admin endpoints
                         .requestMatchers("/api/v1/tenant/admin/**").hasRole("TENANT_ADMIN")
-                        // 4. Counter Staff endpoints
+                        // 5. Counter Staff endpoints
                         .requestMatchers("/api/v1/tenant/counter/**").hasRole("COUNTER_STAFF")
-                        // 5. End-User customer endpoints
+                        // 6. End-User customer endpoints
                         .requestMatchers("/api/v1/customer/**").hasRole("END_USER")
-                        // 6. Any other request must be authenticated
+                        // 7. Any other request must be authenticated
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> {
@@ -116,6 +119,9 @@ public class SecurityConfig implements WebMvcConfigurer {
 
     private boolean isPublicUri(String uri) {
         if (uri == null) {
+            return false;
+        }
+        if (uri.startsWith("/api/v1/auth/staff") || uri.startsWith("/api/v1/auth/idp")) {
             return false;
         }
         return uri.startsWith("/api/v1/public")
