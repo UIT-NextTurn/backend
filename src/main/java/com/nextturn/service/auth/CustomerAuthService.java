@@ -23,6 +23,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
 import java.time.LocalDateTime;
@@ -50,6 +52,7 @@ public class CustomerAuthService {
     private final KeycloakTokenService keycloakTokenService;
     private final CentralTenantRepository centralTenantRepository;
     private final CentralAllowedDomainRepository centralAllowedDomainRepository;
+    private final TransactionTemplate transactionTemplate;
 
     @Autowired
     public CustomerAuthService(
@@ -57,13 +60,15 @@ public class CustomerAuthService {
             OtpService otpService,
             KeycloakTokenService keycloakTokenService,
             @Autowired(required = false) CentralTenantRepository centralTenantRepository,
-            @Autowired(required = false) CentralAllowedDomainRepository centralAllowedDomainRepository
+            @Autowired(required = false) CentralAllowedDomainRepository centralAllowedDomainRepository,
+            @Autowired(required = false) TransactionTemplate transactionTemplate
     ) {
         this.centralUserRepository = centralUserRepository;
         this.otpService = otpService;
         this.keycloakTokenService = keycloakTokenService;
         this.centralTenantRepository = centralTenantRepository;
         this.centralAllowedDomainRepository = centralAllowedDomainRepository;
+        this.transactionTemplate = transactionTemplate;
     }
 
     public CustomerAuthService(
@@ -71,7 +76,14 @@ public class CustomerAuthService {
             OtpService otpService,
             KeycloakTokenService keycloakTokenService
     ) {
-        this(centralUserRepository, otpService, keycloakTokenService, null, null);
+        this(centralUserRepository, otpService, keycloakTokenService, null, null, null);
+    }
+
+    private <T> T executeInTransaction(TransactionCallback<T> action) {
+        if (transactionTemplate != null) {
+            return transactionTemplate.execute(action);
+        }
+        return action.doInTransaction(null);
     }
 
     /**
@@ -254,7 +266,6 @@ public class CustomerAuthService {
      * @param request email/phone and OTP payload
      * @return {@link AuthTokenResponse} containing 30-day session tokens
      */
-    @Transactional
     public AuthTokenResponse verifyOtp(CustomerVerifyOtpRequest request) {
         if (request == null) {
             throw new AuthException(AuthErrorCode.INVALID_CREDENTIALS, "Request body is required");
@@ -273,10 +284,10 @@ public class CustomerAuthService {
         // 1. Verify OTP with OtpService (purges code on match, decrements attempts, max 3 tries)
         otpService.verifyOtp(contact, submittedOtp);
 
-        // 2. Resolve existing user or auto-provision central record (updates login timestamp if existing)
-        CentralUser user = resolveOrCreateUser(contact);
+        // 2. Resolve existing user or auto-provision central record within fine-grained TransactionTemplate
+        CentralUser user = executeInTransaction(status -> resolveOrCreateUser(contact));
 
-        // 3. Synchronize identity with Keycloak IAM
+        // 3. Synchronize identity with Keycloak IAM outside DB transaction
         String identityContact = user.getEmail() != null ? user.getEmail() : user.getPhoneNumber();
         keycloakTokenService.syncCustomerIdentity(identityContact, user.getFullName());
 
@@ -291,7 +302,8 @@ public class CustomerAuthService {
         return centralUserRepository.findByPhoneNumberAndIsDeletedFalse(contact);
     }
 
-    private CentralUser resolveOrCreateUser(String contact) {
+    @Transactional
+    public CentralUser resolveOrCreateUser(String contact) {
         Optional<CentralUser> existingUserOpt = findUserByContact(contact);
 
         if (existingUserOpt.isPresent()) {

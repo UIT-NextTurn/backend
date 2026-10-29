@@ -12,8 +12,11 @@ import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
 import com.nextturn.repository.auth.CentralTenantRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Service managing external Identity Provider (IdP) integration for enterprise Single Sign-On (SSO).
@@ -27,13 +30,31 @@ public class TenantIdpService {
 
     private final CentralTenantRepository centralTenantRepository;
     private final KeycloakTokenService keycloakTokenService;
+    private final TransactionTemplate transactionTemplate;
+
+    @Autowired
+    public TenantIdpService(
+            CentralTenantRepository centralTenantRepository,
+            KeycloakTokenService keycloakTokenService,
+            @Autowired(required = false) TransactionTemplate transactionTemplate
+    ) {
+        this.centralTenantRepository = centralTenantRepository;
+        this.keycloakTokenService = keycloakTokenService;
+        this.transactionTemplate = transactionTemplate;
+    }
 
     public TenantIdpService(
             CentralTenantRepository centralTenantRepository,
             KeycloakTokenService keycloakTokenService
     ) {
-        this.centralTenantRepository = centralTenantRepository;
-        this.keycloakTokenService = keycloakTokenService;
+        this(centralTenantRepository, keycloakTokenService, null);
+    }
+
+    private <T> T executeInTransaction(TransactionCallback<T> action) {
+        if (transactionTemplate != null) {
+            return transactionTemplate.execute(action);
+        }
+        return action.doInTransaction(null);
     }
 
     /**
@@ -43,7 +64,6 @@ public class TenantIdpService {
      * @param request provider configuration payload
      * @return active {@link TenantIdpResponse}
      */
-    @Transactional
     public TenantIdpResponse configureIdp(ConfigureIdpRequest request) {
         String tenantCode = resolveCurrentTenantCode();
         CentralTenant tenant = resolveCentralTenant(tenantCode);
@@ -51,8 +71,11 @@ public class TenantIdpService {
         String orgId = tenant.getOrganisationId();
         if (orgId == null || orgId.isBlank()) {
             orgId = keycloakTokenService.ensureOrganizationExists(tenantCode, tenant.getTenantName());
-            tenant.setOrganisationId(orgId);
-            centralTenantRepository.save(tenant);
+            final String finalOrgId = orgId;
+            executeInTransaction(status -> {
+                tenant.setOrganisationId(finalOrgId);
+                return centralTenantRepository.save(tenant);
+            });
         }
 
         log.info("Configuring external IdP [{}] for organization [{}] of tenant [{}]",
@@ -81,7 +104,6 @@ public class TenantIdpService {
     /**
      * Removes external Identity Provider link and deletes the IdP instance from Keycloak.
      */
-    @Transactional
     public void removeIdp() {
         String tenantCode = resolveCurrentTenantCode();
         CentralTenant tenant = resolveCentralTenant(tenantCode);
