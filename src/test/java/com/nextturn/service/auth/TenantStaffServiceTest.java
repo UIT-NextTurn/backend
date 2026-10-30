@@ -339,7 +339,6 @@ class TenantStaffServiceTest {
                 .build();
 
         when(staffRepository.findByIdAndIsDeletedFalse("counter-active-1")).thenReturn(Optional.of(staff));
-        when(centralTenantRepository.findByTenantCodeAndIsDeletedFalse(TENANT_CODE)).thenReturn(Optional.of(mockTenant));
         when(staffRepository.save(any(TenantStaff.class))).thenThrow(new RuntimeException("DB update constraint failure"));
 
         UpdateStaffRequest updateRequest = UpdateStaffRequest.builder()
