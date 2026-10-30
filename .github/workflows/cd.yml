@@ -161,9 +161,6 @@ jobs:
 
             # Resolve environment configuration file
             ENV_FILE="${DEPLOY_DIR}/.env"
-            if [ ! -f "$ENV_FILE" ] && [ -f "${DEPLOY_DIR}/backend/.env" ]; then
-              ENV_FILE="${DEPLOY_DIR}/backend/.env"
-            fi
 
             # Default container configurations
             CONTAINER_NAME="nextturn-backend"
@@ -203,22 +200,14 @@ jobs:
             podman rm "${CONTAINER_NAME}" 2>/dev/null || true
 
             echo "==> 5. Starting updated NextTurn Backend container (${CONTAINER_NAME} on ${PORT_MAPPING})..."
-            if [ -f "$ENV_FILE" ]; then
-              podman run -d \
-                --name "${CONTAINER_NAME}" \
-                --restart unless-stopped \
-                --network nextturn-network \
-                -p "${PORT_MAPPING}" \
-                --env-file "$ENV_FILE" \
-                "${REGISTRY}/${IMAGE_NAME}:latest"
-            else
-              podman run -d \
-                --name "${CONTAINER_NAME}" \
-                --restart unless-stopped \
-                --network nextturn-network \
-                -p "${PORT_MAPPING}" \
-                "${REGISTRY}/${IMAGE_NAME}:latest"
-            fi
+
+            podman run -d \
+              --name "${CONTAINER_NAME}" \
+              --restart unless-stopped \
+              --network nextturn-network \
+              -p "${PORT_MAPPING}" \
+              --env-file "$ENV_FILE" \
+              "${REGISTRY}/${IMAGE_NAME}:latest"
 
             echo "==> 6. Verifying backend container status..."
             sleep 8

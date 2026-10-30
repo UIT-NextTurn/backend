@@ -14,10 +14,15 @@ All code lives in `com.nextturn.*` adhering to [folder_structure.md](./folder_st
 - **`entity/`**: JPA entities mapped to relational database tables.
 - **`dto/`**: Data Transfer Objects for API request and response bodies. Never expose JPA entities directly in API endpoints.
 - **`exception/`**: Domain exceptions extending `AppException` and handled by `GlobalExceptionHandler`.
+- **`infrastructure/`**: Low-level infrastructure adapters and cross-cutting frameworks:
+  - `infrastructure/multitenancy/`: Multi-tenant request filters, tenant context, dynamic schema routing.
+  - `infrastructure/security/`: Keycloak OIDC configuration, JWT authentication/authorities converters, role annotations.
+  - `infrastructure/valkey/`: Valkey cache keys, templates, and connection configurations.
+- **`helper/`**: Specialized helper beans and URL generators that bridge domain workflows with external protocols (e.g. `KeycloakAuthHelper`).
 - **`mapper/`**: Static conversion methods or mapping components transforming between Entity and DTO.
 - **`constant/`**: Immutable `public static final` definitions (e.g. route prefixes, defaults).
 - **`enums/`**: Fixed domain enumerations (e.g. queue statuses, roles, ticket priorities).
-- **`config/`**: Spring `@Configuration` beans for security, CORS, and data sources.
+- **`config/`**: Spring `@Configuration` beans for general configuration (e.g. CORS).
 - **`util/`**: Pure, stateless helper functions without Spring bean dependencies.
 
 ---

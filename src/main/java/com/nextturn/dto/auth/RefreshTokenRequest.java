@@ -1,0 +1,22 @@
+package com.nextturn.dto.auth;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+/**
+ * Payload for requesting fresh access tokens using an active refresh token.
+ */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class RefreshTokenRequest {
+
+    @NotBlank(message = "Refresh token is required")
+    @Schema(description = "Keycloak refresh token", requiredMode = Schema.RequiredMode.REQUIRED, example = "eyJhbGciOi...")
+    private String refreshToken;
+}

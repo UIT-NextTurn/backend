@@ -40,11 +40,20 @@ backend/
 │   │   │   ├── exception/               # Custom exceptions & @ControllerAdvice handlers
 │   │   │   │   ├── AppException.java
 │   │   │   │   └── GlobalExceptionHandler.java
+│   │   │   ├── helper/                  # Specialized helper beans (URL builders, token helpers)
+│   │   │   │   └── KeycloakAuthHelper.java
+│   │   │   ├── infrastructure/          # Infrastructure adapters & cross-cutting concerns
+│   │   │   │   ├── multitenancy/        # Tenant context filter, thread-local holder, routing data source
+│   │   │   │   ├── security/            # Spring Security, Keycloak OIDC, RBAC & Principal
+│   │   │   │   │   ├── annotation/      # Role meta-annotations (@RequireSuperAdmin, @CurrentUser, etc.)
+│   │   │   │   │   ├── config/          # SecurityFilterChain, SessionManagement, WebMvcConfigurer
+│   │   │   │   │   ├── keycloak/        # Keycloak JWT converters & KeycloakProperties
+│   │   │   │   │   ├── principal/       # AuthenticatedUser record & CurrentUserArgumentResolver
+│   │   │   │   │   └── service/         # SecurityContextHelper & SecurityService (@authz)
+│   │   │   │   └── valkey/              # Valkey keys, templates, cache config
 │   │   │   ├── mapper/                  # Entity <-> DTO conversion logic
-│   │   │   ├── valkey/                  # Valkey keys, templates, cache config
 │   │   │   ├── repository/              # Spring Data JPA interfaces
 │   │   │   ├── scheduler/               # @Scheduled cron jobs & background tasks
-│   │   │   ├── security/                # Auth filters, JWT utils, security chains
 │   │   │   ├── service/                 # Business logic orchestration
 │   │   │   ├── util/                    # Stateless utility/helper functions
 │   │   │   └── BackendApplication.java  # Main application entry point
@@ -62,7 +71,8 @@ backend/
 │           └── application.yml          # H2 in-memory test profile
 ├── mvnw                                 # Maven wrapper script (Unix)
 ├── mvnw.cmd                             # Maven wrapper script (Windows)
-├── agent-docs/                          # Development & agent docs (structure, conventions, testing)
+├── agent-docs/                          # Architecture, API & agent guides
+│   ├── api_documentation.md             # Complete REST API specification & schemas
 │   ├── folder_structure.md
 │   ├── code_conventions.md
 │   └── testing.md
@@ -70,6 +80,16 @@ backend/
 ├── pom.xml                              # Project Object Model dependencies
 └── README.md
 ```
+
+---
+
+## 📖 API Documentation & Scalar UI
+
+- **Scalar API Reference (Interactive Docs)**: [http://localhost:8080/docs](http://localhost:8080/docs) (or [http://localhost:8080/scalar](http://localhost:8080/scalar))
+- **OpenAPI v3 JSON Spec**: [http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
+- **Interactive Swagger UI**: [http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)
+- **Domain Error Codes Specification**: [doc/ErrorCode.md](./doc/ErrorCode.md)
+- **Comprehensive API Document**: [agent-docs/api_documentation.md](./agent-docs/api_documentation.md)
 
 ---
 
@@ -94,6 +114,13 @@ Settings are automatically loaded from `.env` by `make run` or can be supplied a
 | `VALKEY_PORT` | Valkey client port | `6379` |
 | `VALKEY_PASSWORD` | Valkey password | *(empty)* |
 | `APP_TIMEZONE` | Application timezone | `Asia/Ho_Chi_Minh` |
+| `KEYCLOAK_ISSUER_URI` | Keycloak issuer URL | `http://localhost:8180/realms/nextturn` |
+| `KEYCLOAK_JWK_SET_URI` | Keycloak JWKS certs URL | `http://localhost:8180/realms/nextturn/protocol/openid-connect/certs` |
+| `CORS_ALLOWED_ORIGIN_PATTERNS` | Allowed CORS origins | `http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173` |
+| `CORS_ALLOWED_HEADERS` | Allowed CORS headers | `Origin,Content-Type,Accept,Authorization,X-Requested-With` |
+| `CORS_ALLOWED_METHODS` | Allowed HTTP methods | `GET,POST,PUT,PATCH,DELETE,OPTIONS` |
+| `CORS_MAX_AGE_SECONDS` | Preflight cache duration in seconds | `3600` |
+| `CORS_ALLOW_CREDENTIALS` | Allow credentials flag | `true` |
 
 ---
 
@@ -119,9 +146,20 @@ Or directly using the Maven wrapper:
   ```
 
 ### 3. Run Automated Tests
-```powershell
-mvn test
+Using `make`:
+```bash
+make test
 ```
+Or directly using the Maven wrapper:
+- Windows PowerShell:
+  ```powershell
+  .\mvnw test
+  ```
+- Linux / macOS:
+  ```bash
+  ./mvnw test
+  ```
+
 
 ---
 
