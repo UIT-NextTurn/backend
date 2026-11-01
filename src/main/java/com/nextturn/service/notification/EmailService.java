@@ -6,18 +6,23 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Service orchestrating email dispatch via SMTP.
  * <p>
  * Supports branded HTML emails for OTP authentication and customer notifications.
+ * HTML email layouts are loaded from templates in {@code src/main/resources/templates/email/}.
  * If SMTP credentials are not configured or are set to placeholder values,
  * it safely logs the message to the console (*dự phòng an toàn*).
  */
@@ -31,6 +36,7 @@ public class EmailService {
     private final String mailUsername;
     private final String fromAddress;
     private final String fromName;
+    private final Map<String, String> templateCache = new ConcurrentHashMap<>();
 
     @Autowired
     public EmailService(
@@ -115,6 +121,41 @@ public class EmailService {
     }
 
     /**
+     * Asynchronously sends an activation and password setup email to a newly provisioned tenant administrator (REQ-TNT-01).
+     *
+     * @param toEmail        recipient admin email
+     * @param tenantName     tenant organization name
+     * @param activationLink activation and password configuration URL
+     * @return {@link CompletableFuture} containing dispatch outcome
+     */
+    @Async
+    public CompletableFuture<Boolean> sendTenantAdminActivationEmail(String toEmail, String tenantName, String activationLink) {
+        String subject = "[NextTurn] Kích hoạt tài khoản Quản trị viên cơ sở - " + (tenantName != null ? tenantName : "Cơ sở mới");
+        String htmlBody = buildTenantAdminActivationHtmlTemplate(toEmail, tenantName, activationLink);
+
+        if (!isConfigured()) {
+            log.info("================================================================================");
+            log.info("[TENANT ACTIVATION DISPATCH (CONSOLE)] Account activation for [{}] at [{}]", toEmail, tenantName);
+            log.info("                                       Activation Link: [{}]", activationLink);
+            log.info("================================================================================");
+            return CompletableFuture.completedFuture(false);
+        }
+
+        try {
+            sendHtmlEmail(toEmail, subject, htmlBody);
+            log.info("Successfully sent tenant admin activation email to [{}] for [{}] via SMTP [{}]", toEmail, tenantName, mailHost);
+            return CompletableFuture.completedFuture(true);
+        } catch (Exception ex) {
+            log.error("Failed to send tenant admin activation email to [{}] via SMTP: {}. Falling back to console.", toEmail, ex.getMessage());
+            log.info("================================================================================");
+            log.info("[TENANT ACTIVATION DISPATCH (FALLBACK)] Account activation for [{}] at [{}]", toEmail, tenantName);
+            log.info("                                        Activation Link: [{}]", activationLink);
+            log.info("================================================================================");
+            return CompletableFuture.completedFuture(false);
+        }
+    }
+
+    /**
      * Dispatches a general HTML formatted email.
      *
      * @param toEmail     recipient email
@@ -163,42 +204,60 @@ public class EmailService {
         return new InternetAddress(emailOnly, displayName, StandardCharsets.UTF_8.name());
     }
 
+    private String loadTemplate(String templatePath, Map<String, String> variables) {
+        try {
+            String template = templateCache.computeIfAbsent(templatePath, path -> {
+                try {
+                    ClassPathResource resource = new ClassPathResource(path);
+                    try (InputStream is = resource.getInputStream()) {
+                        return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+                    }
+                } catch (Exception ex) {
+                    log.warn("Could not load email template from classpath [{}]: {}", path, ex.getMessage());
+                    return null;
+                }
+            });
+
+            if (template == null || template.isBlank()) {
+                return "";
+            }
+
+            String result = template;
+            for (Map.Entry<String, String> entry : variables.entrySet()) {
+                result = result.replace("{{" + entry.getKey() + "}}", entry.getValue() != null ? entry.getValue() : "");
+            }
+            return result;
+        } catch (Exception ex) {
+            log.error("Error processing email template [{}]: {}", templatePath, ex.getMessage());
+            return "";
+        }
+    }
+
     private String buildOtpHtmlTemplate(String email, String otpCode, long minutes) {
-        return """
-                <!DOCTYPE html>
-                <html lang="en">
-                <head>
-                    <meta charset="UTF-8">
-                    <title>NextTurn Verification Code</title>
-                    <style>
-                        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
-                        .card { max-width: 500px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
-                        .logo { font-size: 22px; font-weight: 800; color: #0284c7; letter-spacing: -0.5px; margin-bottom: 24px; }
-                        .header { font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #0f172a; }
-                        .desc { font-size: 14px; color: #64748b; line-height: 1.6; margin-bottom: 24px; }
-                        .code-box { background: #f1f5f9; border: 1px dashed #cbd5e1; border-radius: 8px; text-align: center; padding: 18px 0; font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #0f172a; margin-bottom: 24px; font-family: 'Courier New', Courier, monospace; }
-                        .footer { font-size: 12px; color: #94a3b8; line-height: 1.5; border-top: 1px solid #f1f5f9; padding-top: 20px; }
-                    </style>
-                </head>
-                <body>
-                    <div class="card">
-                        <div class="logo">NextTurn</div>
-                        <div class="header">Your Verification Code</div>
-                        <div class="desc">
-                            Hello,<br>
-                            Use the following one-time verification code to sign in to your NextTurn account.
-                        </div>
-                        <div class="code-box">%s</div>
-                        <div class="desc">
-                            This code is valid for <strong>%d minutes</strong>. If you did not request this code, you can safely ignore this email.
-                        </div>
-                        <div class="footer">
-                            This is an automated security message from NextTurn Booking & Queue Management.<br>
-                            Please do not reply directly to this email.
-                        </div>
-                    </div>
-                </body>
-                </html>
-                """.formatted(otpCode, minutes);
+        Map<String, String> variables = Map.of(
+                "otpCode", otpCode != null ? otpCode : "",
+                "minutes", String.valueOf(minutes),
+                "email", email != null ? email : ""
+        );
+        String rendered = loadTemplate("templates/email/otp-verification.html", variables);
+        if (!rendered.isBlank()) {
+            return rendered;
+        }
+        return "<p>Your NextTurn verification code is: <strong>" + otpCode + "</strong> (valid for " + minutes + " minutes).</p>";
+    }
+
+    private String buildTenantAdminActivationHtmlTemplate(String email, String tenantName, String activationLink) {
+        String facility = (tenantName != null && !tenantName.isBlank()) ? tenantName : "Cơ sở của bạn";
+        String link = (activationLink != null && !activationLink.isBlank()) ? activationLink : "#";
+        Map<String, String> variables = Map.of(
+                "email", email != null ? email : "",
+                "tenantName", facility,
+                "activationLink", link
+        );
+        String rendered = loadTemplate("templates/email/tenant-activation.html", variables);
+        if (!rendered.isBlank()) {
+            return rendered;
+        }
+        return "<p>Xin chào " + email + ", cơ sở " + facility + " đã được tạo. Vui lòng kích hoạt tài khoản tại: <a href=\"" + link + "\">" + link + "</a></p>";
     }
 }

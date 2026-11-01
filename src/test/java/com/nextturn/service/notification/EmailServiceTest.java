@@ -1,9 +1,12 @@
 package com.nextturn.service.notification;
 
+import jakarta.mail.BodyPart;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.internet.MimeMultipart;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.mail.javamail.JavaMailSender;
 
 import java.util.Properties;
@@ -47,5 +50,47 @@ class EmailServiceTest {
 
         assertThat(sent).isTrue();
         verify(mailSender).send(any(MimeMessage.class));
+    }
+
+    @Test
+    @DisplayName("Should send tenant admin activation email using template when configured")
+    void shouldSendTenantAdminActivationEmailWhenConfigured() throws Exception {
+        JavaMailSender mailSender = mock(JavaMailSender.class);
+        MimeMessage mimeMessage = new MimeMessage(Session.getInstance(new Properties()));
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+
+        EmailService service = new EmailService(mailSender, "smtp.gmail.com", "admin@nextturn.com", "no-reply@nextturn.com", "NextTurn");
+
+        String adminEmail = "tenant.admin@pk-alpha.vn";
+        String tenantName = "Phòng khám Đa khoa Alpha";
+        String activationUrl = "https://auth.nextturn.com/auth/realms/nextturn/login-actions/action-token?key=abc123xyz";
+
+        boolean sent = service.sendTenantAdminActivationEmail(adminEmail, tenantName, activationUrl).join();
+
+        assertThat(sent).isTrue();
+        ArgumentCaptor<MimeMessage> captor = ArgumentCaptor.forClass(MimeMessage.class);
+        verify(mailSender).send(captor.capture());
+
+        MimeMessage sentMessage = captor.getValue();
+        assertThat(sentMessage.getSubject()).contains("Kích hoạt tài khoản Quản trị viên cơ sở");
+
+        String body = extractTextContent(sentMessage.getContent());
+        assertThat(body).contains("Phòng khám Đa khoa Alpha");
+        assertThat(body).contains(activationUrl);
+    }
+
+    private String extractTextContent(Object content) throws Exception {
+        if (content instanceof String str) {
+            return str;
+        } else if (content instanceof MimeMultipart multipart) {
+            StringBuilder sb = new StringBuilder();
+            int count = multipart.getCount();
+            for (int i = 0; i < count; i++) {
+                BodyPart part = multipart.getBodyPart(i);
+                sb.append(extractTextContent(part.getContent()));
+            }
+            return sb.toString();
+        }
+        return "";
     }
 }
