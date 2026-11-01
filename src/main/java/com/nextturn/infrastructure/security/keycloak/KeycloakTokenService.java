@@ -598,6 +598,125 @@ public class KeycloakTokenService {
     }
 
     /**
+     * Checks if an organization with the given tenant code already exists in Keycloak (REQ-TNT-01).
+     *
+     * @param tenantCode unique tenant code
+     * @return {@code true} if organization exists in Keycloak, {@code false} otherwise
+     */
+    public boolean organizationExists(String tenantCode) {
+        if (tenantCode == null || tenantCode.isBlank()) {
+            return false;
+        }
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-")) {
+            return false;
+        }
+
+        try {
+            String orgsUrl = properties.adminOrganizationsEndpoint();
+            String searchUrl = orgsUrl + "?search=" + tenantCode.trim().toLowerCase();
+            String searchResponse = restClient.get()
+                    .uri(searchUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .body(String.class);
+
+            if (searchResponse != null && !searchResponse.isBlank()) {
+                JsonNode orgsList = objectMapper.readTree(searchResponse);
+                if (orgsList.isArray()) {
+                    for (JsonNode org : orgsList) {
+                        if (tenantCode.equalsIgnoreCase(org.path("name").asText(null)) ||
+                                tenantCode.equalsIgnoreCase(org.path("alias").asText(null))) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("Keycloak organization check failed for [{}]: {}", tenantCode, ex.getMessage());
+        }
+        return false;
+    }
+
+    /**
+     * Explicitly provisions a brand-new Keycloak Organization for a new tenant facility (REQ-TNT-01).
+     *
+     * @param tenantCode unique tenant code
+     * @param tenantName clinic display name
+     * @return Keycloak internal organization UUID
+     */
+    public String createOrganization(String tenantCode, String tenantName) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-")) {
+            log.debug("Mock environment: returning mock organization ID for [{}]", tenantCode);
+            return "mock-org-" + tenantCode;
+        }
+
+        String orgsUrl = properties.adminOrganizationsEndpoint();
+        var orgPayload = objectMapper.createObjectNode();
+        orgPayload.put("name", tenantCode);
+        orgPayload.put("displayName", tenantName != null && !tenantName.isBlank() ? tenantName : tenantCode);
+        orgPayload.put("enabled", true);
+
+        try {
+            var postResponse = restClient.post()
+                    .uri(orgsUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(objectMapper.writeValueAsString(orgPayload))
+                    .retrieve()
+                    .toBodilessEntity();
+
+            URI location = postResponse.getHeaders().getLocation();
+            if (location != null) {
+                String path = location.getPath();
+                return path.substring(path.lastIndexOf('/') + 1);
+            }
+
+            String searchUrl = orgsUrl + "?search=" + tenantCode;
+            String verifyResponse = restClient.get()
+                    .uri(searchUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .body(String.class);
+            if (verifyResponse != null && !verifyResponse.isBlank()) {
+                JsonNode list = objectMapper.readTree(verifyResponse);
+                if (list.isArray() && !list.isEmpty()) {
+                    return list.get(0).path("id").asText(null);
+                }
+            }
+            throw new IllegalStateException("Keycloak did not return an organization ID for [" + tenantCode + "]");
+        } catch (Exception ex) {
+            log.error("Failed to explicitly create Keycloak organization for tenant [{}]: {}", tenantCode, ex.getMessage());
+            throw new RuntimeException("Failed to create Keycloak organization for tenant [" + tenantCode + "]: " + ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * Deletes an organization in Keycloak during transaction rollback compensation (REQ-TNT-01).
+     *
+     * @param orgId Keycloak organization UUID
+     */
+    public void deleteOrganizationInKeycloak(String orgId) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-") || orgId == null || orgId.startsWith("mock-")) {
+            return;
+        }
+
+        try {
+            String orgUrl = properties.adminOrganizationsEndpoint() + "/" + orgId;
+            restClient.delete()
+                    .uri(orgUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .toBodilessEntity();
+            log.info("Successfully deleted organization [{}] from Keycloak during rollback compensation", orgId);
+        } catch (Exception ex) {
+            log.warn("Failed to delete organization [{}] from Keycloak: {}", orgId, ex.getMessage());
+        }
+    }
+
+    /**
      * Resolves or provisions a Keycloak Organization for a tenant facility.
      *
      * @param tenantCode unique tenant code
@@ -667,6 +786,41 @@ public class KeycloakTokenService {
         }
 
         return "mock-org-" + tenantCode;
+    }
+
+    /**
+     * Checks if a user already exists in Keycloak with the given email (REQ-TNT-01).
+     *
+     * @param email user email to check
+     * @return {@code true} if user already exists in Keycloak, {@code false} otherwise
+     */
+    public boolean userExistsByEmail(String email) {
+        if (email == null || email.isBlank()) {
+            return false;
+        }
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-")) {
+            return false;
+        }
+
+        try {
+            String adminUsersUrl = properties.adminUsersEndpoint();
+            String normalizedEmail = email.trim().toLowerCase();
+            String searchUrl = adminUsersUrl + "?email=" + normalizedEmail + "&exact=true";
+            String searchResponse = restClient.get()
+                    .uri(searchUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .body(String.class);
+
+            if (searchResponse != null && !searchResponse.isBlank()) {
+                JsonNode usersList = objectMapper.readTree(searchResponse);
+                return usersList.isArray() && !usersList.isEmpty();
+            }
+        } catch (Exception ex) {
+            log.warn("Error querying Keycloak for user existence by email [{}]: {}", email, ex.getMessage());
+        }
+        return false;
     }
 
     /**

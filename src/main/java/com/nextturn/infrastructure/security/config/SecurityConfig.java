@@ -89,7 +89,7 @@ public class SecurityConfig implements WebMvcConfigurer {
                                 "/docs",
                                 "/docs/**"
                         ).permitAll()
-                        // 3. Central Superadmin endpoints
+                        // 3. Central Superadmin & Platform endpoints (only SUPERADMIN accepted)
                         .requestMatchers("/api/v1/central/**").hasRole("SUPERADMIN")
                         // 4. Tenant Admin endpoints
                         .requestMatchers("/api/v1/tenant/admin/**").hasRole("TENANT_ADMIN")

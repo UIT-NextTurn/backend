@@ -5,6 +5,7 @@ import com.nextturn.controller.auth.CustomerAuthController;
 import com.nextturn.controller.auth.TenantAuthController;
 import com.nextturn.controller.auth.TenantIdpController;
 import com.nextturn.controller.auth.TenantStaffController;
+import com.nextturn.controller.tenant.TenantManagementController;
 import com.nextturn.infrastructure.security.annotation.RequireTenantAdmin;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
@@ -99,10 +100,11 @@ public class OpenApiConfig {
         return (operation, handlerMethod) -> {
             Class<?> beanType = handlerMethod.getBeanType();
 
-            // Exclude public endpoints, verify paths, customer auth, and healthcheck
+            // Exclude public endpoints, verify paths, customer auth, healthcheck, and central tenant onboarding
             if (beanType.equals(TenantAuthController.class)
                     || beanType.equals(CustomerAuthController.class)
-                    || beanType.equals(HealthCheckController.class)) {
+                    || beanType.equals(HealthCheckController.class)
+                    || beanType.equals(TenantManagementController.class)) {
                 return operation;
             }
 

@@ -1,6 +1,7 @@
 package com.nextturn.repository.auth;
 
 import com.nextturn.entity.TenantStaff;
+import com.nextturn.enums.StaffStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -29,4 +30,8 @@ public interface TenantStaffRepository extends JpaRepository<TenantStaff, String
     boolean existsByPhoneNumberAndIsDeletedFalse(String phoneNumber);
 
     Page<TenantStaff> findAllByIsDeletedFalse(Pageable pageable);
+
+    long countByStatusAndIsDeletedFalse(StaffStatus status);
+
+    long countByIsDeletedFalse();
 }
