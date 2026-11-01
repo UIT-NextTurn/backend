@@ -3,10 +3,12 @@ package com.nextturn.controller.tenant;
 import com.nextturn.config.CorsConfig;
 import com.nextturn.config.ScalarConfig;
 import com.nextturn.dto.tenant.CreateTenantRequest;
+import com.nextturn.dto.tenant.TenantMonitoringResponse;
 import com.nextturn.dto.tenant.TenantQuotaDto;
 import com.nextturn.dto.tenant.TenantQuotaResponse;
 import com.nextturn.dto.tenant.TenantResponse;
 import com.nextturn.dto.tenant.UpdateTenantRequest;
+import com.nextturn.dto.tenant.UpdateTenantStatusRequest;
 import com.nextturn.enums.TenantStatus;
 import com.nextturn.exception.GlobalExceptionHandler;
 import com.nextturn.infrastructure.multitenancy.TenantContextFilter;
@@ -22,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -35,10 +38,15 @@ import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -357,6 +365,119 @@ class TenantManagementControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.maxStaffs").value(10))
                 .andExpect(jsonPath("$.data.currentActiveStaff").value(2));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/central/tenants/{tenantId}/suspend should suspend tenant when SUPERADMIN (REQ-TNT-03)")
+    void shouldSuspendTenantWhenSuperAdmin() throws Exception {
+        TenantResponse response = TenantResponse.builder()
+                .id("tenant-uuid-1")
+                .tenantCode("bv-tam-duc")
+                .status(TenantStatus.SUSPENDED)
+                .build();
+
+        when(tenantService.suspendTenant("tenant-uuid-1")).thenReturn(response);
+
+        AbstractAuthenticationToken superAdminAuth = authenticationConverter.convert(
+                createMockJwt("SUPERADMIN", "sa@nextturn.internal", null)
+        );
+
+        mockMvc.perform(post("/api/v1/central/tenants/tenant-uuid-1/suspend")
+                        .with(authentication(superAdminAuth)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.status").value("SUSPENDED"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/central/tenants/{tenantId}/activate should reactivate tenant when SUPERADMIN (REQ-TNT-03)")
+    void shouldActivateTenantWhenSuperAdmin() throws Exception {
+        TenantResponse response = TenantResponse.builder()
+                .id("tenant-uuid-1")
+                .tenantCode("bv-tam-duc")
+                .status(TenantStatus.ACTIVE)
+                .build();
+
+        when(tenantService.activateTenant("tenant-uuid-1")).thenReturn(response);
+
+        AbstractAuthenticationToken superAdminAuth = authenticationConverter.convert(
+                createMockJwt("SUPERADMIN", "sa@nextturn.internal", null)
+        );
+
+        mockMvc.perform(post("/api/v1/central/tenants/tenant-uuid-1/activate")
+                        .with(authentication(superAdminAuth)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/central/tenants/{tenantId}/status should update status when SUPERADMIN (REQ-TNT-03)")
+    void shouldUpdateStatusWhenSuperAdmin() throws Exception {
+        TenantResponse response = TenantResponse.builder()
+                .id("tenant-uuid-1")
+                .tenantCode("bv-tam-duc")
+                .status(TenantStatus.SUSPENDED)
+                .build();
+
+        when(tenantService.updateTenantStatus(eq("tenant-uuid-1"), any(UpdateTenantStatusRequest.class)))
+                .thenReturn(response);
+
+        AbstractAuthenticationToken superAdminAuth = authenticationConverter.convert(
+                createMockJwt("SUPERADMIN", "sa@nextturn.internal", null)
+        );
+
+        mockMvc.perform(patch("/api/v1/central/tenants/tenant-uuid-1/status")
+                        .with(authentication(superAdminAuth))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"SUSPENDED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.status").value("SUSPENDED"));
+    }
+
+    @Test
+    @DisplayName("DELETE /api/v1/central/tenants/{tenantId} should invoke service delete (REQ-TNT-03)")
+    void shouldDeleteTenantWhenSuperAdmin() throws Exception {
+        AbstractAuthenticationToken superAdminAuth = authenticationConverter.convert(
+                createMockJwt("SUPERADMIN", "sa@nextturn.internal", null)
+        );
+
+        mockMvc.perform(delete("/api/v1/central/tenants/tenant-uuid-1")
+                        .with(authentication(superAdminAuth)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        verify(tenantService).deleteTenant("tenant-uuid-1");
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/central/tenants should search with pagination and metrics (REQ-TNT-04)")
+    void shouldSearchTenantsWhenSuperAdmin() throws Exception {
+        TenantMonitoringResponse item = TenantMonitoringResponse.builder()
+                .id("tenant-uuid-1")
+                .tenantCode("bv-tam-duc")
+                .tenantName("Bệnh viện Đa khoa Tâm Đức")
+                .status(TenantStatus.ACTIVE)
+                .activeStaffCount(8L)
+                .todayTicketsCount(25L)
+                .build();
+
+        when(tenantService.searchTenants(any(), any(), anyInt(), anyInt(), anyString(), anyString()))
+                .thenReturn(new PageImpl<>(List.of(item)));
+
+        AbstractAuthenticationToken superAdminAuth = authenticationConverter.convert(
+                createMockJwt("SUPERADMIN", "sa@nextturn.internal", null)
+        );
+
+        mockMvc.perform(get("/api/v1/central/tenants?keyword=tam-duc&status=ACTIVE&page=0&limit=10")
+                        .with(authentication(superAdminAuth)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data[0].tenantCode").value("bv-tam-duc"))
+                .andExpect(jsonPath("$.data[0].activeStaffCount").value(8))
+                .andExpect(jsonPath("$.data[0].todayTicketsCount").value(25))
+                .andExpect(jsonPath("$.pagination.totalElements").value(1));
     }
 
     private Jwt createMockJwt(String role, String email, String tenantCode) {

@@ -1,6 +1,7 @@
 package com.nextturn.service.tenant;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nextturn.constant.ValkeyKeyConstant;
 import com.nextturn.dto.tenant.CreateTenantRequest;
 import com.nextturn.dto.tenant.TenantQuotaDto;
 import com.nextturn.dto.tenant.TenantQuotaResponse;
@@ -19,6 +20,8 @@ import com.nextturn.repository.auth.CentralTenantRepository;
 import com.nextturn.repository.auth.TenantStaffRepository;
 import com.nextturn.repository.tenant.CentralTenantQuotaRepository;
 import com.nextturn.service.notification.EmailService;
+import com.nextturn.dto.tenant.TenantMonitoringResponse;
+import com.nextturn.dto.tenant.UpdateTenantStatusRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,9 +30,17 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,6 +48,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -67,6 +79,9 @@ class TenantServiceTest {
 
     @Mock
     private ValueOperations<String, String> valueOperations;
+
+    @Mock
+    private DataSource dataSource;
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
@@ -379,7 +394,7 @@ class TenantServiceTest {
         CentralTenant blockedTenant = CentralTenant.builder()
                 .id("tenant-uuid-002")
                 .tenantCode("blocked-clinic")
-                .status(TenantStatus.BLOCKED)
+                .status(TenantStatus.SUSPENDED)
                 .isDeleted(false)
                 .build();
         when(centralTenantRepository.findById("tenant-uuid-002")).thenReturn(Optional.of(blockedTenant));
@@ -459,5 +474,204 @@ class TenantServiceTest {
 
         verify(centralTenantRepository, never()).findById(anyString());
         verify(quotaRepository, never()).findByTenantId(anyString());
+    }
+
+    // =========================================================================
+    // REQ-TNT-03: Quản lý vòng đời và khóa/kích hoạt tổ chức
+    // =========================================================================
+
+    @Test
+    @DisplayName("REQ-TNT-03: Suspend active tenant, revoke Keycloak sessions and staff login rights")
+    void suspendTenant_success() {
+        when(centralTenantRepository.findById("tenant-uuid-001")).thenReturn(Optional.of(activeTenant));
+        when(centralTenantRepository.save(any(CentralTenant.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(quotaRepository.findByTenantId("tenant-uuid-001")).thenReturn(Optional.of(activeQuota));
+        when(staffRepository.countByStatusAndIsDeletedFalse(StaffStatus.ACTIVE)).thenReturn(4L);
+
+        TenantResponse response = tenantService.suspendTenant("tenant-uuid-001");
+
+        assertThat(response).isNotNull();
+        assertThat(response.getStatus()).isEqualTo(TenantStatus.SUSPENDED);
+        verify(keycloakTokenService).setOrganizationAndMembersActive("org-tam-duc", false);
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-03: Reject suspension if tenant is already SUSPENDED (TENANT_017)")
+    void suspendTenant_alreadySuspended_throwsException() {
+        activeTenant.setStatus(TenantStatus.SUSPENDED);
+        when(centralTenantRepository.findById("tenant-uuid-001")).thenReturn(Optional.of(activeTenant));
+
+        assertThatThrownBy(() -> tenantService.suspendTenant("tenant-uuid-001"))
+                .isInstanceOf(TenantException.class)
+                .hasMessageContaining("đã ở trạng thái tạm ngừng (SUSPENDED)")
+                .extracting("code")
+                .isEqualTo(TenantErrorCode.TENANT_ALREADY_SUSPENDED.code());
+
+        verify(centralTenantRepository, never()).save(any());
+        verify(keycloakTokenService, never()).setOrganizationAndMembersActive(anyString(), any(Boolean.class));
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-03: Reactivate suspended tenant, restore Keycloak login rights")
+    void activateTenant_success() {
+        activeTenant.setStatus(TenantStatus.SUSPENDED);
+        when(centralTenantRepository.findById("tenant-uuid-001")).thenReturn(Optional.of(activeTenant));
+        when(centralTenantRepository.save(any(CentralTenant.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(quotaRepository.findByTenantId("tenant-uuid-001")).thenReturn(Optional.of(activeQuota));
+        when(staffRepository.countByStatusAndIsDeletedFalse(StaffStatus.ACTIVE)).thenReturn(4L);
+
+        TenantResponse response = tenantService.activateTenant("tenant-uuid-001");
+
+        assertThat(response).isNotNull();
+        assertThat(response.getStatus()).isEqualTo(TenantStatus.ACTIVE);
+        verify(keycloakTokenService).setOrganizationAndMembersActive("org-tam-duc", true);
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-03: Reject activation if tenant is already ACTIVE (TENANT_018)")
+    void activateTenant_alreadyActive_throwsException() {
+        activeTenant.setStatus(TenantStatus.ACTIVE);
+        when(centralTenantRepository.findById("tenant-uuid-001")).thenReturn(Optional.of(activeTenant));
+
+        assertThatThrownBy(() -> tenantService.activateTenant("tenant-uuid-001"))
+                .isInstanceOf(TenantException.class)
+                .hasMessageContaining("đã ở trạng thái hoạt động (ACTIVE)")
+                .extracting("code")
+                .isEqualTo(TenantErrorCode.TENANT_ALREADY_ACTIVE.code());
+
+        verify(centralTenantRepository, never()).save(any());
+        verify(keycloakTokenService, never()).setOrganizationAndMembersActive(anyString(), any(Boolean.class));
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-03: updateTenantStatus dispatches to suspend or activate")
+    void updateTenantStatus_dispatchesCorrectly() {
+        when(centralTenantRepository.findById("tenant-uuid-001")).thenReturn(Optional.of(activeTenant));
+        when(centralTenantRepository.save(any(CentralTenant.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(quotaRepository.findByTenantId("tenant-uuid-001")).thenReturn(Optional.of(activeQuota));
+
+        TenantResponse response = tenantService.updateTenantStatus(
+                "tenant-uuid-001",
+                new UpdateTenantStatusRequest(TenantStatus.SUSPENDED)
+        );
+
+        assertThat(response.getStatus()).isEqualTo(TenantStatus.SUSPENDED);
+        verify(keycloakTokenService).setOrganizationAndMembersActive("org-tam-duc", false);
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-03: Soft delete uninitialized tenant without operational data")
+    void deleteTenant_noHistoricalData_softDeletesSuccessfully() {
+        when(centralTenantRepository.findById("tenant-uuid-001")).thenReturn(Optional.of(activeTenant));
+        when(centralTenantRepository.save(any(CentralTenant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        tenantService.deleteTenant("tenant-uuid-001");
+
+        assertThat(activeTenant.getIsDeleted()).isTrue();
+        assertThat(activeTenant.getStatus()).isEqualTo(TenantStatus.SUSPENDED);
+        verify(centralTenantRepository).save(activeTenant);
+        verify(centralTenantRepository, never()).delete(any());
+        verify(quotaRepository, never()).deleteByTenantId(anyString());
+        verify(keycloakTokenService).setOrganizationAndMembersActive("org-tam-duc", false);
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-03: Rollback DB status and isDeleted when Keycloak fails during deleteTenant")
+    void deleteTenant_whenKeycloakFails_rollsBackDatabaseStatus() {
+        when(centralTenantRepository.findById("tenant-uuid-001")).thenReturn(Optional.of(activeTenant));
+        when(centralTenantRepository.save(any(CentralTenant.class))).thenAnswer(inv -> inv.getArgument(0));
+        doThrow(new RuntimeException("Keycloak connection timeout"))
+                .when(keycloakTokenService).setOrganizationAndMembersActive("org-tam-duc", false);
+
+        assertThatThrownBy(() -> tenantService.deleteTenant("tenant-uuid-001"))
+                .isInstanceOf(TenantException.class)
+                .extracting("code")
+                .isEqualTo(TenantErrorCode.AUTH_SERVICE_SYNC_FAILED.code());
+
+        assertThat(activeTenant.getIsDeleted()).isFalse();
+        assertThat(activeTenant.getStatus()).isEqualTo(TenantStatus.ACTIVE);
+    }
+
+    // =========================================================================
+    // REQ-TNT-04: Tra cứu, phân trang và giám sát toàn cục
+    // =========================================================================
+
+    @Test
+    @DisplayName("REQ-TNT-04: Search tenants with keyword, status, and compute staff/ticket metrics")
+    void searchTenants_success() {
+        Page<CentralTenant> tenantPage = new PageImpl<>(List.of(activeTenant));
+        when(centralTenantRepository.searchTenants(eq("tam-duc"), eq(TenantStatus.ACTIVE), any(Pageable.class)))
+                .thenReturn(tenantPage);
+        when(quotaRepository.findByTenantId("tenant-uuid-001")).thenReturn(Optional.of(activeQuota));
+        when(staffRepository.countByStatusAndIsDeletedFalse(StaffStatus.ACTIVE)).thenReturn(5L);
+
+        Page<TenantMonitoringResponse> result = tenantService.searchTenants(
+                "tam-duc", TenantStatus.ACTIVE, 0, 10, "createdAt", "DESC"
+        );
+
+        assertThat(result).isNotNull();
+        assertThat(result.getTotalElements()).isEqualTo(1L);
+        assertThat(result.getContent()).hasSize(1);
+
+        TenantMonitoringResponse item = result.getContent().get(0);
+        assertThat(item.getTenantCode()).isEqualTo("bv-tam-duc");
+        assertThat(item.getActiveStaffCount()).isEqualTo(5L);
+        assertThat(item.getTodayTicketsCount()).isEqualTo(0L);
+        assertThat(item.getQuotas()).isNotNull();
+        assertThat(item.getQuotas().getMaxStaffs()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-03: Rollback DB status when Keycloak fails during suspend")
+    void suspendTenant_whenKeycloakFails_rollsBackDatabaseStatus() {
+        when(centralTenantRepository.findById("tenant-uuid-001")).thenReturn(Optional.of(activeTenant));
+        when(centralTenantRepository.save(any(CentralTenant.class))).thenAnswer(inv -> inv.getArgument(0));
+        doThrow(new RuntimeException("Keycloak connection timeout"))
+                .when(keycloakTokenService).setOrganizationAndMembersActive("org-tam-duc", false);
+
+        assertThatThrownBy(() -> tenantService.suspendTenant("tenant-uuid-001"))
+                .isInstanceOf(TenantException.class)
+                .extracting("code")
+                .isEqualTo(TenantErrorCode.AUTH_SERVICE_SYNC_FAILED.code());
+
+        assertThat(activeTenant.getStatus()).isEqualTo(TenantStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-03: Rollback DB status when Keycloak fails during activate")
+    void activateTenant_whenKeycloakFails_rollsBackDatabaseStatus() {
+        activeTenant.setStatus(TenantStatus.SUSPENDED);
+        when(centralTenantRepository.findById("tenant-uuid-001")).thenReturn(Optional.of(activeTenant));
+        when(centralTenantRepository.save(any(CentralTenant.class))).thenAnswer(inv -> inv.getArgument(0));
+        doThrow(new RuntimeException("Keycloak connection timeout"))
+                .when(keycloakTokenService).setOrganizationAndMembersActive("org-tam-duc", true);
+
+        assertThatThrownBy(() -> tenantService.activateTenant("tenant-uuid-001"))
+                .isInstanceOf(TenantException.class)
+                .extracting("code")
+                .isEqualTo(TenantErrorCode.AUTH_SERVICE_SYNC_FAILED.code());
+
+        assertThat(activeTenant.getStatus()).isEqualTo(TenantStatus.SUSPENDED);
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-04: countActiveStaff and countTodayTickets use Valkey cache when available")
+    void countingMetrics_useCacheWhenAvailable() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get(ValkeyKeyConstant.tenantActiveStaffKey("bv-tam-duc"))).thenReturn("7");
+        when(valueOperations.get(ValkeyKeyConstant.tenantTodayTicketsKey("bv-tam-duc"))).thenReturn("150");
+
+        Page<CentralTenant> tenantPage = new PageImpl<>(List.of(activeTenant));
+        when(centralTenantRepository.searchTenants(eq("tam-duc"), eq(TenantStatus.ACTIVE), any(Pageable.class)))
+                .thenReturn(tenantPage);
+        when(quotaRepository.findByTenantId("tenant-uuid-001")).thenReturn(Optional.of(activeQuota));
+
+        Page<TenantMonitoringResponse> result = tenantService.searchTenants(
+                "tam-duc", TenantStatus.ACTIVE, 0, 10, "createdAt", "DESC"
+        );
+
+        assertThat(result.getContent().get(0).getActiveStaffCount()).isEqualTo(7L);
+        assertThat(result.getContent().get(0).getTodayTicketsCount()).isEqualTo(150L);
+        verify(staffRepository, never()).countByStatusAndIsDeletedFalse(any());
     }
 }

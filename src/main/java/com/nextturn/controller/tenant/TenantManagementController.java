@@ -2,10 +2,13 @@ package com.nextturn.controller.tenant;
 
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.tenant.CreateTenantRequest;
+import com.nextturn.dto.tenant.TenantMonitoringResponse;
 import com.nextturn.dto.tenant.TenantQuotaDto;
 import com.nextturn.dto.tenant.TenantQuotaResponse;
 import com.nextturn.dto.tenant.TenantResponse;
 import com.nextturn.dto.tenant.UpdateTenantRequest;
+import com.nextturn.dto.tenant.UpdateTenantStatusRequest;
+import com.nextturn.enums.TenantStatus;
 import com.nextturn.infrastructure.security.annotation.RequireSuperAdmin;
 import com.nextturn.service.tenant.TenantService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,24 +20,33 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 /**
- * REST controller for tenant onboarding, administration, and operational quota configuration.
+ * REST controller for tenant onboarding, administration, operational quota configuration,
+ * lifecycle state transitions (REQ-TNT-03), and global search/monitoring (REQ-TNT-04).
  * <p>
  * Strictly restricted to platform <b>SUPERADMIN</b> only:
  * - <b>REQ-TNT-01</b>: Provisioning new tenant organization & default administrator account.
  * - <b>REQ-TNT-02</b>: Updating tenant administrative info & configuring operational quotas.
+ * - <b>REQ-TNT-03</b>: Lifecycle management (suspending/reactivating organization and hard-delete prevention).
+ * - <b>REQ-TNT-04</b>: Multi-criteria lookup, pagination, and telemetry monitoring (<= 300ms latency).
  */
 @RestController
 @RequestMapping("/api/v1/central/tenants")
@@ -42,7 +54,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequireSuperAdmin
 @Tag(
         name = "Tenant Management",
-        description = "Endpoints for platform Superadministrators to manage tenant lifecycle and operational quotas (REQ-TNT-01, REQ-TNT-02)"
+        description = "Endpoints for platform Superadministrators to manage tenant lifecycle, operational quotas, and global telemetry (REQ-TNT-01 to REQ-TNT-04)"
 )
 @SecurityRequirement(name = "BearerAuth")
 public class TenantManagementController {
@@ -52,6 +64,36 @@ public class TenantManagementController {
     @Autowired
     public TenantManagementController(TenantService tenantService) {
         this.tenantService = tenantService;
+    }
+
+    /**
+     * Searches, filters with pagination, and provides operational monitoring metrics (REQ-TNT-04).
+     */
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    @RequireSuperAdmin
+    @Operation(
+            summary = "Tra cứu, phân trang và giám sát toàn cục (REQ-TNT-04)",
+            description = "Tìm kiếm và lọc danh sách các tổ chức đa tiêu chí (keyword, status) kèm metadata phân trang và chỉ số giám sát tài nguyên (số nhân viên, số vé hôm nay)."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Truy vấn danh sách tổ chức thành công"),
+            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN")
+    })
+    public ResponseEntity<BaseResponse<List<TenantMonitoringResponse>>> searchTenants(
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "status", required = false) TenantStatus status,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "limit", defaultValue = "10") int limit,
+            @RequestParam(value = "sortBy", defaultValue = "createdAt") String sortBy,
+            @RequestParam(value = "sortDirection", defaultValue = "DESC") String sortDirection
+    ) {
+        Page<TenantMonitoringResponse> pagedResult = tenantService.searchTenants(
+                keyword, status, page, limit, sortBy, sortDirection
+        );
+        return ResponseEntity.ok(BaseResponse.okPaged(
+                "Truy vấn danh sách tổ chức thành công",
+                pagedResult
+        ));
     }
 
     /**
@@ -141,6 +183,100 @@ public class TenantManagementController {
         return ResponseEntity.ok(BaseResponse.ok(
                 "Hạn ngạch vận hành của tổ chức đã được cập nhật thành công",
                 response
+        ));
+    }
+
+    /**
+     * Suspends organization operations and disables staff credentials in Keycloak (REQ-TNT-03).
+     */
+    @PostMapping(value = "/{tenantId}/suspend", produces = MediaType.APPLICATION_JSON_VALUE)
+    @RequireSuperAdmin
+    @Operation(
+            summary = "Tạm ngừng tổ chức (REQ-TNT-03)",
+            description = "Chuyển trạng thái sang SUSPENDED, tạm khóa toàn bộ tài khoản nhân sự và thu hồi phiên đăng nhập Keycloak, tạm dừng cổng tiếp nhận lịch hẹn."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Tạm ngừng tổ chức thành công"),
+            @ApiResponse(responseCode = "400", description = "Tổ chức đã ở trạng thái SUSPENDED"),
+            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
+            @ApiResponse(responseCode = "404", description = "Không tìm thấy tổ chức")
+    })
+    public ResponseEntity<BaseResponse<TenantResponse>> suspendTenant(
+            @PathVariable("tenantId") String tenantId
+    ) {
+        TenantResponse response = tenantService.suspendTenant(tenantId);
+        return ResponseEntity.ok(BaseResponse.ok(
+                "Tổ chức đã được tạm ngừng hoạt động thành công",
+                response
+        ));
+    }
+
+    /**
+     * Reactivates a suspended organization and restores Keycloak login access (REQ-TNT-03).
+     */
+    @PostMapping(value = "/{tenantId}/activate", produces = MediaType.APPLICATION_JSON_VALUE)
+    @RequireSuperAdmin
+    @Operation(
+            summary = "Kích hoạt lại tổ chức (REQ-TNT-03)",
+            description = "Chuyển trạng thái sang ACTIVE, khôi phục quyền đăng nhập Keycloak cho nhân sự và mở lại dịch vụ trực tuyến."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Kích hoạt lại tổ chức thành công"),
+            @ApiResponse(responseCode = "400", description = "Tổ chức đã ở trạng thái ACTIVE"),
+            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
+            @ApiResponse(responseCode = "404", description = "Không tìm thấy tổ chức")
+    })
+    public ResponseEntity<BaseResponse<TenantResponse>> activateTenant(
+            @PathVariable("tenantId") String tenantId
+    ) {
+        TenantResponse response = tenantService.activateTenant(tenantId);
+        return ResponseEntity.ok(BaseResponse.ok(
+                "Tổ chức đã được kích hoạt lại thành công",
+                response
+        ));
+    }
+
+    /**
+     * General lifecycle status update dispatch (REQ-TNT-03).
+     */
+    @PatchMapping(value = "/{tenantId}/status", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @RequireSuperAdmin
+    @Operation(
+            summary = "Cập nhật trạng thái vòng đời tổ chức (REQ-TNT-03)",
+            description = "Chuyển đổi trạng thái tổ chức giữa ACTIVE và SUSPENDED kèm đồng bộ quyền Keycloak."
+    )
+    public ResponseEntity<BaseResponse<TenantResponse>> updateTenantStatus(
+            @PathVariable("tenantId") String tenantId,
+            @Valid @RequestBody UpdateTenantStatusRequest request
+    ) {
+        TenantResponse response = tenantService.updateTenantStatus(tenantId, request);
+        return ResponseEntity.ok(BaseResponse.ok(
+                "Cập nhật trạng thái tổ chức thành công",
+                response
+        ));
+    }
+
+    /**
+     * Deletes a tenant organization (REQ-TNT-03). Refuses physical deletion if historical data exists.
+     */
+    @DeleteMapping(value = "/{tenantId}", produces = MediaType.APPLICATION_JSON_VALUE)
+    @RequireSuperAdmin
+    @Operation(
+            summary = "Xóa tổ chức (REQ-TNT-03)",
+            description = "Hệ thống tuyệt đối từ chối thao tác xóa vật lý (hard-delete) nếu tổ chức đã phát sinh dữ liệu vé, lịch hẹn hoặc đánh giá của khách hàng."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Xóa tổ chức thành công"),
+            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
+            @ApiResponse(responseCode = "404", description = "Không tìm thấy tổ chức"),
+            @ApiResponse(responseCode = "409", description = "Từ chối xóa do tổ chức đã phát sinh dữ liệu lịch sử")
+    })
+    public ResponseEntity<BaseResponse<Void>> deleteTenant(
+            @PathVariable("tenantId") String tenantId
+    ) {
+        tenantService.deleteTenant(tenantId);
+        return ResponseEntity.ok(BaseResponse.ok(
+                "Tổ chức đã được xóa an toàn khỏi hệ thống"
         ));
     }
 

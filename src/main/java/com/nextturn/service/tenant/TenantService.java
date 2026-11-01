@@ -3,10 +3,12 @@ package com.nextturn.service.tenant;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nextturn.constant.ValkeyKeyConstant;
 import com.nextturn.dto.tenant.CreateTenantRequest;
+import com.nextturn.dto.tenant.TenantMonitoringResponse;
 import com.nextturn.dto.tenant.TenantQuotaDto;
 import com.nextturn.dto.tenant.TenantQuotaResponse;
 import com.nextturn.dto.tenant.TenantResponse;
 import com.nextturn.dto.tenant.UpdateTenantRequest;
+import com.nextturn.dto.tenant.UpdateTenantStatusRequest;
 import com.nextturn.entity.CentralTenant;
 import com.nextturn.entity.CentralTenantQuota;
 import com.nextturn.enums.StaffRole;
@@ -25,18 +27,31 @@ import com.nextturn.util.EmailValidationUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 /**
  * Service orchestrating tenant lifecycle, onboarding provisioning (REQ-TNT-01),
- * administrative updates, and operational quota management (REQ-TNT-02).
+ * administrative updates, operational quota management (REQ-TNT-02),
+ * lifecycle state suspension and reactivation (REQ-TNT-03),
+ * and global tenant search, filtering, and telemetry monitoring (REQ-TNT-04).
  */
 @Service
 public class TenantService {
@@ -52,6 +67,7 @@ public class TenantService {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
+    private final DataSource dataSource;
 
     @Autowired
     public TenantService(
@@ -63,7 +79,8 @@ public class TenantService {
             EmailService emailService,
             @Autowired(required = false) StringRedisTemplate redisTemplate,
             @Autowired(required = false) ObjectMapper objectMapper,
-            @Autowired(required = false) TransactionTemplate transactionTemplate
+            @Autowired(required = false) TransactionTemplate transactionTemplate,
+            @Autowired(required = false) DataSource dataSource
     ) {
         this.centralTenantRepository = centralTenantRepository;
         this.quotaRepository = quotaRepository;
@@ -74,6 +91,7 @@ public class TenantService {
         this.redisTemplate = redisTemplate;
         this.objectMapper = (objectMapper != null) ? objectMapper : new ObjectMapper().findAndRegisterModules();
         this.transactionTemplate = transactionTemplate;
+        this.dataSource = dataSource;
     }
 
     /**
@@ -167,12 +185,18 @@ public class TenantService {
                 .maxAppointments(maxAppointments)
                 .build();
 
-        // 4. Persist in database
+        // 4. Persist in database atomically
         CentralTenant savedTenant;
         CentralTenantQuota savedQuota;
         try {
-            savedTenant = executeInTransaction(status -> centralTenantRepository.save(tenant));
-            savedQuota = executeInTransaction(status -> quotaRepository.save(quota));
+            record SavedTenantAndQuota(CentralTenant tenant, CentralTenantQuota quota) {}
+            SavedTenantAndQuota saved = executeInTransaction(status -> {
+                CentralTenant t = centralTenantRepository.save(tenant);
+                CentralTenantQuota q = quotaRepository.save(quota);
+                return new SavedTenantAndQuota(t, q);
+            });
+            savedTenant = saved.tenant();
+            savedQuota = saved.quota();
         } catch (Exception dbEx) {
             log.error("Database save failed during tenant creation for [{}]: {}", normalizedCode, dbEx.getMessage(), dbEx);
             throw dbEx;
@@ -308,8 +332,6 @@ public class TenantService {
             tenant.setPhoneNumber(request.getPhoneNumber().trim());
         }
 
-        CentralTenant updatedTenant = executeInTransaction(status -> centralTenantRepository.save(tenant));
-
         // 5. Update or create operational quota entity
         CentralTenantQuota quota = quotaRepository.findByTenantId(tenant.getId())
                 .orElseGet(() -> CentralTenantQuota.builder()
@@ -334,7 +356,21 @@ public class TenantService {
             quota.setMaxAppointments(request.getMaxAppointments());
         }
 
-        CentralTenantQuota updatedQuota = executeInTransaction(status -> quotaRepository.save(quota));
+        CentralTenant updatedTenant;
+        CentralTenantQuota updatedQuota;
+        try {
+            record UpdatedTenantAndQuota(CentralTenant tenant, CentralTenantQuota quota) {}
+            UpdatedTenantAndQuota saved = executeInTransaction(status -> {
+                CentralTenant t = centralTenantRepository.save(tenant);
+                CentralTenantQuota q = quotaRepository.save(quota);
+                return new UpdatedTenantAndQuota(t, q);
+            });
+            updatedTenant = saved.tenant();
+            updatedQuota = saved.quota();
+        } catch (Exception dbEx) {
+            log.error("Database save failed during quota update for [{}]: {}", tenant.getTenantCode(), dbEx.getMessage(), dbEx);
+            throw dbEx;
+        }
 
         log.info("Successfully updated tenant [{}] profile and quotas (max_staffs: {}, daily_quota: {})",
                 tenant.getTenantCode(), updatedQuota.getMaxStaffs(), updatedQuota.getDailyTicketQuota());
@@ -346,6 +382,307 @@ public class TenantService {
         cacheTenantConfig(response);
 
         return response;
+    }
+
+    /**
+     * Suspends tenant operations and locks all associated Keycloak staff accounts (REQ-TNT-03).
+     *
+     * @param tenantIdentifier tenant ID or tenant code
+     * @return updated tenant profile
+     */
+    public TenantResponse suspendTenant(String tenantIdentifier) {
+        CentralTenant tenant = resolveTenant(tenantIdentifier);
+
+        TenantStatus previousStatus = tenant.getStatus();
+        if (previousStatus == TenantStatus.SUSPENDED) {
+            throw new TenantException(
+                    TenantErrorCode.TENANT_ALREADY_SUSPENDED,
+                    "Tổ chức này đã ở trạng thái tạm ngừng (SUSPENDED)."
+            );
+        }
+
+        tenant.setStatus(TenantStatus.SUSPENDED);
+        CentralTenant savedTenant = executeInTransaction(status -> centralTenantRepository.save(tenant));
+
+        // Synchronize with Keycloak: disable organization, disable all staff, revoke sessions
+        if (savedTenant.getOrganisationId() != null) {
+            try {
+                keycloakTokenService.setOrganizationAndMembersActive(savedTenant.getOrganisationId(), false);
+            } catch (Exception kcEx) {
+                log.error("Failed to suspend Keycloak organization [{}]. Compensating database status for tenant [{}]: {}",
+                        savedTenant.getOrganisationId(), savedTenant.getTenantCode(), kcEx.getMessage());
+                executeInTransaction(status -> {
+                    tenant.setStatus(previousStatus);
+                    return centralTenantRepository.save(tenant);
+                });
+                throw new TenantException(
+                        TenantErrorCode.AUTH_SERVICE_SYNC_FAILED,
+                        "Quá trình đồng bộ tạm khóa sang Keycloak thất bại. Đã khôi phục trạng thái ban đầu."
+                );
+            }
+        }
+
+        // Evict and refresh Valkey cache
+        evictTenantConfigCache(savedTenant.getId(), savedTenant.getTenantCode());
+
+        CentralTenantQuota quota = quotaRepository.findByTenantId(savedTenant.getId()).orElse(null);
+        long activeStaff = countActiveStaff(savedTenant.getTenantCode());
+        TenantQuotaResponse quotaResponse = TenantQuotaResponse.fromEntity(quota, activeStaff);
+        TenantResponse response = TenantResponse.fromEntity(savedTenant, quotaResponse);
+        cacheTenantConfig(response);
+
+        log.info("Successfully suspended tenant [{}] and revoked all active sessions in Keycloak", savedTenant.getTenantCode());
+        return response;
+    }
+
+    /**
+     * Reactivates a suspended tenant and restores Keycloak login permissions (REQ-TNT-03).
+     *
+     * @param tenantIdentifier tenant ID or tenant code
+     * @return updated tenant profile
+     */
+    public TenantResponse activateTenant(String tenantIdentifier) {
+        CentralTenant tenant = resolveTenant(tenantIdentifier);
+
+        TenantStatus previousStatus = tenant.getStatus();
+        if (previousStatus == TenantStatus.ACTIVE) {
+            throw new TenantException(
+                    TenantErrorCode.TENANT_ALREADY_ACTIVE,
+                    "Tổ chức này đã ở trạng thái hoạt động (ACTIVE)."
+            );
+        }
+
+        tenant.setStatus(TenantStatus.ACTIVE);
+        CentralTenant savedTenant = executeInTransaction(status -> centralTenantRepository.save(tenant));
+
+        // Synchronize with Keycloak: enable organization and restore staff login rights
+        if (savedTenant.getOrganisationId() != null) {
+            try {
+                keycloakTokenService.setOrganizationAndMembersActive(savedTenant.getOrganisationId(), true);
+            } catch (Exception kcEx) {
+                log.error("Failed to activate Keycloak organization [{}]. Compensating database status for tenant [{}]: {}",
+                        savedTenant.getOrganisationId(), savedTenant.getTenantCode(), kcEx.getMessage());
+                executeInTransaction(status -> {
+                    tenant.setStatus(previousStatus);
+                    return centralTenantRepository.save(tenant);
+                });
+                throw new TenantException(
+                        TenantErrorCode.AUTH_SERVICE_SYNC_FAILED,
+                        "Quá trình đồng bộ kích hoạt lại sang Keycloak thất bại. Đã khôi phục trạng thái ban đầu."
+                );
+            }
+        }
+
+        // Evict and refresh Valkey cache
+        evictTenantConfigCache(savedTenant.getId(), savedTenant.getTenantCode());
+
+        CentralTenantQuota quota = quotaRepository.findByTenantId(savedTenant.getId()).orElse(null);
+        long activeStaff = countActiveStaff(savedTenant.getTenantCode());
+        TenantQuotaResponse quotaResponse = TenantQuotaResponse.fromEntity(quota, activeStaff);
+        TenantResponse response = TenantResponse.fromEntity(savedTenant, quotaResponse);
+        cacheTenantConfig(response);
+
+        log.info("Successfully reactivated tenant [{}] and restored login permissions in Keycloak", savedTenant.getTenantCode());
+        return response;
+    }
+
+    /**
+     * Dispatches tenant lifecycle transition based on request status (REQ-TNT-03).
+     *
+     * @param tenantIdentifier tenant ID or tenant code
+     * @param request          status transition payload
+     * @return updated tenant profile
+     */
+    public TenantResponse updateTenantStatus(String tenantIdentifier, UpdateTenantStatusRequest request) {
+        if (request == null || request.getStatus() == null) {
+            throw new TenantException(TenantErrorCode.TENANT_NOT_FOUND, "Trạng thái mục tiêu không được để trống");
+        }
+        if (request.getStatus() == TenantStatus.SUSPENDED) {
+            return suspendTenant(tenantIdentifier);
+        } else if (request.getStatus() == TenantStatus.ACTIVE) {
+            return activateTenant(tenantIdentifier);
+        } else {
+            throw new TenantException(
+                    TenantErrorCode.TENANT_NOT_ACTIVE,
+                    "Chỉ hỗ trợ chuyển đổi giữa trạng thái ACTIVE và SUSPENDED"
+            );
+        }
+    }
+
+    /**
+     * Soft-deletes a tenant organization without physical deletion (REQ-TNT-03).
+     * Strictly refuses hard deletion if historical data exists.
+     * Sets isDeleted = true, status = SUSPENDED, disables Keycloak organization, and revokes active sessions.
+     *
+     * @param tenantIdentifier tenant ID or tenant code
+     */
+    public void deleteTenant(String tenantIdentifier) {
+        CentralTenant tenant = resolveTenant(tenantIdentifier);
+
+        // Check if organization has generated historical tickets, appointments, or reviews
+        if (checkTenantHistoricalData(tenant.getTenantCode())) {
+            throw new TenantException(
+                    TenantErrorCode.TENANT_CANNOT_HARD_DELETE,
+                    "Hệ thống tuyệt đối từ chối thao tác xóa vật lý bản ghi tổ chức đã phát sinh dữ liệu lịch sử vé, lịch hẹn hoặc đánh giá của khách hàng."
+            );
+        }
+
+        // Soft deletion: marks isDeleted = true and suspends operations
+        TenantStatus previousStatus = tenant.getStatus();
+        tenant.setIsDeleted(true);
+        tenant.setStatus(TenantStatus.SUSPENDED);
+        executeInTransaction(status -> centralTenantRepository.save(tenant));
+
+        if (tenant.getOrganisationId() != null) {
+            try {
+                keycloakTokenService.setOrganizationAndMembersActive(tenant.getOrganisationId(), false);
+            } catch (Exception kcEx) {
+                log.error("Failed to disable Keycloak organization [{}] during tenant soft-deletion. Compensating database record for [{}]: {}",
+                        tenant.getOrganisationId(), tenant.getTenantCode(), kcEx.getMessage());
+                executeInTransaction(status -> {
+                    tenant.setIsDeleted(false);
+                    tenant.setStatus(previousStatus);
+                    return centralTenantRepository.save(tenant);
+                });
+                throw new TenantException(
+                        TenantErrorCode.AUTH_SERVICE_SYNC_FAILED,
+                        "Quá trình vô hiệu hóa tài khoản trên Keycloak thất bại. Đã khôi phục dữ liệu ban đầu."
+                );
+            }
+        }
+
+        evictTenantConfigCache(tenant.getId(), tenant.getTenantCode());
+        log.info("Successfully soft-deleted tenant [{}]", tenant.getTenantCode());
+    }
+
+    /**
+     * Searches, filters with pagination, and provides operational monitoring metrics (REQ-TNT-04).
+     * Target API latency: <= 300ms.
+     *
+     * @param keyword       optional keyword filter
+     * @param status        optional lifecycle status filter
+     * @param page          0-based page index
+     * @param limit         page size
+     * @param sortBy        sort field
+     * @param sortDirection sort direction (ASC or DESC)
+     * @return paged collection of tenant telemetry and monitoring responses
+     */
+    public Page<TenantMonitoringResponse> searchTenants(
+            String keyword,
+            TenantStatus status,
+            int page,
+            int limit,
+            String sortBy,
+            String sortDirection
+    ) {
+        int sanitizedPage = Math.max(0, page);
+        int sanitizedLimit = Math.min(100, Math.max(1, limit));
+
+        String sanitizedSortBy = "createdAt";
+        if ("tenantName".equalsIgnoreCase(sortBy) || "tenantCode".equalsIgnoreCase(sortBy) || "status".equalsIgnoreCase(sortBy)) {
+            sanitizedSortBy = sortBy;
+        }
+
+        Sort.Direction direction = "ASC".equalsIgnoreCase(sortDirection) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        Pageable pageable = PageRequest.of(sanitizedPage, sanitizedLimit, Sort.by(direction, sanitizedSortBy));
+
+        String cleanKeyword = (keyword != null && !keyword.isBlank()) ? keyword.trim() : null;
+
+        Page<CentralTenant> tenantPage = centralTenantRepository.searchTenants(cleanKeyword, status, pageable);
+
+        List<TenantMonitoringResponse> items = tenantPage.getContent().stream().map(t -> {
+            CentralTenantQuota quota = quotaRepository.findByTenantId(t.getId()).orElse(null);
+            long activeStaff = countActiveStaff(t.getTenantCode());
+            long todayTickets = countTodayTickets(t.getTenantCode());
+            TenantQuotaResponse quotaResponse = TenantQuotaResponse.fromEntity(quota, activeStaff);
+            return TenantMonitoringResponse.fromEntity(t, quotaResponse, activeStaff, todayTickets);
+        }).toList();
+
+        return new PageImpl<>(items, pageable, tenantPage.getTotalElements());
+    }
+
+    /**
+     * Counts queue tickets created today in tenant schema (REQ-TNT-04).
+     * Uses Valkey telemetry cache first with fallback to database on cache miss.
+     */
+    public long countTodayTickets(String tenantCode) {
+        if (tenantCode == null || tenantCode.isBlank()) {
+            return 0L;
+        }
+        String cacheKey = ValkeyKeyConstant.tenantTodayTicketsKey(tenantCode);
+        Long cached = getCachedCount(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+
+        if (dataSource == null) {
+            return 0L;
+        }
+        long count = 0L;
+        String previousTenant = TenantContextHolder.getTenantCode();
+        try {
+            TenantContextHolder.setTenantCode(tenantCode.trim());
+            try (Connection conn = dataSource.getConnection()) {
+                String sql = "SELECT COUNT(*) FROM tenant__queue_tickets WHERE created_at >= CURDATE() AND is_deleted = false";
+                try (PreparedStatement stmt = conn.prepareStatement(sql);
+                     ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        count = rs.getLong(1);
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            log.trace("Today tickets count query noted for tenant [{}]: {}", tenantCode, ex.getMessage());
+        } finally {
+            if (previousTenant != null) {
+                TenantContextHolder.setTenantCode(previousTenant);
+            } else {
+                TenantContextHolder.clear();
+            }
+        }
+
+        setCachedCount(cacheKey, count, Duration.ofSeconds(60));
+        return count;
+    }
+
+    /**
+     * Checks if tenant has generated historical operational data (tickets, appointments, reviews) (REQ-TNT-03).
+     */
+    public boolean checkTenantHistoricalData(String tenantCode) {
+        if (tenantCode == null || tenantCode.isBlank() || dataSource == null) {
+            return false;
+        }
+        String previousTenant = TenantContextHolder.getTenantCode();
+        try {
+            TenantContextHolder.setTenantCode(tenantCode.trim());
+            try (Connection conn = dataSource.getConnection()) {
+                return countTableRows(conn, "tenant__queue_tickets") > 0
+                        || countTableRows(conn, "tenant__appointments") > 0
+                        || countTableRows(conn, "tenant__feedbacks") > 0;
+            }
+        } catch (Exception ex) {
+            log.debug("Historical operational data check noted for schema [tenant_{}]: {}", tenantCode, ex.getMessage());
+            return false;
+        } finally {
+            if (previousTenant != null) {
+                TenantContextHolder.setTenantCode(previousTenant);
+            } else {
+                TenantContextHolder.clear();
+            }
+        }
+    }
+
+    private long countTableRows(Connection conn, String tableName) {
+        String sql = "SELECT COUNT(*) FROM " + tableName;
+        try (PreparedStatement stmt = conn.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+            if (rs.next()) {
+                return rs.getLong(1);
+            }
+        } catch (SQLException ex) {
+            log.trace("Table [{}] not found or query failed in tenant catalog: {}", tableName, ex.getMessage());
+        }
+        return 0L;
     }
 
     /**
@@ -402,23 +739,67 @@ public class TenantService {
     }
 
     private long countActiveStaff(String tenantCode) {
-        if (staffRepository == null || tenantCode == null || tenantCode.isBlank()) {
+        if (tenantCode == null || tenantCode.isBlank()) {
             return 0L;
         }
+        String cacheKey = ValkeyKeyConstant.tenantActiveStaffKey(tenantCode);
+        Long cached = getCachedCount(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+
+        if (staffRepository == null) {
+            return 0L;
+        }
+        long count = 0L;
         String previousTenant = TenantContextHolder.getTenantCode();
         try {
             TenantContextHolder.setTenantCode(tenantCode.trim());
-            return staffRepository.countByStatusAndIsDeletedFalse(StaffStatus.ACTIVE);
+            count = staffRepository.countByStatusAndIsDeletedFalse(StaffStatus.ACTIVE);
         } catch (Exception ex) {
             log.warn("Could not query staff count in tenant schema [{}] (table might not exist yet): {}",
                     tenantCode, ex.getMessage());
-            return 0L;
         } finally {
             if (previousTenant != null) {
                 TenantContextHolder.setTenantCode(previousTenant);
             } else {
                 TenantContextHolder.clear();
             }
+        }
+
+        setCachedCount(cacheKey, count, Duration.ofMinutes(5));
+        return count;
+    }
+
+    private Long getCachedCount(String key) {
+        if (redisTemplate == null || key == null || key.isBlank()) {
+            return null;
+        }
+        try {
+            var ops = redisTemplate.opsForValue();
+            if (ops != null) {
+                String val = ops.get(key);
+                if (val != null && !val.isBlank()) {
+                    return Long.parseLong(val.trim());
+                }
+            }
+        } catch (Exception ex) {
+            log.trace("Cache read error for count key [{}]: {}", key, ex.getMessage());
+        }
+        return null;
+    }
+
+    private void setCachedCount(String key, long count, Duration ttl) {
+        if (redisTemplate == null || key == null || key.isBlank()) {
+            return;
+        }
+        try {
+            var ops = redisTemplate.opsForValue();
+            if (ops != null) {
+                ops.set(key, String.valueOf(count), ttl);
+            }
+        } catch (Exception ex) {
+            log.trace("Cache write error for count key [{}]: {}", key, ex.getMessage());
         }
     }
 
@@ -495,10 +876,17 @@ public class TenantService {
     private void evictTenantConfigCache(String tenantId, String tenantCode) {
         if (redisTemplate != null) {
             try {
-                String keyById = ValkeyKeyConstant.tenantConfigKey(tenantId);
-                String keyByCode = ValkeyKeyConstant.tenantConfigKey(tenantCode);
-                redisTemplate.delete(List.of(keyById, keyByCode));
-                log.debug("Evicted Valkey cache keys [{}] and [{}]", keyById, keyByCode);
+                List<String> keys = new ArrayList<>();
+                if (tenantId != null) {
+                    keys.add(ValkeyKeyConstant.tenantConfigKey(tenantId));
+                }
+                if (tenantCode != null) {
+                    keys.add(ValkeyKeyConstant.tenantConfigKey(tenantCode));
+                    keys.add(ValkeyKeyConstant.tenantTodayTicketsKey(tenantCode));
+                    keys.add(ValkeyKeyConstant.tenantActiveStaffKey(tenantCode));
+                }
+                redisTemplate.delete(keys);
+                log.debug("Evicted Valkey cache keys: {}", keys);
             } catch (Exception ex) {
                 log.warn("Valkey cache eviction failed for tenant [{}] / [{}]: {}", tenantId, tenantCode, ex.getMessage());
             }
