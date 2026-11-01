@@ -3,6 +3,7 @@ package com.nextturn.controller.tenant;
 import com.nextturn.config.CorsConfig;
 import com.nextturn.config.ScalarConfig;
 import com.nextturn.dto.tenant.CreateTenantRequest;
+import com.nextturn.dto.tenant.RejectTenantRequest;
 import com.nextturn.dto.tenant.TenantMonitoringResponse;
 import com.nextturn.dto.tenant.TenantQuotaDto;
 import com.nextturn.dto.tenant.TenantQuotaResponse;
@@ -478,6 +479,103 @@ class TenantManagementControllerTest {
                 .andExpect(jsonPath("$.data[0].activeStaffCount").value(8))
                 .andExpect(jsonPath("$.data[0].todayTicketsCount").value(25))
                 .andExpect(jsonPath("$.pagination.totalElements").value(1));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/central/tenants/{id}/approve should approve pending tenant (REQ-TNT-06)")
+    void shouldApproveTenantWhenSuperAdmin() throws Exception {
+        TenantResponse approvedTenant = TenantResponse.builder()
+                .id("tenant-uuid-1")
+                .tenantCode("bv-tam-duc")
+                .tenantName("Bệnh viện Đa khoa Tâm Đức")
+                .status(TenantStatus.ACTIVE)
+                .build();
+
+        when(tenantService.approveTenantRegistration("tenant-uuid-1")).thenReturn(approvedTenant);
+
+        AbstractAuthenticationToken superAdminAuth = authenticationConverter.convert(
+                createMockJwt("SUPERADMIN", "sa@nextturn.internal", null)
+        );
+
+        mockMvc.perform(post("/api/v1/central/tenants/tenant-uuid-1/approve")
+                        .with(authentication(superAdminAuth)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.tenantCode").value("bv-tam-duc"))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+
+        verify(tenantService).approveTenantRegistration("tenant-uuid-1");
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/central/tenants/{id}/approve should deny non-superadmin (REQ-TNT-06)")
+    void shouldDenyApproveTenantWhenNotSuperAdmin() throws Exception {
+        AbstractAuthenticationToken staffAuth = authenticationConverter.convert(
+                createMockJwt("TENANT_ADMIN", "admin@tamduc.vn", "bv-tam-duc")
+        );
+
+        mockMvc.perform(post("/api/v1/central/tenants/tenant-uuid-1/approve")
+                        .with(authentication(staffAuth)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/central/tenants/{id}/reject should reject pending tenant with mandatory reason (REQ-TNT-06)")
+    void shouldRejectTenantWhenSuperAdmin() throws Exception {
+        TenantResponse rejectedTenant = TenantResponse.builder()
+                .id("tenant-uuid-1")
+                .tenantCode("bv-tam-duc")
+                .tenantName("Bệnh viện Đa khoa Tâm Đức")
+                .status(TenantStatus.REJECTED)
+                .rejectionReason("Thông tin giấy phép kinh doanh không khớp")
+                .build();
+
+        when(tenantService.rejectTenantRegistration(eq("tenant-uuid-1"), any(RejectTenantRequest.class)))
+                .thenReturn(rejectedTenant);
+
+        AbstractAuthenticationToken superAdminAuth = authenticationConverter.convert(
+                createMockJwt("SUPERADMIN", "sa@nextturn.internal", null)
+        );
+
+        mockMvc.perform(post("/api/v1/central/tenants/tenant-uuid-1/reject")
+                        .with(authentication(superAdminAuth))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\": \"Thông tin giấy phép kinh doanh không khớp\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.tenantCode").value("bv-tam-duc"))
+                .andExpect(jsonPath("$.data.status").value("REJECTED"))
+                .andExpect(jsonPath("$.data.rejectionReason").value("Thông tin giấy phép kinh doanh không khớp"));
+
+        verify(tenantService).rejectTenantRegistration(eq("tenant-uuid-1"), any(RejectTenantRequest.class));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/central/tenants/{id}/reject should return 400 when rejectionReason is blank (REQ-TNT-06)")
+    void shouldFailRejectTenantWhenReasonIsBlank() throws Exception {
+        AbstractAuthenticationToken superAdminAuth = authenticationConverter.convert(
+                createMockJwt("SUPERADMIN", "sa@nextturn.internal", null)
+        );
+
+        mockMvc.perform(post("/api/v1/central/tenants/tenant-uuid-1/reject")
+                        .with(authentication(superAdminAuth))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\": \"   \"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/central/tenants/{id}/reject should deny non-superadmin (REQ-TNT-06)")
+    void shouldDenyRejectTenantWhenNotSuperAdmin() throws Exception {
+        AbstractAuthenticationToken staffAuth = authenticationConverter.convert(
+                createMockJwt("TENANT_ADMIN", "admin@tamduc.vn", "bv-tam-duc")
+        );
+
+        mockMvc.perform(post("/api/v1/central/tenants/tenant-uuid-1/reject")
+                        .with(authentication(staffAuth))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\": \"Lý do bất kỳ\"}"))
+                .andExpect(status().isForbidden());
     }
 
     private Jwt createMockJwt(String role, String email, String tenantCode) {

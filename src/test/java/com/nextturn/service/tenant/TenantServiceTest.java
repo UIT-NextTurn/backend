@@ -3,8 +3,10 @@ package com.nextturn.service.tenant;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nextturn.constant.ValkeyKeyConstant;
 import com.nextturn.dto.tenant.CreateTenantRequest;
+import com.nextturn.dto.tenant.RejectTenantRequest;
 import com.nextturn.dto.tenant.TenantQuotaDto;
 import com.nextturn.dto.tenant.TenantQuotaResponse;
+import com.nextturn.dto.tenant.TenantRegistrationRequest;
 import com.nextturn.dto.tenant.TenantResponse;
 import com.nextturn.dto.tenant.UpdateTenantRequest;
 import com.nextturn.entity.CentralTenant;
@@ -673,5 +675,191 @@ class TenantServiceTest {
         assertThat(result.getContent().get(0).getActiveStaffCount()).isEqualTo(7L);
         assertThat(result.getContent().get(0).getTodayTicketsCount()).isEqualTo(150L);
         verify(staffRepository, never()).countByStatusAndIsDeletedFalse(any());
+    }
+
+    // =========================================================================
+    // REQ-TNT-05: Đăng ký tổ chức mới từ phía người dùng
+    // =========================================================================
+
+    @Test
+    @DisplayName("REQ-TNT-05: Successfully register tenant with PENDING_APPROVAL status and disabled Keycloak org/user")
+    void registerTenant_success() {
+        TenantRegistrationRequest regRequest = TenantRegistrationRequest.builder()
+                .tenantName("Phòng khám Đa khoa Sài Gòn")
+                .tenantCode("pk-sai-gon")
+                .adminEmail("admin@saigonclinic.vn")
+                .adminFullName("Trần Thị Mai")
+                .phoneNumber("0912345678")
+                .initialPassword("ClinicPass123!@#")
+                .build();
+
+        when(centralTenantRepository.existsByTenantCodeIgnoreCaseAndIsDeletedFalse("pk-sai-gon")).thenReturn(false);
+        when(centralTenantRepository.findByAdminEmailIgnoreCaseAndIsDeletedFalse("admin@saigonclinic.vn")).thenReturn(Optional.empty());
+        when(keycloakTokenService.organizationExists("pk-sai-gon")).thenReturn(false);
+        when(keycloakTokenService.userExistsByEmail("admin@saigonclinic.vn")).thenReturn(false);
+
+        when(centralTenantRepository.save(any(CentralTenant.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(quotaRepository.save(any(CentralTenantQuota.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        when(keycloakTokenService.createOrganization(eq("pk-sai-gon"), eq("Phòng khám Đa khoa Sài Gòn"), eq(false)))
+                .thenReturn("org-pk-sai-gon");
+        when(keycloakTokenService.createStaffUser(eq("pk-sai-gon"), eq("admin@saigonclinic.vn"), anyString(), anyString(), eq(StaffRole.ADMIN), eq(false)))
+                .thenReturn("kc-user-staging-001");
+
+        TenantResponse response = tenantService.registerTenant(regRequest);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getTenantCode()).isEqualTo("pk-sai-gon");
+        assertThat(response.getStatus()).isEqualTo(TenantStatus.PENDING_APPROVAL);
+        assertThat(response.getOrganisationId()).isEqualTo("org-pk-sai-gon");
+
+        verify(keycloakTokenService).addMemberToOrganization("org-pk-sai-gon", "kc-user-staging-001");
+        verify(emailService).sendTenantRegistrationReceivedEmail(eq("admin@saigonclinic.vn"), eq("Phòng khám Đa khoa Sài Gòn"), eq("pk-sai-gon"));
+        verify(emailService).sendTenantRegistrationInternalNotification(anyString(), eq("Phòng khám Đa khoa Sài Gòn"), eq("pk-sai-gon"), eq("admin@saigonclinic.vn"));
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-05: Rollback database and clean Keycloak when Keycloak staging fails")
+    void registerTenant_whenKeycloakFails_rollsBackDatabase() {
+        TenantRegistrationRequest regRequest = TenantRegistrationRequest.builder()
+                .tenantName("Phòng khám Đa khoa Sài Gòn")
+                .tenantCode("pk-sai-gon")
+                .adminEmail("admin@saigonclinic.vn")
+                .phoneNumber("0912345678")
+                .build();
+
+        when(centralTenantRepository.existsByTenantCodeIgnoreCaseAndIsDeletedFalse("pk-sai-gon")).thenReturn(false);
+        when(centralTenantRepository.findByAdminEmailIgnoreCaseAndIsDeletedFalse("admin@saigonclinic.vn")).thenReturn(Optional.empty());
+        when(centralTenantRepository.save(any(CentralTenant.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(quotaRepository.save(any(CentralTenantQuota.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        when(keycloakTokenService.createOrganization(eq("pk-sai-gon"), anyString(), eq(false)))
+                .thenThrow(new RuntimeException("Keycloak connection timeout"));
+
+        assertThatThrownBy(() -> tenantService.registerTenant(regRequest))
+                .isInstanceOf(TenantException.class)
+                .extracting("code")
+                .isEqualTo(TenantErrorCode.AUTH_SERVICE_SYNC_FAILED.code());
+
+        verify(centralTenantRepository).deleteById(anyString());
+        verify(quotaRepository).deleteByTenantId(anyString());
+    }
+
+    // =========================================================================
+    // REQ-TNT-06: Phê duyệt hoặc từ chối yêu cầu đăng ký tổ chức
+    // =========================================================================
+
+    @Test
+    @DisplayName("REQ-TNT-06: Superadmin approves pending tenant registration, activating Keycloak org & sending approval email")
+    void approveTenantRegistration_success() {
+        CentralTenant pendingTenant = CentralTenant.builder()
+                .id("tenant-pending-001")
+                .tenantCode("pk-sai-gon")
+                .tenantName("Phòng khám Đa khoa Sài Gòn")
+                .adminEmail("admin@saigonclinic.vn")
+                .status(TenantStatus.PENDING_APPROVAL)
+                .organisationId("org-pk-sai-gon")
+                .isDeleted(false)
+                .build();
+
+        when(centralTenantRepository.findById("tenant-pending-001")).thenReturn(Optional.of(pendingTenant));
+        when(centralTenantRepository.save(any(CentralTenant.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(quotaRepository.findByTenantId("tenant-pending-001")).thenReturn(Optional.of(activeQuota));
+
+        TenantResponse response = tenantService.approveTenantRegistration("tenant-pending-001");
+
+        assertThat(response).isNotNull();
+        assertThat(response.getStatus()).isEqualTo(TenantStatus.ACTIVE);
+        verify(keycloakTokenService).setOrganizationAndMembersActive("org-pk-sai-gon", true);
+        verify(emailService).sendTenantRegistrationApprovedEmail(
+                eq("admin@saigonclinic.vn"),
+                eq("Phòng khám Đa khoa Sài Gòn"),
+                eq("pk-sai-gon"),
+                anyString()
+        );
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-06: Reject approval if tenant is not in PENDING_APPROVAL status (TENANT_019)")
+    void approveTenantRegistration_notPending_throwsException() {
+        when(centralTenantRepository.findById("tenant-uuid-001")).thenReturn(Optional.of(activeTenant));
+
+        assertThatThrownBy(() -> tenantService.approveTenantRegistration("tenant-uuid-001"))
+                .isInstanceOf(TenantException.class)
+                .extracting("code")
+                .isEqualTo(TenantErrorCode.TENANT_NOT_PENDING_APPROVAL.code());
+
+        verify(keycloakTokenService, never()).setOrganizationAndMembersActive(anyString(), any(Boolean.class));
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-06: Rollback DB status to PENDING_APPROVAL when Keycloak fails during approval")
+    void approveTenantRegistration_whenKeycloakFails_rollsBackStatus() {
+        CentralTenant pendingTenant = CentralTenant.builder()
+                .id("tenant-pending-001")
+                .tenantCode("pk-sai-gon")
+                .tenantName("Phòng khám Đa khoa Sài Gòn")
+                .adminEmail("admin@saigonclinic.vn")
+                .status(TenantStatus.PENDING_APPROVAL)
+                .organisationId("org-pk-sai-gon")
+                .isDeleted(false)
+                .build();
+
+        when(centralTenantRepository.findById("tenant-pending-001")).thenReturn(Optional.of(pendingTenant));
+        when(centralTenantRepository.save(any(CentralTenant.class))).thenAnswer(inv -> inv.getArgument(0));
+        doThrow(new RuntimeException("Keycloak connection error"))
+                .when(keycloakTokenService).setOrganizationAndMembersActive("org-pk-sai-gon", true);
+
+        assertThatThrownBy(() -> tenantService.approveTenantRegistration("tenant-pending-001"))
+                .isInstanceOf(TenantException.class)
+                .extracting("code")
+                .isEqualTo(TenantErrorCode.AUTH_SERVICE_SYNC_FAILED.code());
+
+        assertThat(pendingTenant.getStatus()).isEqualTo(TenantStatus.PENDING_APPROVAL);
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-06: Superadmin rejects pending tenant registration with mandatory reason")
+    void rejectTenantRegistration_success() {
+        CentralTenant pendingTenant = CentralTenant.builder()
+                .id("tenant-pending-001")
+                .tenantCode("pk-sai-gon")
+                .tenantName("Phòng khám Đa khoa Sài Gòn")
+                .adminEmail("admin@saigonclinic.vn")
+                .status(TenantStatus.PENDING_APPROVAL)
+                .organisationId("org-pk-sai-gon")
+                .isDeleted(false)
+                .build();
+
+        when(centralTenantRepository.findById("tenant-pending-001")).thenReturn(Optional.of(pendingTenant));
+        when(centralTenantRepository.save(any(CentralTenant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        RejectTenantRequest rejectRequest = new RejectTenantRequest("Giấy phép kinh doanh không khớp thông tin.");
+        TenantResponse response = tenantService.rejectTenantRegistration("tenant-pending-001", rejectRequest);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getStatus()).isEqualTo(TenantStatus.REJECTED);
+        assertThat(response.getRejectionReason()).isEqualTo("Giấy phép kinh doanh không khớp thông tin.");
+
+        verify(keycloakTokenService).deleteOrganizationInKeycloak("org-pk-sai-gon");
+        verify(emailService).sendTenantRegistrationRejectedEmail(
+                eq("admin@saigonclinic.vn"),
+                eq("Phòng khám Đa khoa Sài Gòn"),
+                eq("pk-sai-gon"),
+                eq("Giấy phép kinh doanh không khớp thông tin.")
+        );
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-06: Rejecting registration requires a non-blank reason (TENANT_020)")
+    void rejectTenantRegistration_blankReason_throwsException() {
+        RejectTenantRequest blankRequest = new RejectTenantRequest("   ");
+
+        assertThatThrownBy(() -> tenantService.rejectTenantRegistration("tenant-pending-001", blankRequest))
+                .isInstanceOf(TenantException.class)
+                .extracting("code")
+                .isEqualTo(TenantErrorCode.REJECTION_REASON_REQUIRED.code());
+
+        verify(centralTenantRepository, never()).save(any());
     }
 }

@@ -2,6 +2,7 @@ package com.nextturn.controller.tenant;
 
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.tenant.CreateTenantRequest;
+import com.nextturn.dto.tenant.RejectTenantRequest;
 import com.nextturn.dto.tenant.TenantMonitoringResponse;
 import com.nextturn.dto.tenant.TenantQuotaDto;
 import com.nextturn.dto.tenant.TenantQuotaResponse;
@@ -232,6 +233,57 @@ public class TenantManagementController {
         TenantResponse response = tenantService.activateTenant(tenantId);
         return ResponseEntity.ok(BaseResponse.ok(
                 "Tổ chức đã được kích hoạt lại thành công",
+                response
+        ));
+    }
+
+    /**
+     * Approves a pending tenant registration application (REQ-TNT-06).
+     */
+    @PostMapping(value = "/{tenantId}/approve", produces = MediaType.APPLICATION_JSON_VALUE)
+    @RequireSuperAdmin
+    @Operation(
+            summary = "Phê duyệt yêu cầu đăng ký tổ chức (REQ-TNT-06)",
+            description = "Chuyển trạng thái từ PENDING_APPROVAL sang ACTIVE, kích hoạt tài khoản Admin trên Keycloak và gửi email thông báo chúc mừng kèm hướng dẫn đăng nhập."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Phê duyệt tổ chức thành công"),
+            @ApiResponse(responseCode = "400", description = "Tổ chức không ở trạng thái PENDING_APPROVAL"),
+            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
+            @ApiResponse(responseCode = "404", description = "Không tìm thấy tổ chức")
+    })
+    public ResponseEntity<BaseResponse<TenantResponse>> approveTenantRegistration(
+            @PathVariable("tenantId") String tenantId
+    ) {
+        TenantResponse response = tenantService.approveTenantRegistration(tenantId);
+        return ResponseEntity.ok(BaseResponse.ok(
+                "Phê duyệt tổ chức thành công. Tài khoản Quản trị viên cơ sở đã được kích hoạt.",
+                response
+        ));
+    }
+
+    /**
+     * Rejects a pending tenant registration application with a mandatory reason (REQ-TNT-06).
+     */
+    @PostMapping(value = "/{tenantId}/reject", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @RequireSuperAdmin
+    @Operation(
+            summary = "Từ chối yêu cầu đăng ký tổ chức (REQ-TNT-06)",
+            description = "Chuyển trạng thái sang REJECTED, xóa tài khoản tạm thời trên Keycloak và gửi email thông báo từ chối kèm lý do cho người đăng ký."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Từ chối yêu cầu đăng ký tổ chức thành công"),
+            @ApiResponse(responseCode = "400", description = "Tổ chức không ở trạng thái PENDING_APPROVAL hoặc thiếu lý do từ chối"),
+            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
+            @ApiResponse(responseCode = "404", description = "Không tìm thấy tổ chức")
+    })
+    public ResponseEntity<BaseResponse<TenantResponse>> rejectTenantRegistration(
+            @PathVariable("tenantId") String tenantId,
+            @Valid @RequestBody RejectTenantRequest request
+    ) {
+        TenantResponse response = tenantService.rejectTenantRegistration(tenantId, request);
+        return ResponseEntity.ok(BaseResponse.ok(
+                "Đã từ chối yêu cầu đăng ký tổ chức thành công",
                 response
         ));
     }

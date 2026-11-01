@@ -3,9 +3,11 @@ package com.nextturn.service.tenant;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nextturn.constant.ValkeyKeyConstant;
 import com.nextturn.dto.tenant.CreateTenantRequest;
+import com.nextturn.dto.tenant.RejectTenantRequest;
 import com.nextturn.dto.tenant.TenantMonitoringResponse;
 import com.nextturn.dto.tenant.TenantQuotaDto;
 import com.nextturn.dto.tenant.TenantQuotaResponse;
+import com.nextturn.dto.tenant.TenantRegistrationRequest;
 import com.nextturn.dto.tenant.TenantResponse;
 import com.nextturn.dto.tenant.UpdateTenantRequest;
 import com.nextturn.dto.tenant.UpdateTenantStatusRequest;
@@ -286,6 +288,191 @@ public class TenantService {
     }
 
     /**
+     * Self-registers a new enterprise tenant organization from the public portal (REQ-TNT-05).
+     * The tenant starts in PENDING_APPROVAL status.
+     * Staging Keycloak organization and Admin account are created in DISABLED state.
+     *
+     * @param request registration specifications
+     * @return registered tenant profile in PENDING_APPROVAL status
+     */
+    public TenantResponse registerTenant(TenantRegistrationRequest request) {
+        if (request == null) {
+            throw new TenantException(TenantErrorCode.TENANT_NOT_FOUND, "Request body cannot be null");
+        }
+
+        // 1. Validate inputs and normalize
+        String normalizedCode = request.getTenantCode() != null ? request.getTenantCode().trim().toLowerCase() : "";
+        String normalizedEmail = request.getAdminEmail() != null ? request.getAdminEmail().trim().toLowerCase() : "";
+        String tenantName = request.getTenantName() != null ? request.getTenantName().trim() : "";
+        String cleanPhone = request.getPhoneNumber() != null ? request.getPhoneNumber().trim() : null;
+
+        if (!EmailValidationUtil.isValid(normalizedEmail)) {
+            throw new TenantException(
+                    TenantErrorCode.INVALID_ADMIN_EMAIL_FORMAT,
+                    "Email không hợp lệ: không được chứa ký tự '+', không bắt đầu/kết thúc bằng dấu '.', không chứa dấu chấm liên tiếp '..', và phải có tên miền hợp lệ"
+            );
+        }
+
+        if (centralTenantRepository.existsByTenantCodeIgnoreCaseAndIsDeletedFalse(normalizedCode)) {
+            throw new TenantException(
+                    TenantErrorCode.TENANT_OR_EMAIL_ALREADY_EXISTS,
+                    "Mã định danh tổ chức hoặc email quản trị này đã được đăng ký trong hệ thống. Vui lòng kiểm tra lại."
+            );
+        }
+
+        if (centralTenantRepository.findByAdminEmailIgnoreCaseAndIsDeletedFalse(normalizedEmail).isPresent()) {
+            throw new TenantException(
+                    TenantErrorCode.TENANT_OR_EMAIL_ALREADY_EXISTS,
+                    "Mã định danh tổ chức hoặc email quản trị này đã được đăng ký trong hệ thống. Vui lòng kiểm tra lại."
+            );
+        }
+
+        if (keycloakTokenService.organizationExists(normalizedCode)) {
+            throw new TenantException(
+                    TenantErrorCode.TENANT_OR_EMAIL_ALREADY_EXISTS,
+                    "Mã định danh tổ chức hoặc email quản trị này đã được đăng ký trong hệ thống. Vui lòng kiểm tra lại."
+            );
+        }
+
+        if (keycloakTokenService.userExistsByEmail(normalizedEmail)) {
+            throw new TenantException(
+                    TenantErrorCode.TENANT_OR_EMAIL_ALREADY_EXISTS,
+                    "Mã định danh tổ chức hoặc email quản trị này đã được đăng ký trong hệ thống. Vui lòng kiểm tra lại."
+            );
+        }
+
+        // 2. Build tenant entity in PENDING_APPROVAL status
+        String tenantId = UUID.randomUUID().toString();
+        CentralTenant tenant = CentralTenant.builder()
+                .id(tenantId)
+                .tenantCode(normalizedCode)
+                .tenantName(tenantName)
+                .adminEmail(normalizedEmail)
+                .phoneNumber(cleanPhone)
+                .status(TenantStatus.PENDING_APPROVAL)
+                .registrationId(UUID.randomUUID().toString())
+                .isDeleted(false)
+                .widgetApiKey("nt_pub_" + UUID.randomUUID().toString().replace("-", ""))
+                .widgetSecretKey("nt_sec_" + UUID.randomUUID().toString().replace("-", ""))
+                .build();
+
+        // 3. Build standard default quotas
+        CentralTenantQuota quota = CentralTenantQuota.builder()
+                .id(UUID.randomUUID().toString())
+                .tenantId(tenantId)
+                .maxStaffs(5)
+                .dailyTicketQuota(200)
+                .maxServices(20)
+                .maxAppointments(500)
+                .build();
+
+        // 4. Persist in database atomically
+        CentralTenant savedTenant;
+        CentralTenantQuota savedQuota;
+        try {
+            record SavedTenantAndQuota(CentralTenant tenant, CentralTenantQuota quota) {}
+            SavedTenantAndQuota saved = executeInTransaction(status -> {
+                CentralTenant t = centralTenantRepository.save(tenant);
+                CentralTenantQuota q = quotaRepository.save(quota);
+                return new SavedTenantAndQuota(t, q);
+            });
+            savedTenant = saved.tenant();
+            savedQuota = saved.quota();
+        } catch (Exception dbEx) {
+            log.error("Database save failed during tenant registration for [{}]: {}", normalizedCode, dbEx.getMessage(), dbEx);
+            throw dbEx;
+        }
+
+        // 5. Synchronize with Keycloak: create disabled Organization and disabled Admin user
+        String orgId = null;
+        String keycloakAdminId = null;
+        try {
+            orgId = keycloakTokenService.createOrganization(normalizedCode, tenantName, false);
+            final String finalOrgId = orgId;
+            savedTenant.setOrganisationId(finalOrgId);
+            executeInTransaction(status -> centralTenantRepository.save(savedTenant));
+
+            String adminFullName = request.getAdminFullName() != null && !request.getAdminFullName().isBlank()
+                    ? request.getAdminFullName().trim()
+                    : "Admin " + tenantName;
+
+            keycloakAdminId = keycloakTokenService.createStaffUser(
+                    normalizedCode,
+                    normalizedEmail,
+                    adminFullName,
+                    request.getInitialPassword(),
+                    StaffRole.ADMIN,
+                    false
+            );
+
+            if (orgId != null && keycloakAdminId != null) {
+                keycloakTokenService.addMemberToOrganization(orgId, keycloakAdminId);
+            }
+        } catch (Exception kcEx) {
+            log.error("Keycloak staging failed for tenant registration [{}]. Initiating compensating rollback: {}",
+                    normalizedCode, kcEx.getMessage(), kcEx);
+
+            // Rollback database changes
+            try {
+                final String targetTenantId = savedTenant.getId();
+                executeInTransaction(status -> {
+                    quotaRepository.deleteByTenantId(targetTenantId);
+                    centralTenantRepository.deleteById(targetTenantId);
+                    return null;
+                });
+                log.info("Compensated database records for rolled-back tenant registration [{}]", normalizedCode);
+            } catch (Exception rollbackEx) {
+                log.error("Failed to compensate database records for tenant registration [{}]: {}", normalizedCode, rollbackEx.getMessage());
+            }
+
+            // Cleanup Keycloak resources
+            if (orgId != null) {
+                if (keycloakAdminId != null) {
+                    try {
+                        keycloakTokenService.deleteStaffUserInKeycloak(orgId, keycloakAdminId);
+                    } catch (Exception cleanEx) {
+                        log.warn("Failed to delete Keycloak staging user [{}] during rollback: {}", keycloakAdminId, cleanEx.getMessage());
+                    }
+                }
+                try {
+                    keycloakTokenService.deleteOrganizationInKeycloak(orgId);
+                } catch (Exception cleanEx) {
+                    log.warn("Failed to delete Keycloak staging org [{}] during rollback: {}", orgId, cleanEx.getMessage());
+                }
+            }
+
+            throw new TenantException(
+                    TenantErrorCode.AUTH_SERVICE_SYNC_FAILED,
+                    "Quá trình đồng bộ tài khoản tạm thời sang Keycloak thất bại. Vui lòng kiểm tra dịch vụ xác thực."
+            );
+        }
+
+        // 6. Send confirmation email to registrant
+        try {
+            emailService.sendTenantRegistrationReceivedEmail(normalizedEmail, tenantName, normalizedCode);
+        } catch (Exception emailEx) {
+            log.warn("Non-fatal: Failed to dispatch registration confirmation email to [{}]: {}", normalizedEmail, emailEx.getMessage());
+        }
+
+        // 7. Send internal notification email to Superadministrator
+        try {
+            emailService.sendTenantRegistrationInternalNotification(
+                    "superadmin@nextturn.com",
+                    tenantName,
+                    normalizedCode,
+                    normalizedEmail
+            );
+        } catch (Exception notifyEx) {
+            log.warn("Non-fatal: Failed to dispatch internal registration notification: {}", notifyEx.getMessage());
+        }
+
+        log.info("Successfully registered tenant [{}] in PENDING_APPROVAL status (ID: [{}])", normalizedCode, tenantId);
+
+        TenantQuotaResponse quotaResponse = TenantQuotaResponse.fromEntity(savedQuota, 0L);
+        return TenantResponse.fromEntity(savedTenant, quotaResponse);
+    }
+
+    /**
      * Updates tenant administrative information and operational capacity quotas (REQ-TNT-02).
      *
      * @param tenantIdentifier tenant ID or tenant code
@@ -553,6 +740,132 @@ public class TenantService {
 
         evictTenantConfigCache(tenant.getId(), tenant.getTenantCode());
         log.info("Successfully soft-deleted tenant [{}]", tenant.getTenantCode());
+    }
+
+    /**
+     * Approves a pending tenant registration application (REQ-TNT-06).
+     * Transitions status from PENDING_APPROVAL to ACTIVE, enables Keycloak organization and admin account,
+     * and sends congratulatory email with login instructions.
+     *
+     * @param tenantIdentifier tenant ID or tenant code
+     * @return updated tenant profile in ACTIVE status
+     */
+    public TenantResponse approveTenantRegistration(String tenantIdentifier) {
+        CentralTenant tenant = resolveTenant(tenantIdentifier);
+
+        if (tenant.getStatus() != TenantStatus.PENDING_APPROVAL) {
+            throw new TenantException(
+                    TenantErrorCode.TENANT_NOT_PENDING_APPROVAL,
+                    "Chỉ có thể phê duyệt tổ chức đang ở trạng thái chờ phê duyệt (PENDING_APPROVAL)."
+            );
+        }
+
+        tenant.setStatus(TenantStatus.ACTIVE);
+        CentralTenant savedTenant = executeInTransaction(status -> centralTenantRepository.save(tenant));
+
+        // Activate organization and admin account in Keycloak
+        if (savedTenant.getOrganisationId() != null) {
+            try {
+                keycloakTokenService.setOrganizationAndMembersActive(savedTenant.getOrganisationId(), true);
+            } catch (Exception kcEx) {
+                log.error("Failed to activate Keycloak organization [{}]. Compensating database status for tenant [{}]: {}",
+                        savedTenant.getOrganisationId(), savedTenant.getTenantCode(), kcEx.getMessage());
+                executeInTransaction(status -> {
+                    tenant.setStatus(TenantStatus.PENDING_APPROVAL);
+                    return centralTenantRepository.save(tenant);
+                });
+                throw new TenantException(
+                        TenantErrorCode.AUTH_SERVICE_SYNC_FAILED,
+                        "Quá trình kích hoạt tài khoản trên Keycloak thất bại. Đã khôi phục trạng thái ban đầu."
+                );
+            }
+        }
+
+        // Evict and warm cache
+        evictTenantConfigCache(savedTenant.getId(), savedTenant.getTenantCode());
+
+        CentralTenantQuota quota = quotaRepository.findByTenantId(savedTenant.getId()).orElse(null);
+        long activeStaff = countActiveStaff(savedTenant.getTenantCode());
+        TenantQuotaResponse quotaResponse = TenantQuotaResponse.fromEntity(quota, activeStaff);
+        TenantResponse response = TenantResponse.fromEntity(savedTenant, quotaResponse);
+        cacheTenantConfig(response);
+
+        // Send congratulatory approval email with activation link
+        String activationLink = resolveActivationLink(savedTenant.getTenantCode(), savedTenant.getAdminEmail());
+        try {
+            emailService.sendTenantRegistrationApprovedEmail(
+                    savedTenant.getAdminEmail(),
+                    savedTenant.getTenantName(),
+                    savedTenant.getTenantCode(),
+                    activationLink
+            );
+        } catch (Exception emailEx) {
+            log.warn("Non-fatal: Failed to send tenant approval email to [{}]: {}", savedTenant.getAdminEmail(), emailEx.getMessage());
+        }
+
+        log.info("Successfully approved tenant registration for [{}]", savedTenant.getTenantCode());
+        return response;
+    }
+
+    /**
+     * Denies a pending tenant registration application with a mandatory rejection reason (REQ-TNT-06).
+     * Transitions status to REJECTED, deletes temporary Keycloak credentials, and sends notification email.
+     *
+     * @param tenantIdentifier tenant ID or tenant code
+     * @param request          rejection specifications containing mandatory reason
+     * @return updated tenant profile in REJECTED status
+     */
+    public TenantResponse rejectTenantRegistration(String tenantIdentifier, RejectTenantRequest request) {
+        if (request == null || request.getReason() == null || request.getReason().isBlank()) {
+            throw new TenantException(
+                    TenantErrorCode.REJECTION_REASON_REQUIRED,
+                    "Lý do từ chối đăng ký tổ chức là bắt buộc."
+            );
+        }
+
+        CentralTenant tenant = resolveTenant(tenantIdentifier);
+
+        if (tenant.getStatus() != TenantStatus.PENDING_APPROVAL) {
+            throw new TenantException(
+                    TenantErrorCode.TENANT_NOT_PENDING_APPROVAL,
+                    "Chỉ có thể từ chối tổ chức đang ở trạng thái chờ phê duyệt (PENDING_APPROVAL)."
+            );
+        }
+
+        String reason = request.getReason().trim();
+        tenant.setStatus(TenantStatus.REJECTED);
+        tenant.setRejectionReason(reason);
+        CentralTenant savedTenant = executeInTransaction(status -> centralTenantRepository.save(tenant));
+
+        // Delete temporary organization and user in Keycloak (REQ-TNT-06 Step 3)
+        if (savedTenant.getOrganisationId() != null) {
+            try {
+                keycloakTokenService.deleteOrganizationInKeycloak(savedTenant.getOrganisationId());
+            } catch (Exception kcEx) {
+                log.warn("Non-fatal: Failed to delete Keycloak staging organization [{}] during rejection: {}",
+                        savedTenant.getOrganisationId(), kcEx.getMessage());
+            }
+        }
+
+        evictTenantConfigCache(savedTenant.getId(), savedTenant.getTenantCode());
+
+        // Send rejection notification email with reason (REQ-TNT-06 Step 4)
+        try {
+            emailService.sendTenantRegistrationRejectedEmail(
+                    savedTenant.getAdminEmail(),
+                    savedTenant.getTenantName(),
+                    savedTenant.getTenantCode(),
+                    reason
+            );
+        } catch (Exception emailEx) {
+            log.warn("Non-fatal: Failed to send tenant rejection email to [{}]: {}", savedTenant.getAdminEmail(), emailEx.getMessage());
+        }
+
+        log.info("Successfully rejected tenant registration for [{}] with reason: {}", savedTenant.getTenantCode(), reason);
+
+        CentralTenantQuota quota = quotaRepository.findByTenantId(savedTenant.getId()).orElse(null);
+        TenantQuotaResponse quotaResponse = TenantQuotaResponse.fromEntity(quota, 0L);
+        return TenantResponse.fromEntity(savedTenant, quotaResponse);
     }
 
     /**
