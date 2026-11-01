@@ -53,6 +53,12 @@
 | TENANT_SCHEMA_MIGRATION_FAILED | TENANT_007 | Flyway migration failed for tenant schema |
 | TENANT_CONTEXT_MISSING | TENANT_008 | Multi-tenant routing context is missing or could not be resolved |
 | TENANT_QUOTA_EXCEEDED | TENANT_009 | Monthly ticket or active counter quota exceeded for tenant tier |
+| TENANT_OR_EMAIL_ALREADY_EXISTS | TENANT_010 | Mã định danh tổ chức hoặc email quản trị này đã được đăng ký trong hệ thống. Vui lòng kiểm tra lại. |
+| AUTH_SERVICE_SYNC_FAILED | TENANT_011 | Quá trình đồng bộ tài khoản sang Keycloak thất bại. Vui lòng kiểm tra dịch vụ xác thực. |
+| STAFF_QUOTA_BELOW_CURRENT | TENANT_012 | Hạn ngạch nhân sự mới không được nhỏ hơn số lượng nhân viên hiện có của cơ sở. |
+| TENANT_NOT_ACTIVE | TENANT_013 | Tổ chức không ở trạng thái hoạt động (ACTIVE). |
+| INVALID_QUOTA_VALUE | TENANT_014 | Giá trị hạn ngạch không hợp lệ. Phải là số nguyên dương >= 1 hoặc -1 (không giới hạn). |
+| INVALID_ADMIN_EMAIL_FORMAT | TENANT_015 | Email không hợp lệ: không được chứa ký tự '+', không bắt đầu/kết thúc bằng dấu '.', không chứa dấu chấm liên tiếp '..', và phải có tên miền hợp lệ. |
 
 ## Queue (`QueueErrorCode`)
 

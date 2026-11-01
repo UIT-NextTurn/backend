@@ -62,4 +62,19 @@ public final class ValkeyKeyConstant {
     public static String otpDailyKey(String contact) {
         return OTP_DAILY_PREFIX + (contact != null ? contact.trim().toLowerCase() : "");
     }
+
+    /**
+     * Key prefix for tenant configuration and operational quotas (REQ-TNT-02).
+     */
+    public static final String TENANT_CONFIG_PREFIX = "nextturn:tenant:config:";
+
+    /**
+     * Formats the Redis key for caching tenant configuration and operational quota limits.
+     *
+     * @param tenantIdentifier tenant ID or tenant code
+     * @return cache key
+     */
+    public static String tenantConfigKey(String tenantIdentifier) {
+        return TENANT_CONFIG_PREFIX + (tenantIdentifier != null ? tenantIdentifier.trim().toLowerCase() : "");
+    }
 }
