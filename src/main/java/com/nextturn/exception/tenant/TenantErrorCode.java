@@ -28,7 +28,10 @@ public enum TenantErrorCode implements BaseErrorCode {
     STAFF_QUOTA_BELOW_CURRENT("TENANT_012", "Hạn ngạch nhân sự mới không được nhỏ hơn số lượng nhân viên hiện có của cơ sở.", HttpStatus.BAD_REQUEST),
     TENANT_NOT_ACTIVE("TENANT_013", "Tổ chức không ở trạng thái hoạt động (ACTIVE).", HttpStatus.BAD_REQUEST),
     INVALID_QUOTA_VALUE("TENANT_014", "Giá trị hạn ngạch không hợp lệ. Phải là số nguyên dương >= 1 hoặc -1 (không giới hạn).", HttpStatus.BAD_REQUEST),
-    INVALID_ADMIN_EMAIL_FORMAT("TENANT_015", "Email không hợp lệ: không được chứa ký tự '+', không bắt đầu/kết thúc bằng dấu '.', không chứa dấu chấm liên tiếp '..', và phải có tên miền hợp lệ.", HttpStatus.BAD_REQUEST);
+    INVALID_ADMIN_EMAIL_FORMAT("TENANT_015", "Email không hợp lệ: không được chứa ký tự '+', không bắt đầu/kết thúc bằng dấu '.', không chứa dấu chấm liên tiếp '..', và phải có tên miền hợp lệ.", HttpStatus.BAD_REQUEST),
+    TENANT_CANNOT_HARD_DELETE("TENANT_016", "Hệ thống tuyệt đối từ chối thao tác xóa vật lý bản ghi tổ chức đã phát sinh dữ liệu lịch sử vé, lịch hẹn hoặc đánh giá của khách hàng.", HttpStatus.CONFLICT),
+    TENANT_ALREADY_SUSPENDED("TENANT_017", "Tổ chức này đã ở trạng thái tạm ngừng (SUSPENDED).", HttpStatus.BAD_REQUEST),
+    TENANT_ALREADY_ACTIVE("TENANT_018", "Tổ chức này đã ở trạng thái hoạt động (ACTIVE).", HttpStatus.BAD_REQUEST);
 
     private final String code;
     private final String message;

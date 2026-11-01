@@ -32,6 +32,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
@@ -1031,6 +1032,133 @@ public class KeycloakTokenService {
         } catch (Exception ex) {
             log.warn("Could not add user [{}] to organization [{}]: {}", keycloakUserId, orgId, ex.getMessage());
         }
+    }
+
+    /**
+     * Updates organization enabled status in Keycloak (REQ-TNT-03).
+     *
+     * @param orgId   Keycloak organization UUID
+     * @param enabled true to enable, false to suspend/disable
+     */
+    public void updateOrganizationStatus(String orgId, boolean enabled) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-") || orgId == null || orgId.startsWith("mock-")) {
+            return;
+        }
+
+        try {
+            String url = properties.adminOrganizationsEndpoint() + "/" + orgId;
+            var payload = objectMapper.createObjectNode();
+            payload.put("enabled", enabled);
+
+            restClient.put()
+                    .uri(url)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(objectMapper.writeValueAsString(payload))
+                    .retrieve()
+                    .toBodilessEntity();
+
+            log.info("Updated Keycloak organization [{}] enabled status to [{}]", orgId, enabled);
+        } catch (Exception ex) {
+            log.warn("Failed to update organization [{}] status in Keycloak: {}", orgId, ex.getMessage());
+        }
+    }
+
+    /**
+     * Retrieves all member user IDs belonging to a Keycloak Organization (REQ-TNT-03).
+     *
+     * @param orgId Keycloak organization UUID
+     * @return list of member user IDs
+     */
+    public List<String> getOrganizationMemberUserIds(String orgId) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-") || orgId == null || orgId.startsWith("mock-")) {
+            return Collections.emptyList();
+        }
+
+        try {
+            String url = properties.adminOrganizationsEndpoint() + "/" + orgId + "/members";
+            String response = restClient.get()
+                    .uri(url)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .body(String.class);
+
+            if (response != null && !response.isBlank()) {
+                JsonNode list = objectMapper.readTree(response);
+                if (list.isArray()) {
+                    List<String> userIds = new ArrayList<>();
+                    for (JsonNode member : list) {
+                        String id = member.path("id").asText(null);
+                        if (id != null && !id.isBlank()) {
+                            userIds.add(id);
+                        }
+                    }
+                    return userIds;
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to fetch organization [{}] members from Keycloak: {}", orgId, ex.getMessage());
+        }
+        return Collections.emptyList();
+    }
+
+    /**
+     * Terminates all active SSO sessions and revokes refresh tokens for a user in Keycloak (REQ-TNT-03).
+     *
+     * @param keycloakUserId user UUID
+     */
+    public void logoutUserInKeycloak(String keycloakUserId) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-") || keycloakUserId == null) {
+            return;
+        }
+
+        try {
+            String logoutUrl = properties.adminUsersEndpoint() + "/" + keycloakUserId + "/logout";
+            restClient.post()
+                    .uri(logoutUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .toBodilessEntity();
+            log.info("Successfully revoked Keycloak active sessions for user [{}]", keycloakUserId);
+        } catch (Exception ex) {
+            log.warn("Failed to revoke sessions for user [{}] in Keycloak: {}", keycloakUserId, ex.getMessage());
+        }
+    }
+
+    /**
+     * Suspends or reactivates an entire organization and all its affiliated staff in Keycloak (REQ-TNT-03).
+     * <p>
+     * When suspending (active = false):
+     * 1. Sets organization enabled = false.
+     * 2. Disables all member user accounts.
+     * 3. Revokes all active JWT sessions and refresh tokens.
+     * <p>
+     * When reactivating (active = true):
+     * 1. Sets organization enabled = true.
+     * 2. Re-enables all member user accounts.
+     *
+     * @param orgId  Keycloak organization UUID
+     * @param active true to activate, false to suspend
+     */
+    public void setOrganizationAndMembersActive(String orgId, boolean active) {
+        if (orgId == null || orgId.isBlank()) {
+            return;
+        }
+
+        updateOrganizationStatus(orgId, active);
+
+        List<String> memberUserIds = getOrganizationMemberUserIds(orgId);
+        for (String userId : memberUserIds) {
+            updateUserStatusInKeycloak(userId, active);
+            if (!active) {
+                logoutUserInKeycloak(userId);
+            }
+        }
+        log.info("Completed Keycloak organization [{}] status transition to active=[{}] ({} members affected)",
+                orgId, active, memberUserIds.size());
     }
 
     public void updateUserStatusInKeycloak(String keycloakUserId, boolean enabled) {

@@ -230,7 +230,7 @@ class CustomerAuthServiceTest {
         CentralTenant tenant = CentralTenant.builder()
                 .id("t-002")
                 .tenantCode("clinic_inactive")
-                .status(TenantStatus.BLOCKED)
+                .status(TenantStatus.SUSPENDED)
                 .widgetApiKey("wtk_live_blocked")
                 .build();
 
