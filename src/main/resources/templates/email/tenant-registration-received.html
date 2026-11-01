@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Xác nhận tiếp nhận hồ sơ đăng ký tổ chức</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+        .card { max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+        .logo { font-size: 22px; font-weight: 800; color: #0284c7; letter-spacing: -0.5px; margin-bottom: 24px; }
+        .header { font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #0f172a; }
+        .desc { font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 20px; }
+        .info-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 20px 0; font-size: 13px; }
+        .info-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+        .info-row:last-child { margin-bottom: 0; }
+        .info-label { color: #64748b; font-weight: 500; }
+        .info-value { color: #0f172a; font-weight: 600; }
+        .badge { display: inline-block; padding: 4px 10px; border-radius: 9999px; font-size: 12px; font-weight: 600; background: #fef3c7; color: #92400e; }
+        .footer { font-size: 12px; color: #94a3b8; line-height: 1.5; border-top: 1px solid #f1f5f9; padding-top: 20px; margin-top: 24px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo">NextTurn</div>
+        <div class="header">Đã nhận yêu cầu đăng ký tổ chức</div>
+        <div class="desc">
+            Kính gửi Quý đối tác/Quản trị viên <strong>{{email}}</strong>,<br><br>
+            Hệ thống NextTurn đã tiếp nhận thành công hồ sơ đăng ký tham gia nền tảng của tổ chức <strong>{{tenantName}}</strong>.
+        </div>
+        <div class="info-box">
+            <div class="info-row"><span class="info-label">Tên tổ chức:</span><span class="info-value">{{tenantName}}</span></div>
+            <div class="info-row"><span class="info-label">Mã định danh:</span><span class="info-value">{{tenantCode}}</span></div>
+            <div class="info-row"><span class="info-label">Email quản trị:</span><span class="info-value">{{email}}</span></div>
+            <div class="info-row"><span class="info-label">Trạng thái hiện tại:</span><span class="badge">Chờ phê duyệt</span></div>
+        </div>
+        <div class="desc">
+            Hồ sơ của bạn đang được Ban Quản trị Hệ thống (Superadministrator) xem xét và đánh giá. Kết quả phê duyệt kèm hướng dẫn kích hoạt tài khoản sẽ được thông báo đến email này trong thời gian sớm nhất.
+        </div>
+        <div class="footer">
+            Thông báo tự động từ Hệ thống Quản trị Tiếp đón &amp; Điều phối Hàng đợi NextTurn.<br>
+            Vui lòng không trả lời trực tiếp email này.
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thông báo kết quả thẩm định hồ sơ đăng ký tổ chức</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+        .card { max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+        .logo { font-size: 22px; font-weight: 800; color: #dc2626; letter-spacing: -0.5px; margin-bottom: 24px; }
+        .header { font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #991b1b; }
+        .desc { font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 20px; }
+        .reason-box { background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 20px 0; font-size: 14px; color: #991b1b; line-height: 1.5; }
+        .reason-title { font-weight: 700; margin-bottom: 6px; }
+        .footer { font-size: 12px; color: #94a3b8; line-height: 1.5; border-top: 1px solid #f1f5f9; padding-top: 20px; margin-top: 24px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo">NextTurn</div>
+        <div class="header">Thông báo kết quả thẩm định hồ sơ đăng ký</div>
+        <div class="desc">
+            Kính gửi Quý đối tác/Quản trị viên <strong>{{email}}</strong>,<br><br>
+            Cảm ơn Quý đơn vị đã quan tâm và nộp hồ sơ đăng ký tham gia nền tảng NextTurn cho tổ chức <strong>{{tenantName}}</strong> (Mã định danh: <code>{{tenantCode}}</code>).
+            <br><br>
+            Sau khi rà soát và đối chiếu thông tin pháp lý/vận hành, Ban Quản trị Hệ thống rất tiếc phải thông báo hồ sơ của Quý đơn vị <strong>chưa đủ điều kiện phê duyệt</strong> tại thời điểm này.
+        </div>
+        <div class="reason-box">
+            <div class="reason-title">Lý do từ chối:</div>
+            <div>{{rejectionReason}}</div>
+        </div>
+        <div class="desc">
+            Nếu Quý đơn vị có thắc mắc hoặc muốn cập nhật, bổ sung lại thông tin hồ sơ, vui lòng liên hệ đội ngũ hỗ trợ của NextTurn qua email support@nextturn.com để được trợ giúp.
+        </div>
+        <div class="footer">
+            Thông báo tự động từ Hệ thống Quản trị Tiếp đón &amp; Điều phối Hàng đợi NextTurn.<br>
+            Vui lòng không trả lời trực tiếp email này.
+        </div>
+    </div>
+</body>
+</html>

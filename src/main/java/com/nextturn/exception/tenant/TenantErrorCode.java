@@ -31,7 +31,9 @@ public enum TenantErrorCode implements BaseErrorCode {
     INVALID_ADMIN_EMAIL_FORMAT("TENANT_015", "Email không hợp lệ: không được chứa ký tự '+', không bắt đầu/kết thúc bằng dấu '.', không chứa dấu chấm liên tiếp '..', và phải có tên miền hợp lệ.", HttpStatus.BAD_REQUEST),
     TENANT_CANNOT_HARD_DELETE("TENANT_016", "Hệ thống tuyệt đối từ chối thao tác xóa vật lý bản ghi tổ chức đã phát sinh dữ liệu lịch sử vé, lịch hẹn hoặc đánh giá của khách hàng.", HttpStatus.CONFLICT),
     TENANT_ALREADY_SUSPENDED("TENANT_017", "Tổ chức này đã ở trạng thái tạm ngừng (SUSPENDED).", HttpStatus.BAD_REQUEST),
-    TENANT_ALREADY_ACTIVE("TENANT_018", "Tổ chức này đã ở trạng thái hoạt động (ACTIVE).", HttpStatus.BAD_REQUEST);
+    TENANT_ALREADY_ACTIVE("TENANT_018", "Tổ chức này đã ở trạng thái hoạt động (ACTIVE).", HttpStatus.BAD_REQUEST),
+    TENANT_NOT_PENDING_APPROVAL("TENANT_019", "Tổ chức không ở trạng thái chờ phê duyệt (PENDING_APPROVAL).", HttpStatus.BAD_REQUEST),
+    REJECTION_REASON_REQUIRED("TENANT_020", "Lý do từ chối đăng ký tổ chức là bắt buộc.", HttpStatus.BAD_REQUEST);
 
     private final String code;
     private final String message;

@@ -41,6 +41,9 @@ public class TenantMonitoringResponse {
     @Schema(description = "Keycloak Organization UUID", example = "org-tam-duc")
     private String organisationId;
 
+    @Schema(description = "Rejection reason if status is REJECTED", example = "Hồ sơ chưa đầy đủ thông tin")
+    private String rejectionReason;
+
     @Schema(description = "Public widget API integration key", example = "nt_pub_123456")
     private String widgetApiKey;
 
@@ -76,6 +79,7 @@ public class TenantMonitoringResponse {
                 .phoneNumber(tenant.getPhoneNumber())
                 .status(tenant.getStatus())
                 .organisationId(tenant.getOrganisationId())
+                .rejectionReason(tenant.getRejectionReason())
                 .widgetApiKey(tenant.getWidgetApiKey())
                 .activeStaffCount(activeStaffCount != null ? activeStaffCount : 0L)
                 .todayTicketsCount(todayTicketsCount != null ? todayTicketsCount : 0L)

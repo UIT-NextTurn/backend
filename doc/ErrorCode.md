@@ -62,6 +62,8 @@
 | TENANT_CANNOT_HARD_DELETE | TENANT_016 | Hệ thống tuyệt đối từ chối thao tác xóa vật lý bản ghi tổ chức đã phát sinh dữ liệu lịch sử vé, lịch hẹn hoặc đánh giá của khách hàng. |
 | TENANT_ALREADY_SUSPENDED | TENANT_017 | Tổ chức này đã ở trạng thái tạm ngừng (SUSPENDED). |
 | TENANT_ALREADY_ACTIVE | TENANT_018 | Tổ chức này đã ở trạng thái hoạt động (ACTIVE). |
+| TENANT_NOT_PENDING_APPROVAL | TENANT_019 | Tổ chức không ở trạng thái chờ phê duyệt (PENDING_APPROVAL). |
+| REJECTION_REASON_REQUIRED | TENANT_020 | Lý do từ chối đăng ký tổ chức là bắt buộc. |
 
 ## Queue (`QueueErrorCode`)
 

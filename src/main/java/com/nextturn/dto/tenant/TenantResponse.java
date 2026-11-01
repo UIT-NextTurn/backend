@@ -41,6 +41,9 @@ public class TenantResponse {
     @Schema(description = "Keycloak Organization ID", example = "org-bv-tam-duc")
     private String organisationId;
 
+    @Schema(description = "Rejection reason if status is REJECTED", example = "Hồ sơ chưa đầy đủ thông tin")
+    private String rejectionReason;
+
     @Schema(description = "Public widget API integration key", example = "nt_pub_a8b9c0d1e2")
     private String widgetApiKey;
 
@@ -65,6 +68,7 @@ public class TenantResponse {
                 .phoneNumber(tenant.getPhoneNumber())
                 .status(tenant.getStatus())
                 .organisationId(tenant.getOrganisationId())
+                .rejectionReason(tenant.getRejectionReason())
                 .widgetApiKey(tenant.getWidgetApiKey())
                 .quotas(quotas)
                 .createdAt(tenant.getCreatedAt())

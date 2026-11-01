@@ -156,6 +156,145 @@ public class EmailService {
     }
 
     /**
+     * Sends an email confirming receipt of a tenant registration application (REQ-TNT-05).
+     *
+     * @param toEmail    applicant email address
+     * @param tenantName organization name
+     * @param tenantCode requested tenant code
+     * @return future resolving to true if sent, false otherwise
+     */
+    @Async
+    public CompletableFuture<Boolean> sendTenantRegistrationReceivedEmail(String toEmail, String tenantName, String tenantCode) {
+        String subject = "[NextTurn] Xác nhận tiếp nhận hồ sơ đăng ký tổ chức - " + (tenantName != null ? tenantName : tenantCode);
+        String htmlBody = buildTenantRegistrationReceivedHtmlTemplate(toEmail, tenantName, tenantCode);
+
+        if (!isConfigured()) {
+            log.info("================================================================================");
+            log.info("[TENANT REGISTRATION RECEIVED (CONSOLE)] Applicant: [{}], Org: [{} ({})]", toEmail, tenantName, tenantCode);
+            log.info("================================================================================");
+            return CompletableFuture.completedFuture(false);
+        }
+
+        try {
+            sendHtmlEmail(toEmail, subject, htmlBody);
+            log.info("Successfully sent registration confirmation email to [{}] for [{}]", toEmail, tenantName);
+            return CompletableFuture.completedFuture(true);
+        } catch (Exception ex) {
+            log.error("Failed to send registration confirmation email to [{}]: {}", toEmail, ex.getMessage());
+            return CompletableFuture.completedFuture(false);
+        }
+    }
+
+    /**
+     * Sends internal notification to platform Superadministrator regarding a new tenant registration request (REQ-TNT-05).
+     *
+     * @param superadminEmail superadministrator notification email
+     * @param tenantName      organization name
+     * @param tenantCode      requested tenant code
+     * @param adminEmail      applicant email address
+     * @return future resolving to true if sent, false otherwise
+     */
+    @Async
+    public CompletableFuture<Boolean> sendTenantRegistrationInternalNotification(
+            String superadminEmail,
+            String tenantName,
+            String tenantCode,
+            String adminEmail
+    ) {
+        String targetEmail = (superadminEmail != null && !superadminEmail.isBlank()) ? superadminEmail : "superadmin@nextturn.com";
+        String subject = "[NextTurn Alert] Yêu cầu đăng ký tổ chức mới chờ phê duyệt: " + tenantName + " (" + tenantCode + ")";
+        String htmlBody = buildTenantRegistrationInternalHtmlTemplate(tenantName, tenantCode, adminEmail);
+
+        if (!isConfigured()) {
+            log.info("================================================================================");
+            log.info("[INTERNAL ALERT (CONSOLE)] New tenant pending review: [{}] ([{}]) by [{}]", tenantName, tenantCode, adminEmail);
+            log.info("================================================================================");
+            return CompletableFuture.completedFuture(false);
+        }
+
+        try {
+            sendHtmlEmail(targetEmail, subject, htmlBody);
+            log.info("Successfully sent internal registration notification to [{}] for [{}]", targetEmail, tenantName);
+            return CompletableFuture.completedFuture(true);
+        } catch (Exception ex) {
+            log.error("Failed to send internal registration notification: {}", ex.getMessage());
+            return CompletableFuture.completedFuture(false);
+        }
+    }
+
+    /**
+     * Sends congratulatory email with login guide when a registration application is approved (REQ-TNT-06).
+     *
+     * @param toEmail        approved admin email address
+     * @param tenantName     organization name
+     * @param tenantCode     tenant code
+     * @param activationLink portal login URL
+     * @return future resolving to true if sent, false otherwise
+     */
+    @Async
+    public CompletableFuture<Boolean> sendTenantRegistrationApprovedEmail(
+            String toEmail,
+            String tenantName,
+            String tenantCode,
+            String activationLink
+    ) {
+        String subject = "[NextTurn] Chúc mừng! Hồ sơ đăng ký tổ chức " + tenantName + " đã được phê duyệt";
+        String htmlBody = buildTenantRegistrationApprovedHtmlTemplate(toEmail, tenantName, tenantCode, activationLink);
+
+        if (!isConfigured()) {
+            log.info("================================================================================");
+            log.info("[REGISTRATION APPROVED (CONSOLE)] Org [{}] approved for [{}]. Link: [{}]", tenantName, toEmail, activationLink);
+            log.info("================================================================================");
+            return CompletableFuture.completedFuture(false);
+        }
+
+        try {
+            sendHtmlEmail(toEmail, subject, htmlBody);
+            log.info("Successfully sent approval email to [{}] for [{}]", toEmail, tenantName);
+            return CompletableFuture.completedFuture(true);
+        } catch (Exception ex) {
+            log.error("Failed to send approval email to [{}]: {}", toEmail, ex.getMessage());
+            return CompletableFuture.completedFuture(false);
+        }
+    }
+
+    /**
+     * Sends denial notification email with mandatory rejection reason (REQ-TNT-06).
+     *
+     * @param toEmail         applicant email address
+     * @param tenantName      organization name
+     * @param tenantCode      tenant code
+     * @param rejectionReason mandatory reason for rejection
+     * @return future resolving to true if sent, false otherwise
+     */
+    @Async
+    public CompletableFuture<Boolean> sendTenantRegistrationRejectedEmail(
+            String toEmail,
+            String tenantName,
+            String tenantCode,
+            String rejectionReason
+    ) {
+        String subject = "[NextTurn] Thông báo về kết quả đăng ký tổ chức - " + (tenantName != null ? tenantName : tenantCode);
+        String htmlBody = buildTenantRegistrationRejectedHtmlTemplate(toEmail, tenantName, tenantCode, rejectionReason);
+
+        if (!isConfigured()) {
+            log.info("================================================================================");
+            log.info("[REGISTRATION REJECTED (CONSOLE)] Org [{}] rejected for [{}]. Reason: [{}]", tenantName, toEmail, rejectionReason);
+            log.info("================================================================================");
+            return CompletableFuture.completedFuture(false);
+        }
+
+        try {
+            sendHtmlEmail(toEmail, subject, htmlBody);
+            log.info("Successfully sent rejection email to [{}] for [{}]", toEmail, tenantName);
+            return CompletableFuture.completedFuture(true);
+        } catch (Exception ex) {
+            log.error("Failed to send rejection email to [{}]: {}", toEmail, ex.getMessage());
+            return CompletableFuture.completedFuture(false);
+        }
+    }
+
+    /**
      * Dispatches a general HTML formatted email.
      *
      * @param toEmail     recipient email
@@ -259,5 +398,61 @@ public class EmailService {
             return rendered;
         }
         return "<p>Xin chào " + email + ", cơ sở " + facility + " đã được tạo. Vui lòng kích hoạt tài khoản tại: <a href=\"" + link + "\">" + link + "</a></p>";
+    }
+
+    private String buildTenantRegistrationReceivedHtmlTemplate(String email, String tenantName, String tenantCode) {
+        Map<String, String> variables = Map.of(
+                "email", email != null ? email : "",
+                "tenantName", tenantName != null ? tenantName : "",
+                "tenantCode", tenantCode != null ? tenantCode : ""
+        );
+        String rendered = loadTemplate("templates/email/tenant-registration-received.html", variables);
+        if (!rendered.isBlank()) {
+            return rendered;
+        }
+        return "<p>Xin chào " + email + ", hồ sơ đăng ký tổ chức " + tenantName + " (" + tenantCode + ") đã được tiếp nhận và đang chờ phê duyệt.</p>";
+    }
+
+    private String buildTenantRegistrationInternalHtmlTemplate(String tenantName, String tenantCode, String adminEmail) {
+        Map<String, String> variables = Map.of(
+                "tenantName", tenantName != null ? tenantName : "",
+                "tenantCode", tenantCode != null ? tenantCode : "",
+                "adminEmail", adminEmail != null ? adminEmail : "",
+                "submittedAt", java.time.LocalDateTime.now().toString()
+        );
+        String rendered = loadTemplate("templates/email/tenant-registration-internal.html", variables);
+        if (!rendered.isBlank()) {
+            return rendered;
+        }
+        return "<p>Yêu cầu đăng ký tổ chức mới: " + tenantName + " (" + tenantCode + ") bởi " + adminEmail + "</p>";
+    }
+
+    private String buildTenantRegistrationApprovedHtmlTemplate(String email, String tenantName, String tenantCode, String activationLink) {
+        String link = (activationLink != null && !activationLink.isBlank()) ? activationLink : "#";
+        Map<String, String> variables = Map.of(
+                "email", email != null ? email : "",
+                "tenantName", tenantName != null ? tenantName : "",
+                "tenantCode", tenantCode != null ? tenantCode : "",
+                "activationLink", link
+        );
+        String rendered = loadTemplate("templates/email/tenant-registration-approved.html", variables);
+        if (!rendered.isBlank()) {
+            return rendered;
+        }
+        return "<p>Chúc mừng! Tổ chức " + tenantName + " đã được phê duyệt. Đăng nhập tại: <a href=\"" + link + "\">" + link + "</a></p>";
+    }
+
+    private String buildTenantRegistrationRejectedHtmlTemplate(String email, String tenantName, String tenantCode, String rejectionReason) {
+        Map<String, String> variables = Map.of(
+                "email", email != null ? email : "",
+                "tenantName", tenantName != null ? tenantName : "",
+                "tenantCode", tenantCode != null ? tenantCode : "",
+                "rejectionReason", rejectionReason != null ? rejectionReason : ""
+        );
+        String rendered = loadTemplate("templates/email/tenant-registration-rejected.html", variables);
+        if (!rendered.isBlank()) {
+            return rendered;
+        }
+        return "<p>Hồ sơ đăng ký tổ chức " + tenantName + " chưa đủ điều kiện. Lý do: " + rejectionReason + "</p>";
     }
 }

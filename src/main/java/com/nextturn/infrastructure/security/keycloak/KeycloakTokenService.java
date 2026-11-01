@@ -647,6 +647,18 @@ public class KeycloakTokenService {
      * @return Keycloak internal organization UUID
      */
     public String createOrganization(String tenantCode, String tenantName) {
+        return createOrganization(tenantCode, tenantName, true);
+    }
+
+    /**
+     * Explicitly provisions a brand new Organization in Keycloak (REQ-TNT-01, REQ-TNT-05).
+     *
+     * @param tenantCode unique tenant code
+     * @param tenantName clinic display name
+     * @param enabled    whether organization is immediately active or staged (e.g. pending approval)
+     * @return Keycloak internal organization UUID
+     */
+    public String createOrganization(String tenantCode, String tenantName, boolean enabled) {
         String adminToken = getServiceAccountToken();
         if (adminToken == null || adminToken.startsWith("mock-")) {
             log.debug("Mock environment: returning mock organization ID for [{}]", tenantCode);
@@ -657,7 +669,7 @@ public class KeycloakTokenService {
         var orgPayload = objectMapper.createObjectNode();
         orgPayload.put("name", tenantCode);
         orgPayload.put("displayName", tenantName != null && !tenantName.isBlank() ? tenantName : tenantCode);
-        orgPayload.put("enabled", true);
+        orgPayload.put("enabled", enabled);
 
         try {
             var postResponse = restClient.post()
@@ -838,6 +850,21 @@ public class KeycloakTokenService {
      * @return Keycloak internal user ID
      */
     public String createStaffUser(String tenantCode, String email, String fullName, String password, StaffRole role) {
+        return createStaffUser(tenantCode, email, fullName, password, role, true);
+    }
+
+    /**
+     * Provisions a Keycloak staff user for a tenant organization (REQ-TNT-01, REQ-TNT-05).
+     *
+     * @param tenantCode clinic tenant code
+     * @param email      staff email address
+     * @param fullName   staff full name
+     * @param password   optional initial password
+     * @param role       functional staff role
+     * @param enabled    whether user account is immediately active or staged (e.g. pending approval)
+     * @return Keycloak internal user ID
+     */
+    public String createStaffUser(String tenantCode, String email, String fullName, String password, StaffRole role, boolean enabled) {
         if (role == StaffRole.SPECIALIST) {
             log.info("Role SPECIALIST is internal roster-only; skipping Keycloak user provisioning for [{}]", email);
             return null;
@@ -882,7 +909,7 @@ public class KeycloakTokenService {
                 userPayload.put(OAuth2Constant.FIELD_EMAIL, normalizedEmail);
                 userPayload.put(OAuth2Constant.FIELD_FIRST_NAME, firstName);
                 userPayload.put(OAuth2Constant.FIELD_LAST_NAME, lastName);
-                userPayload.put(OAuth2Constant.FIELD_ENABLED, true);
+                userPayload.put(OAuth2Constant.FIELD_ENABLED, enabled);
                 userPayload.put(OAuth2Constant.FIELD_EMAIL_VERIFIED, true);
 
                 var attributesNode = objectMapper.createObjectNode();

@@ -80,6 +80,9 @@ public class CentralTenant {
     @Column(name = "organisation_id", length = 36, unique = true)
     private String organisationId;
 
+    @Column(name = "rejection_reason", length = 500)
+    private String rejectionReason;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
