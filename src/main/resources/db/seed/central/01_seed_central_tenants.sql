@@ -26,7 +26,7 @@ INSERT INTO `central__tenants` (
     '018f0000-0000-7000-8000-000000000001',
     'shop-b',
     'Shop B Retail Facility',
-    'admin@shop-b.internal',
+    'admin@shop-b.com',
     'ACTIVE',
     FALSE,
     'shop-b',
@@ -37,7 +37,7 @@ INSERT INTO `central__tenants` (
     '018f0000-0000-7000-8000-000000000002',
     'spa-a',
     'Spa A Beauty Center',
-    'admin@spa-a.internal',
+    'admin@spa-a.com',
     'ACTIVE',
     FALSE,
     'spa-a',
@@ -46,6 +46,7 @@ INSERT INTO `central__tenants` (
 )
 ON DUPLICATE KEY UPDATE
     `tenant_name` = VALUES(`tenant_name`),
+    `admin_email` = VALUES(`admin_email`),
     `status` = VALUES(`status`),
     `organisation_id` = VALUES(`organisation_id`),
     `updated_at` = CURRENT_TIMESTAMP;

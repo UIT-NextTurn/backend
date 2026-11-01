@@ -67,7 +67,7 @@ class TenantAuthControllerTest {
     void shouldVerifyTenantSuccessfullyOnPost() throws Exception {
         TenantAuthResponse response = TenantAuthResponse.builder()
                 .tenantId("tenant-uuid-123")
-                .tenantCode("clinic_sai_gon")
+                .tenantCode("clinic-sai-gon")
                 .tenantName("Phòng khám Đa khoa Sài Gòn")
                 .status("ACTIVE")
                 .organisationId("kc-org-001")
@@ -79,7 +79,7 @@ class TenantAuthControllerTest {
 
         String requestJson = """
                 {
-                    "tenantCode": "clinic_sai_gon"
+                    "tenantCode": "clinic-sai-gon"
                 }
                 """;
 
@@ -89,7 +89,7 @@ class TenantAuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.tenantId").value("tenant-uuid-123"))
-                .andExpect(jsonPath("$.data.tenantCode").value("clinic_sai_gon"))
+                .andExpect(jsonPath("$.data.tenantCode").value("clinic-sai-gon"))
                 .andExpect(jsonPath("$.data.tenantName").value("Phòng khám Đa khoa Sài Gòn"))
                 .andExpect(jsonPath("$.data.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.data.organisationId").value("kc-org-001"))
@@ -103,7 +103,7 @@ class TenantAuthControllerTest {
     void shouldVerifyTenantSuccessfullyOnGet() throws Exception {
         TenantAuthResponse response = TenantAuthResponse.builder()
                 .tenantId("tenant-uuid-456")
-                .tenantCode("spa_da_nang")
+                .tenantCode("spa-da-nang")
                 .tenantName("Spa Đà Nẵng")
                 .status("ACTIVE")
                 .loginUrl("http://localhost:8180/realms/nextturn/protocol/openid-connect/auth")
@@ -112,10 +112,10 @@ class TenantAuthControllerTest {
 
         when(tenantAuthService.authenticateTenant(any(TenantAuthRequest.class))).thenReturn(response);
 
-        mockMvc.perform(get("/api/v1/auth/tenant/spa_da_nang"))
+        mockMvc.perform(get("/api/v1/auth/tenant/spa-da-nang"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.tenantCode").value("spa_da_nang"))
+                .andExpect(jsonPath("$.data.tenantCode").value("spa-da-nang"))
                 .andExpect(jsonPath("$.data.tenantName").value("Spa Đà Nẵng"));
     }
 
@@ -125,6 +125,78 @@ class TenantAuthControllerTest {
         String requestJson = """
                 {
                     "tenantCode": "   "
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/auth/tenant/verify")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.errorCode").value(SystemErrorCode.VALIDATION_ERROR.code()))
+                .andExpect(jsonPath("$.data.tenantCode").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/tenant/verify should return 400 when tenantCode is too short (min 3 chars - REQ-AUTH-01)")
+    void shouldReturn400WhenTenantCodeIsTooShort() throws Exception {
+        String requestJson = """
+                {
+                    "tenantCode": "ab"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/auth/tenant/verify")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.errorCode").value(SystemErrorCode.VALIDATION_ERROR.code()))
+                .andExpect(jsonPath("$.data.tenantCode").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/tenant/verify should return 400 when tenantCode exceeds 30 characters (REQ-AUTH-01)")
+    void shouldReturn400WhenTenantCodeIsTooLong() throws Exception {
+        String requestJson = """
+                {
+                    "tenantCode": "abcdefghijklmnopqrstuvwxyz12345"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/auth/tenant/verify")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.errorCode").value(SystemErrorCode.VALIDATION_ERROR.code()))
+                .andExpect(jsonPath("$.data.tenantCode").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/tenant/verify should return 400 when tenantCode contains uppercase letters (REQ-AUTH-01)")
+    void shouldReturn400WhenTenantCodeContainsUppercase() throws Exception {
+        String requestJson = """
+                {
+                    "tenantCode": "PK-ALPHA"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/auth/tenant/verify")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.errorCode").value(SystemErrorCode.VALIDATION_ERROR.code()))
+                .andExpect(jsonPath("$.data.tenantCode").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/tenant/verify should return 400 when tenantCode contains underscores (REQ-AUTH-01)")
+    void shouldReturn400WhenTenantCodeContainsUnderscore() throws Exception {
+        String requestJson = """
+                {
+                    "tenantCode": "pk_alpha"
                 }
                 """;
 
@@ -158,11 +230,11 @@ class TenantAuthControllerTest {
     @DisplayName("POST /api/v1/auth/tenant/verify should return 404 with AUTH_003 when tenant does not exist")
     void shouldReturn404WhenTenantNotFound() throws Exception {
         when(tenantAuthService.authenticateTenant(any(TenantAuthRequest.class)))
-                .thenThrow(new AuthException(AuthErrorCode.TENANT_NOT_FOUND, "Tenant not found with code: non_existing"));
+                .thenThrow(new AuthException(AuthErrorCode.TENANT_NOT_FOUND, "Tenant not found with code: non-existing"));
 
         String requestJson = """
                 {
-                    "tenantCode": "non_existing"
+                    "tenantCode": "non-existing"
                 }
                 """;
 
@@ -172,7 +244,7 @@ class TenantAuthControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.errorCode").value("AUTH_003"))
-                .andExpect(jsonPath("$.message").value("Tenant not found with code: non_existing"));
+                .andExpect(jsonPath("$.message").value("Tenant not found with code: non-existing"));
     }
 
     @Test
@@ -183,7 +255,7 @@ class TenantAuthControllerTest {
 
         String requestJson = """
                 {
-                    "tenantCode": "blocked_hospital"
+                    "tenantCode": "blocked-hospital"
                 }
                 """;
 
@@ -238,7 +310,7 @@ class TenantAuthControllerTest {
                 .refreshToken("mock-refresh-token")
                 .primaryRole("TENANT_ADMIN")
                 .roles(List.of("TENANT_ADMIN"))
-                .tenantCode("clinic_sai_gon")
+                .tenantCode("clinic-sai-gon")
                 .targetDashboardUrl("/tenant/dashboard")
                 .build();
 
@@ -276,5 +348,51 @@ class TenantAuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("Logged out successfully"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/auth/tenant/{tenantCode} should reject when X-Tenant-Code header conflicts with path variable")
+    void shouldRejectWhenHeaderConflictsWithPath() throws Exception {
+        mockMvc.perform(get("/api/v1/auth/tenant/spa-a")
+                        .header("X-Tenant-Code", "shop-b"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/tenant/verify should reject when X-Tenant-Code header conflicts with request body")
+    void shouldRejectWhenHeaderConflictsWithBody() throws Exception {
+        String requestJson = """
+                {
+                    "tenantCode": "spa-a"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/auth/tenant/verify")
+                        .header("X-Tenant-Code", "shop-b")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("AUTH_009"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/auth/tenant/{tenantCode} should succeed when X-Tenant-Code header matches path variable")
+    void shouldSucceedWhenHeaderMatchesPath() throws Exception {
+        TenantAuthResponse response = TenantAuthResponse.builder()
+                .tenantId("tenant-uuid-456")
+                .tenantCode("spa-a")
+                .tenantName("Spa A")
+                .status("ACTIVE")
+                .loginUrl("http://localhost:8180/realms/nextturn/protocol/openid-connect/auth")
+                .allowedRoles(List.of("TENANT_ADMIN"))
+                .build();
+
+        when(tenantAuthService.authenticateTenant(any(TenantAuthRequest.class))).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/auth/tenant/spa-a")
+                        .header("X-Tenant-Code", "spa-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.tenantCode").value("spa-a"));
     }
 }

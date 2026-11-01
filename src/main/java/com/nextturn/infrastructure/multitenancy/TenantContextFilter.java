@@ -198,7 +198,23 @@ public class TenantContextFilter extends OncePerRequestFilter {
             return callerTenant;
         }
 
-        // 5. Unauthenticated / public endpoints: fallback to header
+        // 5. Unauthenticated / public endpoints:
+        // Check if request URI contains path-based tenant code (/api/v1/auth/tenant/{tenantCode})
+        String uri = request.getRequestURI();
+        if (uri != null && uri.contains("/api/v1/auth/tenant/")) {
+            String pathTenant = uri.substring(uri.lastIndexOf('/') + 1).trim();
+            if (!pathTenant.isBlank() && !"verify".equalsIgnoreCase(pathTenant)) {
+                if (headerTenant != null && !headerTenant.equalsIgnoreCase(pathTenant)) {
+                    log.warn("Cross-tenant attempt blocked: Header [{}] does not match path [{}]", headerTenant, pathTenant);
+                    throw new AdminException(
+                            AdminErrorCode.CROSS_TENANT_ACCESS_DENIED,
+                            "Cross-tenant access is strictly prohibited: header X-Tenant-Code [" + headerTenant + "] does not match path tenantCode [" + pathTenant + "]"
+                    );
+                }
+                return pathTenant;
+            }
+        }
+
         if (headerTenant != null) {
             return headerTenant;
         }

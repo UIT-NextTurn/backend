@@ -1,6 +1,7 @@
 package com.nextturn.controller.auth;
 
 import com.nextturn.constant.AuthEndpointConstant;
+import com.nextturn.constant.TenantHeaderConstant;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.auth.AuthTokenResponse;
 import com.nextturn.dto.auth.LogoutRequest;
@@ -8,6 +9,8 @@ import com.nextturn.dto.auth.RefreshTokenRequest;
 import com.nextturn.dto.auth.TenantAuthRequest;
 import com.nextturn.dto.auth.TenantAuthResponse;
 import com.nextturn.dto.auth.TokenExchangeRequest;
+import com.nextturn.exception.auth.AuthErrorCode;
+import com.nextturn.exception.auth.AuthException;
 import com.nextturn.service.auth.TenantAuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -17,7 +20,10 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -39,6 +45,8 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Authentication & Multi-Tenancy", description = "Endpoints for tenant resolution, authentication, and login routing")
 @SecurityRequirements
 public class TenantAuthController {
+
+    private static final Logger log = LoggerFactory.getLogger(TenantAuthController.class);
 
     private final TenantAuthService tenantAuthService;
 
@@ -80,8 +88,10 @@ public class TenantAuthController {
             )
     })
     public ResponseEntity<BaseResponse<TenantAuthResponse>> verifyTenantPost(
-            @Valid @RequestBody TenantAuthRequest request
+            @Valid @RequestBody TenantAuthRequest request,
+            HttpServletRequest servletRequest
     ) {
+        validateHeaderSync(request != null ? request.getTenantCode() : null, servletRequest);
         TenantAuthResponse response = tenantAuthService.authenticateTenant(request);
         return ResponseEntity.ok(BaseResponse.ok("Tenant recognized successfully", response));
     }
@@ -92,7 +102,7 @@ public class TenantAuthController {
      * @param tenantCode alphanumeric tenant code from URL path
      * @return standard {@link BaseResponse} wrapping {@link TenantAuthResponse}
      */
-    @GetMapping({AuthEndpointConstant.TENANT_BY_CODE, AuthEndpointConstant.TENANT_VERIFY_BY_CODE})
+    @GetMapping(AuthEndpointConstant.TENANT_BY_CODE)
     @Operation(
             summary = "Verify tenant code via path variable (GET)",
             description = "Idempotent tenant resolution via path variable for deep-linking or QR code scans."
@@ -120,14 +130,39 @@ public class TenantAuthController {
             )
     })
     public ResponseEntity<BaseResponse<TenantAuthResponse>> verifyTenantGet(
-            @Parameter(description = "Alphanumeric unique code for tenant facility", example = "clinic_sai_gon")
-            @PathVariable String tenantCode
+            @Parameter(description = "Alphanumeric unique code for tenant facility", example = "clinic-sai-gon")
+            @PathVariable String tenantCode,
+            HttpServletRequest servletRequest
     ) {
+        if (tenantCode == null || tenantCode.isBlank() || tenantCode.length() < 3 || tenantCode.length() > 30 || !tenantCode.matches("^[a-z0-9-]+$")) {
+            throw new AuthException(AuthErrorCode.INVALID_TENANT_CODE_FORMAT, "Tenant code must be between 3 and 30 characters and contain only lowercase letters, numbers, and hyphens");
+        }
+        validateHeaderSync(tenantCode, servletRequest);
         TenantAuthRequest request = TenantAuthRequest.builder()
                 .tenantCode(tenantCode)
                 .build();
         TenantAuthResponse response = tenantAuthService.authenticateTenant(request);
         return ResponseEntity.ok(BaseResponse.ok("Tenant recognized successfully", response));
+    }
+
+    private void validateHeaderSync(String targetTenantCode, HttpServletRequest servletRequest) {
+        if (servletRequest == null || targetTenantCode == null || targetTenantCode.isBlank()) {
+            return;
+        }
+        String headerTenant = servletRequest.getHeader(TenantHeaderConstant.X_TENANT_CODE_HEADER);
+        if (headerTenant == null || headerTenant.isBlank()) {
+            headerTenant = servletRequest.getHeader(TenantHeaderConstant.X_TENANT_ID_HEADER);
+        }
+        if (headerTenant != null && !headerTenant.isBlank()) {
+            String cleanHeader = headerTenant.trim();
+            if (!cleanHeader.equalsIgnoreCase(targetTenantCode.trim())) {
+                log.warn("Tenant code mismatch: Header [{}] does not match requested tenantCode [{}]", cleanHeader, targetTenantCode);
+                throw new AuthException(
+                        AuthErrorCode.TENANT_MISMATCH,
+                        "Header " + TenantHeaderConstant.X_TENANT_CODE_HEADER + " [" + cleanHeader + "] does not match requested tenantCode [" + targetTenantCode.trim() + "]"
+                );
+            }
+        }
     }
 
     /**
@@ -158,7 +193,7 @@ public class TenantAuthController {
      * @param request code and optional redirectUri
      * @return standard {@link BaseResponse} wrapping {@link AuthTokenResponse}
      */
-    @PostMapping({AuthEndpointConstant.TOKEN_EXCHANGE, AuthEndpointConstant.TOKEN_EXCHANGE_ALIAS})
+    @PostMapping(AuthEndpointConstant.TOKEN_EXCHANGE)
     @Operation(
             summary = "Exchange authorization code for JWT tokens",
             description = "Exchanges Keycloak authorization code for tokens, verifies staff roles, and returns user session details."

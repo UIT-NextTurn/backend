@@ -400,4 +400,60 @@ class CustomerAuthServiceTest {
 
         verify(keycloakTokenService, never()).issueCustomerTokens(any(), any());
     }
+
+    @Test
+    @DisplayName("isDomainWhitelisted should reject evil suffix attacks like evilpkalpha.vn matching *.pkalpha.vn (DF-AUTH-02 / U15 UTCID11)")
+    void isDomainWhitelistedShouldRejectEvilSuffixAttack() {
+        List<CentralAllowedDomain> allowed = List.of(
+                CentralAllowedDomain.builder().id("ad-1").tenantId("t-1").domainName("*.pkalpha.vn").build()
+        );
+
+        // evilpkalpha.vn must NOT match *.pkalpha.vn
+        assertThat(CustomerAuthService.isDomainWhitelisted("evilpkalpha.vn", allowed)).isFalse();
+        // Also test with protocol and port
+        assertThat(CustomerAuthService.isDomainWhitelisted("https://evilpkalpha.vn", allowed)).isFalse();
+        assertThat(CustomerAuthService.isDomainWhitelisted("evilpkalpha.vn:8080", allowed)).isFalse();
+
+        // Also test with List of Strings
+        assertThat(CustomerAuthService.isDomainWhitelisted("evilpkalpha.vn", List.of("*.pkalpha.vn"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("isDomainWhitelisted should accept valid subdomains for wildcard whitelist")
+    void isDomainWhitelistedShouldAcceptValidSubdomains() {
+        List<CentralAllowedDomain> allowed = List.of(
+                CentralAllowedDomain.builder().id("ad-1").tenantId("t-1").domainName("*.pkalpha.vn").build()
+        );
+
+        assertThat(CustomerAuthService.isDomainWhitelisted("sub.pkalpha.vn", allowed)).isTrue();
+        assertThat(CustomerAuthService.isDomainWhitelisted("app.pkalpha.vn", allowed)).isTrue();
+        assertThat(CustomerAuthService.isDomainWhitelisted("deep.sub.pkalpha.vn", allowed)).isTrue();
+        assertThat(CustomerAuthService.isDomainWhitelisted("sub.pkalpha.vn:3000", allowed)).isTrue();
+        assertThat(CustomerAuthService.isDomainWhitelisted("https://sub.pkalpha.vn/booking", allowed)).isTrue();
+
+        // With String list
+        assertThat(CustomerAuthService.isDomainWhitelisted("sub.pkalpha.vn", List.of("*.pkalpha.vn"))).isTrue();
+    }
+
+    @Test
+    @DisplayName("isDomainWhitelisted should handle exact match, apex domain, global wildcard, and edge cases")
+    void isDomainWhitelistedShouldHandleEdgeCases() {
+        List<CentralAllowedDomain> allowedExact = List.of(
+                CentralAllowedDomain.builder().id("ad-1").tenantId("t-1").domainName("pkalpha.vn").build()
+        );
+        assertThat(CustomerAuthService.isDomainWhitelisted("pkalpha.vn", allowedExact)).isTrue();
+        assertThat(CustomerAuthService.isDomainWhitelisted("pkalpha.vn:8080", allowedExact)).isTrue();
+        assertThat(CustomerAuthService.isDomainWhitelisted("sub.pkalpha.vn", allowedExact)).isFalse();
+
+        List<CentralAllowedDomain> allowedGlobal = List.of(
+                CentralAllowedDomain.builder().id("ad-2").tenantId("t-1").domainName("*").build()
+        );
+        assertThat(CustomerAuthService.isDomainWhitelisted("random.org", allowedGlobal)).isTrue();
+
+        // Null and blank checks
+        assertThat(CustomerAuthService.isDomainWhitelisted(null, allowedExact)).isFalse();
+        assertThat(CustomerAuthService.isDomainWhitelisted("   ", allowedExact)).isFalse();
+        assertThat(CustomerAuthService.isDomainWhitelisted("pkalpha.vn", (List<?>) null)).isFalse();
+        assertThat(CustomerAuthService.isDomainWhitelisted("pkalpha.vn", List.of())).isFalse();
+    }
 }

@@ -48,17 +48,19 @@ fi
 case "${ROLE,,}" in
     admin|tenant_admin)
         TARGET_ROLE="TENANT_ADMIN"
-        DEFAULT_USER="admin@${TENANT}.internal"
+        EFFECTIVE_TENANT="${TENANT:-shop-b}"
+        DEFAULT_USER="admin-${EFFECTIVE_TENANT}"
         SCOPE="openid"
         ;;
     counter|counter_staff)
         TARGET_ROLE="COUNTER_STAFF"
-        DEFAULT_USER="counter01@${TENANT}.internal"
+        EFFECTIVE_TENANT="${TENANT:-shop-b}"
+        DEFAULT_USER="counter-${EFFECTIVE_TENANT}"
         SCOPE="openid"
         ;;
     superadmin)
         TARGET_ROLE="SUPERADMIN"
-        DEFAULT_USER="superadmin@nextturn.com"
+        DEFAULT_USER="superadmin"
         TENANT=""
         SCOPE="openid"
         ;;

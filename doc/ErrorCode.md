@@ -20,14 +20,14 @@
 | Enum Name | Code | Message |
 |---|---|---|
 | TENANT_CODE_REQUIRED | AUTH_001 | Tenant code is required |
-| INVALID_TENANT_CODE_FORMAT | AUTH_002 | Tenant code must contain only lowercase alphanumeric characters and underscores |
+| INVALID_TENANT_CODE_FORMAT | AUTH_002 | Tenant code must contain only lowercase letters, numbers, and hyphens |
 | TENANT_NOT_FOUND | AUTH_003 | Tenant not found with provided code |
 | TENANT_INACTIVE | AUTH_004 | Tenant facility is not active |
 | INVALID_CREDENTIALS | AUTH_005 | Invalid username or password |
 | TOKEN_EXPIRED | AUTH_006 | Authentication token has expired |
 | INVALID_TOKEN | AUTH_007 | Malformed or invalid authentication token |
 | REFRESH_TOKEN_EXPIRED | AUTH_008 | Refresh token has expired or been revoked |
-| TENANT_MISMATCH | AUTH_009 | Authenticated user tenant claim does not match requested tenant |
+| TENANT_MISMATCH | AUTH_009 | Header X-Tenant-Code does not match requested tenant |
 | ROLE_NOT_PERMITTED | AUTH_010 | User role is not permitted for this action or portal |
 | KEYCLOAK_UNAVAILABLE | AUTH_011 | Keycloak identity provider service is currently unavailable |
 | LOGIN_URL_BUILD_FAILED | AUTH_012 | Failed to generate staff login redirect URL |
