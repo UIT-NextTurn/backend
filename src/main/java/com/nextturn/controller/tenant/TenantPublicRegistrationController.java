@@ -61,7 +61,7 @@ public class TenantPublicRegistrationController {
         return ResponseEntity.status(HttpStatus.CREATED).body(
                 BaseResponse.<TenantResponse>builder()
                         .success(true)
-                        .message("Đăng ký tổ chức thành công. Hồ sơ của bạn đã được tiếp nhận và đang chờ Ban Quản trị phê duyệt.")
+                        .message("Tenant registration application submitted successfully and is awaiting administrator review.")
                         .data(response)
                         .build()
         );

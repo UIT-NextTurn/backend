@@ -55,7 +55,7 @@ import java.util.List;
 @RequireSuperAdmin
 @Tag(
         name = "Tenant Management",
-        description = "Endpoints for platform Superadministrators to manage tenant lifecycle, operational quotas, and global telemetry (REQ-TNT-01 to REQ-TNT-04)"
+        description = "Endpoints for platform Superadministrators to manage tenant lifecycle, operational quotas, and global telemetry (REQ-TNT-01 to REQ-TNT-04, REQ-TNT-06)"
 )
 @SecurityRequirement(name = "BearerAuth")
 public class TenantManagementController {
@@ -73,12 +73,12 @@ public class TenantManagementController {
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     @RequireSuperAdmin
     @Operation(
-            summary = "Tra cứu, phân trang và giám sát toàn cục (REQ-TNT-04)",
-            description = "Tìm kiếm và lọc danh sách các tổ chức đa tiêu chí (keyword, status) kèm metadata phân trang và chỉ số giám sát tài nguyên (số nhân viên, số vé hôm nay)."
+            summary = "Search, filter, and monitor tenants (REQ-TNT-04)",
+            description = "Searches and filters organizations by multiple criteria (keyword, status) with pagination metadata and operational monitoring metrics (active staff count, today's queue tickets)."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Truy vấn danh sách tổ chức thành công"),
-            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN")
+            @ApiResponse(responseCode = "200", description = "Tenants retrieved successfully"),
+            @ApiResponse(responseCode = "403", description = "Access denied - Superadministrator role required")
     })
     public ResponseEntity<BaseResponse<List<TenantMonitoringResponse>>> searchTenants(
             @RequestParam(value = "keyword", required = false) String keyword,
@@ -92,7 +92,7 @@ public class TenantManagementController {
                 keyword, status, page, limit, sortBy, sortDirection
         );
         return ResponseEntity.ok(BaseResponse.okPaged(
-                "Truy vấn danh sách tổ chức thành công",
+                "Tenants retrieved successfully",
                 pagedResult
         ));
     }
@@ -103,19 +103,19 @@ public class TenantManagementController {
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @RequireSuperAdmin
     @Operation(
-            summary = "Khởi tạo và cấp phát tổ chức mới (REQ-TNT-01)",
-            description = "Superadministrator khai báo tổ chức mới, cấp tài khoản Keycloak cho Admin cơ sở, gán hạn ngạch mặc định và gửi email kích hoạt."
+            summary = "Provision new tenant organization (REQ-TNT-01)",
+            description = "Superadministrator registers a new facility, provisions an isolated tenant database schema, provisions the administrator account on Keycloak, assigns default operational quotas, and dispatches activation email."
     )
     @ApiResponses({
             @ApiResponse(
                     responseCode = "201",
-                    description = "Khởi tạo tổ chức thành công",
+                    description = "Tenant provisioned successfully",
                     content = @Content(schema = @Schema(implementation = BaseResponse.class))
             ),
-            @ApiResponse(responseCode = "400", description = "Dữ liệu đầu vào không hợp lệ"),
-            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
-            @ApiResponse(responseCode = "409", description = "Mã định danh tổ chức hoặc email quản trị đã tồn tại"),
-            @ApiResponse(responseCode = "500", description = "Đồng bộ tài khoản sang Keycloak thất bại (đã rollback)")
+            @ApiResponse(responseCode = "400", description = "Invalid request payload"),
+            @ApiResponse(responseCode = "403", description = "Access denied - Superadministrator role required"),
+            @ApiResponse(responseCode = "409", description = "Tenant code or administrator email already registered"),
+            @ApiResponse(responseCode = "500", description = "Keycloak organization synchronization failed (rolled back)")
     })
     public ResponseEntity<BaseResponse<TenantResponse>> createTenant(
             @Valid @RequestBody CreateTenantRequest request
@@ -124,7 +124,7 @@ public class TenantManagementController {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(BaseResponse.created(
-                        "Tổ chức đã được khởi tạo thành công",
+                        "Tenant provisioned successfully",
                         response
                 ));
     }
@@ -135,14 +135,14 @@ public class TenantManagementController {
     @PutMapping(value = "/{tenantId}", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @RequireSuperAdmin
     @Operation(
-            summary = "Cập nhật thông tin và cấu hình hạn ngạch vận hành (REQ-TNT-02)",
-            description = "Superadministrator điều chỉnh thông tin hành chính, hạn ngạch số lượng nhân viên tối đa, hạn ngạch vé trong ngày và cuộc hẹn tương lai. Cảnh báo/từ chối nếu nhân sự thực tế vượt quá hạn mức mới."
+            summary = "Update tenant profile and operational quotas (REQ-TNT-02)",
+            description = "Superadministrator updates administrative profile and operational resource quotas (maximum active staff, daily tickets, services, appointments). Rejects if current active staff exceeds new limit."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Cập nhật thành công"),
-            @ApiResponse(responseCode = "400", description = "Hạn ngạch nhân sự mới nhỏ hơn số lượng nhân viên hiện có, hoặc dữ liệu không hợp lệ"),
-            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
-            @ApiResponse(responseCode = "404", description = "Không tìm thấy tổ chức")
+            @ApiResponse(responseCode = "200", description = "Tenant updated successfully"),
+            @ApiResponse(responseCode = "400", description = "New staff quota is less than active staff count, or invalid input"),
+            @ApiResponse(responseCode = "403", description = "Access denied - Superadministrator role required"),
+            @ApiResponse(responseCode = "404", description = "Tenant not found")
     })
     public ResponseEntity<BaseResponse<TenantResponse>> updateTenant(
             @PathVariable("tenantId") String tenantId,
@@ -150,7 +150,7 @@ public class TenantManagementController {
     ) {
         TenantResponse response = tenantService.updateTenant(tenantId, request);
         return ResponseEntity.ok(BaseResponse.ok(
-                "Thông tin và hạn ngạch vận hành của tổ chức đã được cập nhật thành công",
+                "Tenant profile and operational quotas updated successfully",
                 response
         ));
     }
@@ -161,14 +161,14 @@ public class TenantManagementController {
     @PutMapping(value = "/{tenantId}/quotas", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @RequireSuperAdmin
     @Operation(
-            summary = "Cập nhật hạn ngạch vận hành (REQ-TNT-02)",
-            description = "Superadministrator điều chỉnh riêng các hạn ngạch: số lượng nhân viên tối đa, vé trong ngày, dịch vụ và cuộc hẹn."
+            summary = "Update operational capacity quotas (REQ-TNT-02)",
+            description = "Superadministrator modifies operational quotas: maximum active staff, daily ticket quota, services, and future appointments. Supports -1 for unlimited."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Cập nhật hạn ngạch thành công"),
-            @ApiResponse(responseCode = "400", description = "Hạn ngạch nhân sự mới nhỏ hơn số lượng nhân viên hiện có"),
-            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
-            @ApiResponse(responseCode = "404", description = "Không tìm thấy tổ chức")
+            @ApiResponse(responseCode = "200", description = "Tenant quotas updated successfully"),
+            @ApiResponse(responseCode = "400", description = "New staff quota is less than current active staff count"),
+            @ApiResponse(responseCode = "403", description = "Access denied - Superadministrator role required"),
+            @ApiResponse(responseCode = "404", description = "Tenant not found")
     })
     public ResponseEntity<BaseResponse<TenantResponse>> updateTenantQuotas(
             @PathVariable("tenantId") String tenantId,
@@ -182,7 +182,7 @@ public class TenantManagementController {
                 .build();
         TenantResponse response = tenantService.updateTenant(tenantId, updateRequest);
         return ResponseEntity.ok(BaseResponse.ok(
-                "Hạn ngạch vận hành của tổ chức đã được cập nhật thành công",
+                "Tenant operational quotas updated successfully",
                 response
         ));
     }
@@ -193,21 +193,21 @@ public class TenantManagementController {
     @PostMapping(value = "/{tenantId}/suspend", produces = MediaType.APPLICATION_JSON_VALUE)
     @RequireSuperAdmin
     @Operation(
-            summary = "Tạm ngừng tổ chức (REQ-TNT-03)",
-            description = "Chuyển trạng thái sang SUSPENDED (chỉ cho phép từ trạng thái ACTIVE), tạm khóa toàn bộ tài khoản nhân sự và thu hồi phiên đăng nhập Keycloak, tạm dừng cổng tiếp nhận lịch hẹn."
+            summary = "Suspend tenant organization (REQ-TNT-03)",
+            description = "Transitions tenant status to SUSPENDED (strictly allowed only from ACTIVE). Disables staff credentials, revokes active Keycloak sessions, and halts public queue/booking intake."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Tạm ngừng tổ chức thành công"),
-            @ApiResponse(responseCode = "400", description = "Tổ chức không ở trạng thái ACTIVE hoặc đã ở trạng thái SUSPENDED"),
-            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
-            @ApiResponse(responseCode = "404", description = "Không tìm thấy tổ chức")
+            @ApiResponse(responseCode = "200", description = "Tenant suspended successfully"),
+            @ApiResponse(responseCode = "400", description = "Tenant is not in ACTIVE status or is already SUSPENDED"),
+            @ApiResponse(responseCode = "403", description = "Access denied - Superadministrator role required"),
+            @ApiResponse(responseCode = "404", description = "Tenant not found")
     })
     public ResponseEntity<BaseResponse<TenantResponse>> suspendTenant(
             @PathVariable("tenantId") String tenantId
     ) {
         TenantResponse response = tenantService.suspendTenant(tenantId);
         return ResponseEntity.ok(BaseResponse.ok(
-                "Tổ chức đã được tạm ngừng hoạt động thành công",
+                "Tenant organization suspended successfully",
                 response
         ));
     }
@@ -218,21 +218,21 @@ public class TenantManagementController {
     @PostMapping(value = "/{tenantId}/activate", produces = MediaType.APPLICATION_JSON_VALUE)
     @RequireSuperAdmin
     @Operation(
-            summary = "Kích hoạt lại tổ chức (REQ-TNT-03)",
-            description = "Chuyển trạng thái sang ACTIVE (chỉ cho phép kích hoạt lại từ trạng thái SUSPENDED; đối với hồ sơ PENDING_APPROVAL vui lòng sử dụng API approve), khôi phục quyền đăng nhập Keycloak cho nhân sự và mở lại dịch vụ trực tuyến."
+            summary = "Reactivate suspended tenant (REQ-TNT-03)",
+            description = "Transitions tenant status back to ACTIVE (strictly allowed only from SUSPENDED; for PENDING_APPROVAL please use the approve endpoint). Restores staff Keycloak access and resumes online services."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Kích hoạt lại tổ chức thành công"),
-            @ApiResponse(responseCode = "400", description = "Tổ chức không ở trạng thái SUSPENDED hoặc đã ở trạng thái ACTIVE"),
-            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
-            @ApiResponse(responseCode = "404", description = "Không tìm thấy tổ chức")
+            @ApiResponse(responseCode = "200", description = "Tenant reactivated successfully"),
+            @ApiResponse(responseCode = "400", description = "Tenant is not in SUSPENDED status or is already ACTIVE"),
+            @ApiResponse(responseCode = "403", description = "Access denied - Superadministrator role required"),
+            @ApiResponse(responseCode = "404", description = "Tenant not found")
     })
     public ResponseEntity<BaseResponse<TenantResponse>> activateTenant(
             @PathVariable("tenantId") String tenantId
     ) {
         TenantResponse response = tenantService.activateTenant(tenantId);
         return ResponseEntity.ok(BaseResponse.ok(
-                "Tổ chức đã được kích hoạt lại thành công",
+                "Tenant organization reactivated successfully",
                 response
         ));
     }
@@ -243,21 +243,21 @@ public class TenantManagementController {
     @PostMapping(value = "/{tenantId}/approve", produces = MediaType.APPLICATION_JSON_VALUE)
     @RequireSuperAdmin
     @Operation(
-            summary = "Phê duyệt yêu cầu đăng ký tổ chức (REQ-TNT-06)",
-            description = "Chuyển trạng thái từ PENDING_APPROVAL sang ACTIVE, kích hoạt tài khoản Admin trên Keycloak và gửi email thông báo chúc mừng kèm hướng dẫn đăng nhập."
+            summary = "Approve pending tenant registration (REQ-TNT-06)",
+            description = "Approves a pending registration application by transitioning status from PENDING_APPROVAL to ACTIVE, enabling the Keycloak administrator account, and dispatching a welcome onboarding email."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Phê duyệt tổ chức thành công"),
-            @ApiResponse(responseCode = "400", description = "Tổ chức không ở trạng thái PENDING_APPROVAL"),
-            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
-            @ApiResponse(responseCode = "404", description = "Không tìm thấy tổ chức")
+            @ApiResponse(responseCode = "200", description = "Tenant registration approved successfully"),
+            @ApiResponse(responseCode = "400", description = "Tenant is not in PENDING_APPROVAL status"),
+            @ApiResponse(responseCode = "403", description = "Access denied - Superadministrator role required"),
+            @ApiResponse(responseCode = "404", description = "Tenant not found")
     })
     public ResponseEntity<BaseResponse<TenantResponse>> approveTenantRegistration(
             @PathVariable("tenantId") String tenantId
     ) {
         TenantResponse response = tenantService.approveTenantRegistration(tenantId);
         return ResponseEntity.ok(BaseResponse.ok(
-                "Phê duyệt tổ chức thành công. Tài khoản Quản trị viên cơ sở đã được kích hoạt.",
+                "Tenant registration approved successfully. Administrator account is now active.",
                 response
         ));
     }
@@ -268,14 +268,14 @@ public class TenantManagementController {
     @PostMapping(value = "/{tenantId}/reject", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @RequireSuperAdmin
     @Operation(
-            summary = "Từ chối yêu cầu đăng ký tổ chức (REQ-TNT-06)",
-            description = "Chuyển trạng thái sang REJECTED, xóa tài khoản tạm thời trên Keycloak và gửi email thông báo từ chối kèm lý do cho người đăng ký."
+            summary = "Reject pending tenant registration (REQ-TNT-06)",
+            description = "Rejects a pending registration application by transitioning status to REJECTED, removing the staged Keycloak admin account, and sending a rejection notification email with the mandatory reason."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Từ chối yêu cầu đăng ký tổ chức thành công"),
-            @ApiResponse(responseCode = "400", description = "Tổ chức không ở trạng thái PENDING_APPROVAL hoặc thiếu lý do từ chối"),
-            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
-            @ApiResponse(responseCode = "404", description = "Không tìm thấy tổ chức")
+            @ApiResponse(responseCode = "200", description = "Tenant registration rejected successfully"),
+            @ApiResponse(responseCode = "400", description = "Tenant is not in PENDING_APPROVAL status or rejection reason is blank"),
+            @ApiResponse(responseCode = "403", description = "Access denied - Superadministrator role required"),
+            @ApiResponse(responseCode = "404", description = "Tenant not found")
     })
     public ResponseEntity<BaseResponse<TenantResponse>> rejectTenantRegistration(
             @PathVariable("tenantId") String tenantId,
@@ -283,7 +283,7 @@ public class TenantManagementController {
     ) {
         TenantResponse response = tenantService.rejectTenantRegistration(tenantId, request);
         return ResponseEntity.ok(BaseResponse.ok(
-                "Đã từ chối yêu cầu đăng ký tổ chức thành công",
+                "Tenant registration application rejected successfully",
                 response
         ));
     }
@@ -294,8 +294,8 @@ public class TenantManagementController {
     @PatchMapping(value = "/{tenantId}/status", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @RequireSuperAdmin
     @Operation(
-            summary = "Cập nhật trạng thái vòng đời tổ chức (REQ-TNT-03)",
-            description = "Chuyển đổi trạng thái tổ chức giữa ACTIVE và SUSPENDED kèm đồng bộ quyền Keycloak."
+            summary = "Update tenant lifecycle status (REQ-TNT-03)",
+            description = "Dispatches general status updates between ACTIVE and SUSPENDED with corresponding Keycloak account synchronization."
     )
     public ResponseEntity<BaseResponse<TenantResponse>> updateTenantStatus(
             @PathVariable("tenantId") String tenantId,
@@ -303,7 +303,7 @@ public class TenantManagementController {
     ) {
         TenantResponse response = tenantService.updateTenantStatus(tenantId, request);
         return ResponseEntity.ok(BaseResponse.ok(
-                "Cập nhật trạng thái tổ chức thành công",
+                "Tenant status updated successfully",
                 response
         ));
     }
@@ -314,21 +314,21 @@ public class TenantManagementController {
     @DeleteMapping(value = "/{tenantId}", produces = MediaType.APPLICATION_JSON_VALUE)
     @RequireSuperAdmin
     @Operation(
-            summary = "Xóa tổ chức (REQ-TNT-03)",
-            description = "Hệ thống tuyệt đối từ chối thao tác xóa vật lý (hard-delete) nếu tổ chức đã phát sinh dữ liệu vé, lịch hẹn hoặc đánh giá của khách hàng."
+            summary = "Delete tenant organization (REQ-TNT-03)",
+            description = "Safely marks organization as soft-deleted and disables Keycloak credentials. Hard deletion is strictly refused if historical tickets, appointments, or reviews exist."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Xóa tổ chức thành công"),
-            @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
-            @ApiResponse(responseCode = "404", description = "Không tìm thấy tổ chức"),
-            @ApiResponse(responseCode = "409", description = "Từ chối xóa do tổ chức đã phát sinh dữ liệu lịch sử")
+            @ApiResponse(responseCode = "200", description = "Tenant deleted successfully"),
+            @ApiResponse(responseCode = "403", description = "Access denied - Superadministrator role required"),
+            @ApiResponse(responseCode = "404", description = "Tenant not found"),
+            @ApiResponse(responseCode = "409", description = "Cannot delete tenant with existing historical operational data")
     })
     public ResponseEntity<BaseResponse<Void>> deleteTenant(
             @PathVariable("tenantId") String tenantId
     ) {
         tenantService.deleteTenant(tenantId);
         return ResponseEntity.ok(BaseResponse.ok(
-                "Tổ chức đã được xóa an toàn khỏi hệ thống"
+                "Tenant organization deleted successfully"
         ));
     }
 
@@ -338,15 +338,15 @@ public class TenantManagementController {
     @GetMapping(value = "/{tenantId}", produces = MediaType.APPLICATION_JSON_VALUE)
     @RequireSuperAdmin
     @Operation(
-            summary = "Tra cứu chi tiết tổ chức",
-            description = "Lấy thông tin hồ sơ tổ chức và hạn ngạch tài nguyên hiện tại kèm số lượng nhân sự đang hoạt động."
+            summary = "Get tenant details by ID or code",
+            description = "Retrieves complete tenant profile, resource quotas, and current active staff count with Valkey read-through caching."
     )
     public ResponseEntity<BaseResponse<TenantResponse>> getTenant(
             @PathVariable("tenantId") String tenantId
     ) {
         TenantResponse response = tenantService.getTenant(tenantId);
         return ResponseEntity.ok(BaseResponse.ok(
-                "Lấy thông tin tổ chức thành công",
+                "Tenant details retrieved successfully",
                 response
         ));
     }
@@ -357,15 +357,15 @@ public class TenantManagementController {
     @GetMapping(value = "/{tenantId}/quotas", produces = MediaType.APPLICATION_JSON_VALUE)
     @RequireSuperAdmin
     @Operation(
-            summary = "Tra cứu hạn ngạch vận hành của tổ chức",
-            description = "Lấy các chỉ số hạn ngạch tài nguyên và số lượng nhân sự thực tế hiện có."
+            summary = "Get tenant operational quotas",
+            description = "Retrieves operational quota limits and current active staff usage for the tenant."
     )
     public ResponseEntity<BaseResponse<TenantQuotaResponse>> getTenantQuota(
             @PathVariable("tenantId") String tenantId
     ) {
         TenantQuotaResponse response = tenantService.getTenantQuota(tenantId);
         return ResponseEntity.ok(BaseResponse.ok(
-                "Lấy thông tin hạn ngạch tổ chức thành công",
+                "Tenant operational quotas retrieved successfully",
                 response
         ));
     }
