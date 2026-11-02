@@ -20,14 +20,14 @@
 | Enum Name | Code | Message |
 |---|---|---|
 | TENANT_CODE_REQUIRED | AUTH_001 | Tenant code is required |
-| INVALID_TENANT_CODE_FORMAT | AUTH_002 | Tenant code must contain only lowercase alphanumeric characters and underscores |
+| INVALID_TENANT_CODE_FORMAT | AUTH_002 | Tenant code must contain only lowercase letters, numbers, and hyphens |
 | TENANT_NOT_FOUND | AUTH_003 | Tenant not found with provided code |
 | TENANT_INACTIVE | AUTH_004 | Tenant facility is not active |
 | INVALID_CREDENTIALS | AUTH_005 | Invalid username or password |
 | TOKEN_EXPIRED | AUTH_006 | Authentication token has expired |
 | INVALID_TOKEN | AUTH_007 | Malformed or invalid authentication token |
 | REFRESH_TOKEN_EXPIRED | AUTH_008 | Refresh token has expired or been revoked |
-| TENANT_MISMATCH | AUTH_009 | Authenticated user tenant claim does not match requested tenant |
+| TENANT_MISMATCH | AUTH_009 | Header X-Tenant-Code does not match requested tenant |
 | ROLE_NOT_PERMITTED | AUTH_010 | User role is not permitted for this action or portal |
 | KEYCLOAK_UNAVAILABLE | AUTH_011 | Keycloak identity provider service is currently unavailable |
 | LOGIN_URL_BUILD_FAILED | AUTH_012 | Failed to generate staff login redirect URL |
@@ -53,6 +53,18 @@
 | TENANT_SCHEMA_MIGRATION_FAILED | TENANT_007 | Flyway migration failed for tenant schema |
 | TENANT_CONTEXT_MISSING | TENANT_008 | Multi-tenant routing context is missing or could not be resolved |
 | TENANT_QUOTA_EXCEEDED | TENANT_009 | Monthly ticket or active counter quota exceeded for tenant tier |
+| TENANT_OR_EMAIL_ALREADY_EXISTS | TENANT_010 | Mã định danh tổ chức hoặc email quản trị này đã được đăng ký trong hệ thống. Vui lòng kiểm tra lại. |
+| AUTH_SERVICE_SYNC_FAILED | TENANT_011 | Quá trình đồng bộ tài khoản sang Keycloak thất bại. Vui lòng kiểm tra dịch vụ xác thực. |
+| STAFF_QUOTA_BELOW_CURRENT | TENANT_012 | Hạn ngạch nhân sự mới không được nhỏ hơn số lượng nhân viên hiện có của cơ sở. |
+| TENANT_NOT_ACTIVE | TENANT_013 | Tổ chức không ở trạng thái hoạt động (ACTIVE). |
+| INVALID_QUOTA_VALUE | TENANT_014 | Giá trị hạn ngạch không hợp lệ. Phải là số nguyên dương >= 1 hoặc -1 (không giới hạn). |
+| INVALID_ADMIN_EMAIL_FORMAT | TENANT_015 | Email không hợp lệ: không được chứa ký tự '+', không bắt đầu/kết thúc bằng dấu '.', không chứa dấu chấm liên tiếp '..', và phải có tên miền hợp lệ. |
+| TENANT_CANNOT_HARD_DELETE | TENANT_016 | Hệ thống tuyệt đối từ chối thao tác xóa vật lý bản ghi tổ chức đã phát sinh dữ liệu lịch sử vé, lịch hẹn hoặc đánh giá của khách hàng. |
+| TENANT_ALREADY_SUSPENDED | TENANT_017 | Tổ chức này đã ở trạng thái tạm ngừng (SUSPENDED). |
+| TENANT_ALREADY_ACTIVE | TENANT_018 | Tổ chức này đã ở trạng thái hoạt động (ACTIVE). |
+| TENANT_NOT_PENDING_APPROVAL | TENANT_019 | Tổ chức không ở trạng thái chờ phê duyệt (PENDING_APPROVAL). |
+| REJECTION_REASON_REQUIRED | TENANT_020 | Lý do từ chối đăng ký tổ chức là bắt buộc. |
+| TENANT_NOT_SUSPENDED | TENANT_021 | Tổ chức không ở trạng thái tạm ngừng (SUSPENDED). |
 
 ## Queue (`QueueErrorCode`)
 

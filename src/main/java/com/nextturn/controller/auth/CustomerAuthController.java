@@ -49,7 +49,7 @@ public class CustomerAuthController {
      * @param request email payload
      * @return {@link BaseResponse} containing {@link CustomerOtpResponse}
      */
-    @PostMapping({AuthEndpointConstant.OTP_SEND, AuthEndpointConstant.OTP_REQUEST})
+    @PostMapping(AuthEndpointConstant.OTP_SEND)
     @Operation(
             summary = "Request email OTP verification code",
             description = "Generates and sends a 6-digit OTP code to the customer's email. If the email already exists in the database, it flags it as an existing account."

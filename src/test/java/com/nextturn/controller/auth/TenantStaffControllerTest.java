@@ -74,7 +74,7 @@ class TenantStaffControllerTest {
     void shouldCreateStaffWhenTenantAdmin() throws Exception {
         StaffResponse response = StaffResponse.builder()
                 .id("staff-uuid-1")
-                .staffCode("STF-000001")
+                .staffCode("STAFF-000001")
                 .keycloakUserId("kc-user-uuid-1")
                 .fullName("Dr. Tran Van B")
                 .email("dr.tran@clinic.vn")
@@ -105,7 +105,7 @@ class TenantStaffControllerTest {
                         .content(requestJson))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.staffCode").value("STF-000001"))
+                .andExpect(jsonPath("$.data.staffCode").value("STAFF-000001"))
                 .andExpect(jsonPath("$.data.fullName").value("Dr. Tran Van B"))
                 .andExpect(jsonPath("$.data.role").value("COUNTER"))
                 .andExpect(jsonPath("$.data.keycloakUserId").value("kc-user-uuid-1"));
@@ -138,7 +138,7 @@ class TenantStaffControllerTest {
     void shouldGetStaffList() throws Exception {
         StaffResponse response = StaffResponse.builder()
                 .id("staff-uuid-1")
-                .staffCode("STF-000001")
+                .staffCode("STAFF-000001")
                 .fullName("Dr. Tran Van B")
                 .email("dr.tran@clinic.vn")
                 .role(StaffRole.COUNTER)
@@ -156,7 +156,7 @@ class TenantStaffControllerTest {
                         .with(authentication(tenantAdminAuth)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data[0].staffCode").value("STF-000001"))
+                .andExpect(jsonPath("$.data[0].staffCode").value("STAFF-000001"))
                 .andExpect(jsonPath("$.pagination.page").value(0))
                 .andExpect(jsonPath("$.pagination.totalElements").value(1))
                 .andExpect(jsonPath("$.pagination.totalPages").value(1));

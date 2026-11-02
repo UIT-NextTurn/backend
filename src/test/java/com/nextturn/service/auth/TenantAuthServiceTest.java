@@ -177,7 +177,7 @@ class TenantAuthServiceTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = TenantStatus.class, names = {"PENDING", "BLOCKED", "DELETED"})
+    @EnumSource(value = TenantStatus.class, names = {"SUSPENDED", "PENDING_APPROVAL", "REJECTED"})
     @DisplayName("Should throw AuthException (AUTH_004) and not call helper when tenant status is not ACTIVE")
     void shouldThrowTenantInactiveWhenTenantIsNotActive(TenantStatus inactiveStatus) {
         CentralTenant tenant = CentralTenant.builder()
@@ -288,7 +288,7 @@ class TenantAuthServiceTest {
     void shouldThrowTenantInactiveWhenExchangingCodeForInactiveTenant() {
         CentralTenant tenant = CentralTenant.builder()
                 .tenantCode("blocked-shop")
-                .status(TenantStatus.BLOCKED)
+                .status(TenantStatus.SUSPENDED)
                 .build();
 
         AuthTokenResponse mockResponse = AuthTokenResponse.builder()
@@ -311,7 +311,7 @@ class TenantAuthServiceTest {
                 .satisfies(ex -> {
                     AuthException authEx = (AuthException) ex;
                     assertThat(authEx.getCode()).isEqualTo(AuthErrorCode.TENANT_INACTIVE.code());
-                    assertThat(authEx.getMessage()).contains("Tenant facility is not active. Status: BLOCKED");
+                    assertThat(authEx.getMessage()).contains("Tenant facility is not active. Status: SUSPENDED");
                 });
     }
 

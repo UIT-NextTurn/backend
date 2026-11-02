@@ -24,7 +24,7 @@ public class StaffResponse {
     @Schema(description = "Staff unique identifier in tenant database", example = "550e8400-e29b-41d4-a716-446655440000")
     private String id;
 
-    @Schema(description = "Unique staff badge or identification code", example = "STF-1001")
+    @Schema(description = "Unique staff badge or identification code", example = "STAFF-0001")
     private String staffCode;
 
     @Schema(description = "Keycloak internal user UUID", example = "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d")

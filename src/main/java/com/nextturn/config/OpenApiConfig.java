@@ -1,5 +1,12 @@
 package com.nextturn.config;
 
+import com.nextturn.controller.HealthCheckController;
+import com.nextturn.controller.auth.CustomerAuthController;
+import com.nextturn.controller.auth.TenantAuthController;
+import com.nextturn.controller.auth.TenantIdpController;
+import com.nextturn.controller.auth.TenantStaffController;
+import com.nextturn.controller.tenant.TenantManagementController;
+import com.nextturn.infrastructure.security.annotation.RequireTenantAdmin;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Contact;
@@ -84,18 +91,37 @@ public class OpenApiConfig {
     }
 
     /**
-     * Operation customizer ensuring Swagger UI renders an optional 'X-Tenant-Code' header input field
-     * on every endpoint, allowing manual tenant facility routing override during testing.
+     * Operation customizer ensuring Swagger/Scalar UI only renders the 'X-Tenant-Code' header
+     * on tenant-scoped administration endpoints (e.g. staff management, IdP config),
+     * while excluding public verify/lookup endpoints and customer auth.
      */
     @Bean
     public OperationCustomizer customizeTenantHeader() {
         return (operation, handlerMethod) -> {
-            operation.addParametersItem(new Parameter()
-                    .in("header")
-                    .name("X-Tenant-Code")
-                    .description("Optional Tenant facility code (e.g. shop-b, spa-a). If omitted, automatically resolved from JWT claim 'tenant_code' or authenticated email.")
-                    .required(false)
-                    .schema(new StringSchema().example("shop-b")));
+            Class<?> beanType = handlerMethod.getBeanType();
+
+            // Exclude public endpoints, verify paths, customer auth, healthcheck, and central tenant onboarding
+            if (beanType.equals(TenantAuthController.class)
+                    || beanType.equals(CustomerAuthController.class)
+                    || beanType.equals(HealthCheckController.class)
+                    || beanType.equals(TenantManagementController.class)) {
+                return operation;
+            }
+
+            // Only require X-Tenant-Code on tenant-specific administration endpoints
+            boolean isTenantEndpoint = beanType.equals(TenantStaffController.class)
+                    || beanType.equals(TenantIdpController.class)
+                    || beanType.isAnnotationPresent(RequireTenantAdmin.class)
+                    || handlerMethod.hasMethodAnnotation(RequireTenantAdmin.class);
+
+            if (isTenantEndpoint) {
+                operation.addParametersItem(new Parameter()
+                        .in("header")
+                        .name("X-Tenant-Code")
+                        .description("Tenant facility code (e.g. shop-b, spa-a). Identifies the target tenant context for administration.")
+                        .required(true)
+                        .schema(new StringSchema().example("shop-b")));
+            }
             return operation;
         };
     }

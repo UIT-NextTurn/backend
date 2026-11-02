@@ -32,6 +32,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
@@ -218,6 +219,16 @@ public class KeycloakTokenService {
             String email = payload.path(OAuth2Constant.FIELD_EMAIL).asText(null);
             String tenantCode = extractTenantCode(payload);
 
+            String fullName = payload.has(OAuth2Constant.FIELD_NAME) ? payload.path(OAuth2Constant.FIELD_NAME).asText(null) : null;
+            if (fullName == null && payload.has(OAuth2Constant.FIELD_GIVEN_NAME)) {
+                String given = payload.path(OAuth2Constant.FIELD_GIVEN_NAME).asText("");
+                String family = payload.path(OAuth2Constant.FIELD_FAMILY_NAME).asText("");
+                fullName = (given + " " + family).trim();
+            }
+            if (fullName == null || fullName.isBlank()) {
+                fullName = payload.has(OAuth2Constant.FIELD_PREFERRED_USERNAME) ? payload.path(OAuth2Constant.FIELD_PREFERRED_USERNAME).asText(null) : null;
+            }
+
             List<String> roles = extractRoles(payload);
 
             // =========================================================================
@@ -259,6 +270,7 @@ public class KeycloakTokenService {
                     .tokenType(tokenType != null ? tokenType : OAuth2Constant.TOKEN_TYPE_BEARER)
                     .userId(userId)
                     .email(email)
+                    .fullName(fullName)
                     .roles(roles)
                     .primaryRole(primaryRole)
                     .tenantCode(tenantCode)
@@ -598,6 +610,138 @@ public class KeycloakTokenService {
     }
 
     /**
+     * Checks if an organization with the given tenant code already exists in Keycloak (REQ-TNT-01).
+     *
+     * @param tenantCode unique tenant code
+     * @return {@code true} if organization exists in Keycloak, {@code false} otherwise
+     */
+    public boolean organizationExists(String tenantCode) {
+        if (tenantCode == null || tenantCode.isBlank()) {
+            return false;
+        }
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-")) {
+            return false;
+        }
+
+        try {
+            String orgsUrl = properties.adminOrganizationsEndpoint();
+            String searchUrl = orgsUrl + "?search=" + tenantCode.trim().toLowerCase();
+            String searchResponse = restClient.get()
+                    .uri(searchUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .body(String.class);
+
+            if (searchResponse != null && !searchResponse.isBlank()) {
+                JsonNode orgsList = objectMapper.readTree(searchResponse);
+                if (orgsList.isArray()) {
+                    for (JsonNode org : orgsList) {
+                        if (tenantCode.equalsIgnoreCase(org.path("name").asText(null)) ||
+                                tenantCode.equalsIgnoreCase(org.path("alias").asText(null))) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("Keycloak organization check failed for [{}]: {}", tenantCode, ex.getMessage());
+        }
+        return false;
+    }
+
+    /**
+     * Explicitly provisions a brand-new Keycloak Organization for a new tenant facility (REQ-TNT-01).
+     *
+     * @param tenantCode unique tenant code
+     * @param tenantName clinic display name
+     * @return Keycloak internal organization UUID
+     */
+    public String createOrganization(String tenantCode, String tenantName) {
+        return createOrganization(tenantCode, tenantName, true);
+    }
+
+    /**
+     * Explicitly provisions a brand new Organization in Keycloak (REQ-TNT-01, REQ-TNT-05).
+     *
+     * @param tenantCode unique tenant code
+     * @param tenantName clinic display name
+     * @param enabled    whether organization is immediately active or staged (e.g. pending approval)
+     * @return Keycloak internal organization UUID
+     */
+    public String createOrganization(String tenantCode, String tenantName, boolean enabled) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-")) {
+            log.debug("Mock environment: returning mock organization ID for [{}]", tenantCode);
+            return "mock-org-" + tenantCode;
+        }
+
+        String orgsUrl = properties.adminOrganizationsEndpoint();
+        var orgPayload = objectMapper.createObjectNode();
+        orgPayload.put("name", tenantCode);
+        orgPayload.put("alias", tenantCode);
+        orgPayload.put("description", tenantName != null && !tenantName.isBlank() ? tenantName : tenantCode);
+        orgPayload.put("enabled", enabled);
+
+        try {
+            var postResponse = restClient.post()
+                    .uri(orgsUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(objectMapper.writeValueAsString(orgPayload))
+                    .retrieve()
+                    .toBodilessEntity();
+
+            URI location = postResponse.getHeaders().getLocation();
+            if (location != null) {
+                String path = location.getPath();
+                return path.substring(path.lastIndexOf('/') + 1);
+            }
+
+            String searchUrl = orgsUrl + "?search=" + tenantCode;
+            String verifyResponse = restClient.get()
+                    .uri(searchUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .body(String.class);
+            if (verifyResponse != null && !verifyResponse.isBlank()) {
+                JsonNode list = objectMapper.readTree(verifyResponse);
+                if (list.isArray() && !list.isEmpty()) {
+                    return list.get(0).path("id").asText(null);
+                }
+            }
+            throw new IllegalStateException("Keycloak did not return an organization ID for [" + tenantCode + "]");
+        } catch (Exception ex) {
+            log.error("Failed to explicitly create Keycloak organization for tenant [{}]: {}", tenantCode, ex.getMessage());
+            throw new RuntimeException("Failed to create Keycloak organization for tenant [" + tenantCode + "]: " + ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * Deletes an organization in Keycloak during transaction rollback compensation (REQ-TNT-01).
+     *
+     * @param orgId Keycloak organization UUID
+     */
+    public void deleteOrganizationInKeycloak(String orgId) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-") || orgId == null || orgId.startsWith("mock-")) {
+            return;
+        }
+
+        try {
+            String orgUrl = properties.adminOrganizationsEndpoint() + "/" + orgId;
+            restClient.delete()
+                    .uri(orgUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .toBodilessEntity();
+            log.info("Successfully deleted organization [{}] from Keycloak during rollback compensation", orgId);
+        } catch (Exception ex) {
+            log.warn("Failed to delete organization [{}] from Keycloak: {}", orgId, ex.getMessage());
+        }
+    }
+
+    /**
      * Resolves or provisions a Keycloak Organization for a tenant facility.
      *
      * @param tenantCode unique tenant code
@@ -634,7 +778,8 @@ public class KeycloakTokenService {
 
             var orgPayload = objectMapper.createObjectNode();
             orgPayload.put("name", tenantCode);
-            orgPayload.put("displayName", tenantName != null && !tenantName.isBlank() ? tenantName : tenantCode);
+            orgPayload.put("alias", tenantCode);
+            orgPayload.put("description", tenantName != null && !tenantName.isBlank() ? tenantName : tenantCode);
             orgPayload.put("enabled", true);
 
             var postResponse = restClient.post()
@@ -670,6 +815,41 @@ public class KeycloakTokenService {
     }
 
     /**
+     * Checks if a user already exists in Keycloak with the given email (REQ-TNT-01).
+     *
+     * @param email user email to check
+     * @return {@code true} if user already exists in Keycloak, {@code false} otherwise
+     */
+    public boolean userExistsByEmail(String email) {
+        if (email == null || email.isBlank()) {
+            return false;
+        }
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-")) {
+            return false;
+        }
+
+        try {
+            String adminUsersUrl = properties.adminUsersEndpoint();
+            String normalizedEmail = email.trim().toLowerCase();
+            String searchUrl = adminUsersUrl + "?email=" + normalizedEmail + "&exact=true";
+            String searchResponse = restClient.get()
+                    .uri(searchUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .body(String.class);
+
+            if (searchResponse != null && !searchResponse.isBlank()) {
+                JsonNode usersList = objectMapper.readTree(searchResponse);
+                return usersList.isArray() && !usersList.isEmpty();
+            }
+        } catch (Exception ex) {
+            log.warn("Error querying Keycloak for user existence by email [{}]: {}", email, ex.getMessage());
+        }
+        return false;
+    }
+
+    /**
      * Provisions an encounter staff member in Keycloak:
      * 1. Creates user with tenant_code attribute.
      * 2. Sets temporary password if provided, or configures UPDATE_PASSWORD required action.
@@ -683,6 +863,21 @@ public class KeycloakTokenService {
      * @return Keycloak internal user ID
      */
     public String createStaffUser(String tenantCode, String email, String fullName, String password, StaffRole role) {
+        return createStaffUser(tenantCode, email, fullName, password, role, true);
+    }
+
+    /**
+     * Provisions a Keycloak staff user for a tenant organization (REQ-TNT-01, REQ-TNT-05).
+     *
+     * @param tenantCode clinic tenant code
+     * @param email      staff email address
+     * @param fullName   staff full name
+     * @param password   optional initial password
+     * @param role       functional staff role
+     * @param enabled    whether user account is immediately active or staged (e.g. pending approval)
+     * @return Keycloak internal user ID
+     */
+    public String createStaffUser(String tenantCode, String email, String fullName, String password, StaffRole role, boolean enabled) {
         if (role == StaffRole.SPECIALIST) {
             log.info("Role SPECIALIST is internal roster-only; skipping Keycloak user provisioning for [{}]", email);
             return null;
@@ -727,7 +922,7 @@ public class KeycloakTokenService {
                 userPayload.put(OAuth2Constant.FIELD_EMAIL, normalizedEmail);
                 userPayload.put(OAuth2Constant.FIELD_FIRST_NAME, firstName);
                 userPayload.put(OAuth2Constant.FIELD_LAST_NAME, lastName);
-                userPayload.put(OAuth2Constant.FIELD_ENABLED, true);
+                userPayload.put(OAuth2Constant.FIELD_ENABLED, enabled);
                 userPayload.put(OAuth2Constant.FIELD_EMAIL_VERIFIED, true);
 
                 var attributesNode = objectMapper.createObjectNode();
@@ -744,7 +939,19 @@ public class KeycloakTokenService {
                     cred.put("temporary", false);
                     credsArray.add(cred);
                     userPayload.set("credentials", credsArray);
+                } else if (hasOrganizationIdp(null, tenantCode)) {
+                    // When tenant uses an external Identity Provider (SSO), do NOT force UPDATE_PASSWORD
+                    log.info("Tenant [{}] has active external IdP; provisioning staff [{}] for SSO without forcing local password reset",
+                            tenantCode, normalizedEmail);
                 } else {
+                    var credsArray = objectMapper.createArrayNode();
+                    var cred = objectMapper.createObjectNode();
+                    cred.put("type", "password");
+                    cred.put("value", "Nextturn123!@#");
+                    cred.put("temporary", true);
+                    credsArray.add(cred);
+                    userPayload.set("credentials", credsArray);
+
                     var actionsArray = objectMapper.createArrayNode();
                     actionsArray.add("UPDATE_PASSWORD");
                     userPayload.set("requiredActions", actionsArray);
@@ -862,14 +1069,12 @@ public class KeycloakTokenService {
 
         try {
             String url = properties.adminOrganizationsEndpoint() + "/" + orgId + "/members";
-            var payload = objectMapper.createObjectNode();
-            payload.put("id", keycloakUserId);
 
             restClient.post()
                     .uri(url)
                     .header("Authorization", "Bearer " + adminToken)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(objectMapper.writeValueAsString(payload))
+                    .body(objectMapper.writeValueAsString(keycloakUserId))
                     .retrieve()
                     .toBodilessEntity();
 
@@ -877,6 +1082,133 @@ public class KeycloakTokenService {
         } catch (Exception ex) {
             log.warn("Could not add user [{}] to organization [{}]: {}", keycloakUserId, orgId, ex.getMessage());
         }
+    }
+
+    /**
+     * Updates organization enabled status in Keycloak (REQ-TNT-03).
+     *
+     * @param orgId   Keycloak organization UUID
+     * @param enabled true to enable, false to suspend/disable
+     */
+    public void updateOrganizationStatus(String orgId, boolean enabled) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-") || orgId == null || orgId.startsWith("mock-")) {
+            return;
+        }
+
+        try {
+            String url = properties.adminOrganizationsEndpoint() + "/" + orgId;
+            var payload = objectMapper.createObjectNode();
+            payload.put("enabled", enabled);
+
+            restClient.put()
+                    .uri(url)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(objectMapper.writeValueAsString(payload))
+                    .retrieve()
+                    .toBodilessEntity();
+
+            log.info("Updated Keycloak organization [{}] enabled status to [{}]", orgId, enabled);
+        } catch (Exception ex) {
+            log.warn("Failed to update organization [{}] status in Keycloak: {}", orgId, ex.getMessage());
+        }
+    }
+
+    /**
+     * Retrieves all member user IDs belonging to a Keycloak Organization (REQ-TNT-03).
+     *
+     * @param orgId Keycloak organization UUID
+     * @return list of member user IDs
+     */
+    public List<String> getOrganizationMemberUserIds(String orgId) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-") || orgId == null || orgId.startsWith("mock-")) {
+            return Collections.emptyList();
+        }
+
+        try {
+            String url = properties.adminOrganizationsEndpoint() + "/" + orgId + "/members";
+            String response = restClient.get()
+                    .uri(url)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .body(String.class);
+
+            if (response != null && !response.isBlank()) {
+                JsonNode list = objectMapper.readTree(response);
+                if (list.isArray()) {
+                    List<String> userIds = new ArrayList<>();
+                    for (JsonNode member : list) {
+                        String id = member.path("id").asText(null);
+                        if (id != null && !id.isBlank()) {
+                            userIds.add(id);
+                        }
+                    }
+                    return userIds;
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to fetch organization [{}] members from Keycloak: {}", orgId, ex.getMessage());
+        }
+        return Collections.emptyList();
+    }
+
+    /**
+     * Terminates all active SSO sessions and revokes refresh tokens for a user in Keycloak (REQ-TNT-03).
+     *
+     * @param keycloakUserId user UUID
+     */
+    public void logoutUserInKeycloak(String keycloakUserId) {
+        String adminToken = getServiceAccountToken();
+        if (adminToken == null || adminToken.startsWith("mock-") || keycloakUserId == null) {
+            return;
+        }
+
+        try {
+            String logoutUrl = properties.adminUsersEndpoint() + "/" + keycloakUserId + "/logout";
+            restClient.post()
+                    .uri(logoutUrl)
+                    .header("Authorization", "Bearer " + adminToken)
+                    .retrieve()
+                    .toBodilessEntity();
+            log.info("Successfully revoked Keycloak active sessions for user [{}]", keycloakUserId);
+        } catch (Exception ex) {
+            log.warn("Failed to revoke sessions for user [{}] in Keycloak: {}", keycloakUserId, ex.getMessage());
+        }
+    }
+
+    /**
+     * Suspends or reactivates an entire organization and all its affiliated staff in Keycloak (REQ-TNT-03).
+     * <p>
+     * When suspending (active = false):
+     * 1. Sets organization enabled = false.
+     * 2. Disables all member user accounts.
+     * 3. Revokes all active JWT sessions and refresh tokens.
+     * <p>
+     * When reactivating (active = true):
+     * 1. Sets organization enabled = true.
+     * 2. Re-enables all member user accounts.
+     *
+     * @param orgId  Keycloak organization UUID
+     * @param active true to activate, false to suspend
+     */
+    public void setOrganizationAndMembersActive(String orgId, boolean active) {
+        if (orgId == null || orgId.isBlank()) {
+            return;
+        }
+
+        updateOrganizationStatus(orgId, active);
+
+        List<String> memberUserIds = getOrganizationMemberUserIds(orgId);
+        for (String userId : memberUserIds) {
+            updateUserStatusInKeycloak(userId, active);
+            if (!active) {
+                logoutUserInKeycloak(userId);
+            }
+        }
+        log.info("Completed Keycloak organization [{}] status transition to active=[{}] ({} members affected)",
+                orgId, active, memberUserIds.size());
     }
 
     public void updateUserStatusInKeycloak(String keycloakUserId, boolean enabled) {
@@ -1100,6 +1432,17 @@ public class KeycloakTokenService {
         }
 
         return null;
+    }
+
+    public boolean hasOrganizationIdp(String orgId, String tenantCode) {
+        if (tenantCode == null || tenantCode.isBlank()) {
+            return false;
+        }
+        try {
+            return getOrganizationIdp(orgId, tenantCode.trim().toLowerCase()) != null;
+        } catch (Exception ex) {
+            return false;
+        }
     }
 
     public void removeOrganizationIdp(String orgId, String tenantCode) {

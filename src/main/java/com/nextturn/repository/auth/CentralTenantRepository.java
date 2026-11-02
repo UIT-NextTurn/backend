@@ -1,7 +1,12 @@
 package com.nextturn.repository.auth;
 
 import com.nextturn.entity.CentralTenant;
+import com.nextturn.enums.TenantStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
@@ -39,4 +44,29 @@ public interface CentralTenantRepository extends JpaRepository<CentralTenant, St
      * @return an Optional containing the matched {@link CentralTenant}, or empty if not found
      */
     Optional<CentralTenant> findByWidgetApiKeyAndIsDeletedFalse(String widgetApiKey);
+
+    /**
+     * Multi-criteria tenant search and filtering with pagination (REQ-TNT-04).
+     *
+     * @param keyword  optional search term matching tenantName, tenantCode, or adminEmail
+     * @param status   optional filter by lifecycle status
+     * @param pageable pagination parameters
+     * @return paged collection of matching central tenants
+     */
+    @Query("""
+        SELECT t FROM CentralTenant t
+        WHERE t.isDeleted = false
+          AND (:status IS NULL OR t.status = :status)
+          AND (
+              :keyword IS NULL OR :keyword = ''
+              OR LOWER(t.tenantName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+              OR LOWER(t.tenantCode) LIKE LOWER(CONCAT('%', :keyword, '%'))
+              OR LOWER(t.adminEmail) LIKE LOWER(CONCAT('%', :keyword, '%'))
+          )
+    """)
+    Page<CentralTenant> searchTenants(
+            @Param("keyword") String keyword,
+            @Param("status") TenantStatus status,
+            Pageable pageable
+    );
 }

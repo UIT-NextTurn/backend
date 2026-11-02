@@ -176,18 +176,35 @@ public class CustomerAuthService {
     /**
      * Checks if a candidate domain matches any registered whitelist entries (supports wildcards).
      */
-    public static boolean isDomainWhitelisted(String candidateDomain, List<CentralAllowedDomain> allowedDomains) {
+    public static boolean isDomainWhitelisted(String candidateDomain, List<?> allowedDomains) {
         if (candidateDomain == null || candidateDomain.isBlank() || allowedDomains == null || allowedDomains.isEmpty()) {
             return false;
         }
         String host = candidateDomain.trim().toLowerCase();
+        if (host.contains("://")) {
+            host = host.substring(host.indexOf("://") + 3);
+        }
+        if (host.contains("/")) {
+            host = host.substring(0, host.indexOf('/'));
+        }
         String hostWithoutPort = host.contains(":") ? host.substring(0, host.indexOf(':')) : host;
 
-        for (CentralAllowedDomain entry : allowedDomains) {
-            if (entry.getDomainName() == null) {
+        for (Object entry : allowedDomains) {
+            if (entry == null) {
                 continue;
             }
-            String allowed = entry.getDomainName().trim().toLowerCase();
+            String domainName;
+            if (entry instanceof CentralAllowedDomain cad) {
+                domainName = cad.getDomainName();
+            } else if (entry instanceof String str) {
+                domainName = str;
+            } else {
+                domainName = entry.toString();
+            }
+            if (domainName == null || domainName.isBlank()) {
+                continue;
+            }
+            String allowed = domainName.trim().toLowerCase();
             String allowedWithoutPort = allowed.contains(":") ? allowed.substring(0, allowed.indexOf(':')) : allowed;
 
             if ("*".equals(allowed)) {
@@ -197,9 +214,9 @@ public class CustomerAuthService {
                 return true;
             }
             // Check wildcard subdomain: *.example.com matches sub.example.com
-            if (allowed.startsWith("*.")) {
-                String baseDomain = allowed.substring(2);
-                if (hostWithoutPort.endsWith(baseDomain) && hostWithoutPort.length() > baseDomain.length()) {
+            if (allowedWithoutPort.startsWith("*.")) {
+                String baseDomain = allowedWithoutPort.substring(2);
+                if (hostWithoutPort.endsWith("." + baseDomain) && hostWithoutPort.length() > baseDomain.length() + 1) {
                     return true;
                 }
             }

@@ -17,6 +17,7 @@ import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
 import com.nextturn.repository.auth.CentralTenantRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,15 +49,27 @@ public class TenantAuthService {
     private final CentralTenantRepository centralTenantRepository;
     private final KeycloakAuthHelper keycloakAuthHelper;
     private final KeycloakTokenService keycloakTokenService;
+    private final TenantStaffService tenantStaffService;
+
+    @Autowired
+    public TenantAuthService(
+            CentralTenantRepository centralTenantRepository,
+            KeycloakAuthHelper keycloakAuthHelper,
+            KeycloakTokenService keycloakTokenService,
+            @Autowired(required = false) TenantStaffService tenantStaffService
+    ) {
+        this.centralTenantRepository = centralTenantRepository;
+        this.keycloakAuthHelper = keycloakAuthHelper;
+        this.keycloakTokenService = keycloakTokenService;
+        this.tenantStaffService = tenantStaffService;
+    }
 
     public TenantAuthService(
             CentralTenantRepository centralTenantRepository,
             KeycloakAuthHelper keycloakAuthHelper,
             KeycloakTokenService keycloakTokenService
     ) {
-        this.centralTenantRepository = centralTenantRepository;
-        this.keycloakAuthHelper = keycloakAuthHelper;
-        this.keycloakTokenService = keycloakTokenService;
+        this(centralTenantRepository, keycloakAuthHelper, keycloakTokenService, null);
     }
 
     /**
@@ -150,6 +163,21 @@ public class TenantAuthService {
 
         AuthTokenResponse response = keycloakTokenService.exchangeAuthorizationCode(request.getCode().trim(), redirectUri);
         validateTenantAffiliationIfPresent(response);
+
+        if (tenantStaffService != null && response.getTenantCode() != null && !response.getTenantCode().isBlank()) {
+            try {
+                tenantStaffService.syncOrProvisionStaffOnLogin(
+                        response.getTenantCode(),
+                        response.getUserId(),
+                        response.getEmail(),
+                        response.getFullName(),
+                        response.getRoles()
+                );
+            } catch (Exception ex) {
+                log.warn("Non-fatal: Failed to sync staff profile on login for [{}]: {}", response.getEmail(), ex.getMessage());
+            }
+        }
+
         return response;
     }
 

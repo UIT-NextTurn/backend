@@ -100,10 +100,10 @@ INSERT INTO `tenant__staffs` (
 ) VALUES
 (
     '018f0000-0000-7000-8000-000000000301',
-    'STAFF_ADMIN_01',
+    'STAFF-0001',
     NULL,
-    'Quản trị viên Chi nhánh',
-    'admin@facility.internal',
+    'Admin Shop B',
+    'admin@shop-b.com',
     '0901000001',
     'ADMIN',
     'ACTIVE',
@@ -113,10 +113,10 @@ INSERT INTO `tenant__staffs` (
 ),
 (
     '018f0000-0000-7000-8000-000000000302',
-    'STAFF_COUNTER_01',
+    'STAFF-0002',
     NULL,
-    'Nhân viên Tiếp đón 01',
-    'counter01@facility.internal',
+    'Counter Shop B',
+    'counter@shop-b.com',
     '0901000002',
     'COUNTER',
     'ACTIVE',

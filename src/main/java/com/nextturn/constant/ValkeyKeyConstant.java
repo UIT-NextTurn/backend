@@ -62,4 +62,49 @@ public final class ValkeyKeyConstant {
     public static String otpDailyKey(String contact) {
         return OTP_DAILY_PREFIX + (contact != null ? contact.trim().toLowerCase() : "");
     }
+
+    /**
+     * Key prefix for tenant configuration and operational quotas (REQ-TNT-02).
+     */
+    public static final String TENANT_CONFIG_PREFIX = "nextturn:tenant:config:";
+
+    /**
+     * Key prefix for tenant daily tickets telemetry count (REQ-TNT-04).
+     */
+    public static final String TENANT_TODAY_TICKETS_PREFIX = "nextturn:tenant:telemetry:tickets:";
+
+    /**
+     * Key prefix for tenant active staff count telemetry (REQ-TNT-04).
+     */
+    public static final String TENANT_ACTIVE_STAFF_PREFIX = "nextturn:tenant:telemetry:staff:";
+
+    /**
+     * Formats the Redis key for caching tenant configuration and operational quota limits.
+     *
+     * @param tenantIdentifier tenant ID or tenant code
+     * @return cache key
+     */
+    public static String tenantConfigKey(String tenantIdentifier) {
+        return TENANT_CONFIG_PREFIX + (tenantIdentifier != null ? tenantIdentifier.trim().toLowerCase() : "");
+    }
+
+    /**
+     * Formats the Redis key for caching a tenant's ticket count today (REQ-TNT-04).
+     *
+     * @param tenantCode tenant code
+     * @return cache key
+     */
+    public static String tenantTodayTicketsKey(String tenantCode) {
+        return TENANT_TODAY_TICKETS_PREFIX + (tenantCode != null ? tenantCode.trim().toLowerCase() : "");
+    }
+
+    /**
+     * Formats the Redis key for caching a tenant's active staff count (REQ-TNT-04).
+     *
+     * @param tenantCode tenant code
+     * @return cache key
+     */
+    public static String tenantActiveStaffKey(String tenantCode) {
+        return TENANT_ACTIVE_STAFF_PREFIX + (tenantCode != null ? tenantCode.trim().toLowerCase() : "");
+    }
 }

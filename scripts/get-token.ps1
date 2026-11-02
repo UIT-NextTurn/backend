@@ -99,17 +99,19 @@ if (-not $TenantCode -and $Username) {
 switch -Regex ($normalizedRole) {
     "^(admin|tenant_admin)$" {
         $targetRole = "TENANT_ADMIN"
-        $defaultUser = "admin@$TenantCode.internal"
+        $effectiveTenant = if ($TenantCode) { $TenantCode } else { "shop-b" }
+        $defaultUser = "admin-$effectiveTenant"
         $scope = "openid"
     }
     "^(counter|counter_staff)$" {
         $targetRole = "COUNTER_STAFF"
-        $defaultUser = "counter01@$TenantCode.internal"
+        $effectiveTenant = if ($TenantCode) { $TenantCode } else { "shop-b" }
+        $defaultUser = "counter-$effectiveTenant"
         $scope = "openid"
     }
     "^superadmin$" {
         $targetRole = "SUPERADMIN"
-        $defaultUser = "superadmin@nextturn.com"
+        $defaultUser = "superadmin"
         $TenantCode = ""
         $scope = "openid"
     }

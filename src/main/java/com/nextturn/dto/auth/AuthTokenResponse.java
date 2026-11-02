@@ -45,6 +45,9 @@ public class AuthTokenResponse {
     @Schema(description = "Authenticated user email", example = "admin@clinic.vn")
     private String email;
 
+    @Schema(description = "Full legal name or display name of the authenticated user", example = "Dr. Nguyen Van A")
+    private String fullName;
+
     @Schema(description = "List of verified application client roles (SUPERADMIN, TENANT_ADMIN, COUNTER_STAFF, END_USER)")
     private List<String> roles;
 

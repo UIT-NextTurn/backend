@@ -18,7 +18,7 @@ import lombok.NoArgsConstructor;
 public class TenantAuthRequest {
 
     @NotBlank(message = "Tenant code is required")
-    @Size(min = 2, max = 50, message = "Tenant code must be between 2 and 50 characters")
-    @Pattern(regexp = "^[a-zA-Z0-9_-]+$", message = "Tenant code must contain only letters, numbers, hyphens, or underscores")
+    @Size(min = 3, max = 30, message = "Tenant code must be between 3 and 30 characters")
+    @Pattern(regexp = "^[a-z0-9-]+$", message = "Tenant code must contain only lowercase letters, numbers, and hyphens")
     private String tenantCode;
 }
