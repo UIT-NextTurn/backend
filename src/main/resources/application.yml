@@ -7,6 +7,13 @@ server:
 spring:
   application:
     name: nextturn-backend
+  threads:
+    virtual:
+      enabled: ${SPRING_THREADS_VIRTUAL_ENABLED:true}
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
 
   # -------------------------------------------------------------------
   # MySQL DataSource Configuration
@@ -22,7 +29,7 @@ spring:
   # -------------------------------------------------------------------
   jpa:
     hibernate:
-      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:none}
     show-sql: ${SPRING_JPA_SHOW_SQL:true}
     properties:
       hibernate:
@@ -43,6 +50,53 @@ spring:
     locations: ${SPRING_FLYWAY_LOCATIONS:classpath:db/migration/central}
     baseline-on-migrate: true
 
+  # -------------------------------------------------------------------
+  # SMTP Mail Sender Configuration
+  # -------------------------------------------------------------------
+  mail:
+    host: ${SPRING_MAIL_HOST:localhost}
+    port: ${SPRING_MAIL_PORT:587}
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH:true}
+          starttls:
+            enable: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE:true}
+
+  # -------------------------------------------------------------------
+  # Keycloak OAuth2 Resource Server & JWT Configuration
+  # -------------------------------------------------------------------
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://ryan-a1:8180/realms/nextturn}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://ryan-a1:8180/realms/nextturn/protocol/openid-connect/certs}
+
+# -------------------------------------------------------------------
+# Keycloak Client Configuration
+# -------------------------------------------------------------------
+keycloak:
+  client-id: ${KEYCLOAK_CLIENT_ID:nextturn-backend}
+  client-secret: ${KEYCLOAK_CLIENT_SECRET:DRR4GTeG8CiVL21NRKwZ7ZndJIqmhxRQl9hPXYb8QaMSIuHSx1BvkEzD44dvcPTLwbsBBNM7XgracB44B2dOS7}
+  realm: ${KEYCLOAK_REALM:nextturn}
+  auth-server-url: ${KEYCLOAK_AUTH_SERVER_URL:http://ryan-a1:8180}
+  issuer-uri: ${KEYCLOAK_ISSUER_URI:http://ryan-a1:8180/realms/nextturn}
+  jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://ryan-a1:8180/realms/nextturn/protocol/openid-connect/certs}
+
+# -------------------------------------------------------------------
+# Application Authentication & Frontend Redirect Configuration
+# -------------------------------------------------------------------
+app:
+  mail:
+    from: ${APP_MAIL_FROM:${SPRING_MAIL_FROM:no-reply@nextturn.com}}
+    from-name: ${APP_MAIL_FROM_NAME:NextTurn}
+  auth:
+    default-redirect-uri: ${AUTH_DEFAULT_REDIRECT_URI:${APP_AUTH_DEFAULT_REDIRECT_URI:http://localhost:3000/auth/callback}}
+
+
 # -------------------------------------------------------------------
 # Valkey Cache & Queue Store Configuration
 # -------------------------------------------------------------------
@@ -50,4 +104,15 @@ valkey:
   host: ${VALKEY_HOST:localhost}
   port: ${VALKEY_PORT:6379}
   password: ${VALKEY_PASSWORD:}
+
+# -------------------------------------------------------------------
+# CORS Cross-Origin Resource Sharing Configuration
+# -------------------------------------------------------------------
+cors:
+  allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173}
+  allowed-headers: ${CORS_ALLOWED_HEADERS:Origin,Content-Type,Accept,Authorization,X-Requested-With}
+  allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,PATCH,DELETE,OPTIONS}
+  max-age: ${CORS_MAX_AGE_SECONDS:3600}
+  allow-credentials: ${CORS_ALLOW_CREDENTIALS:true}
+
 
