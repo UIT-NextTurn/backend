@@ -17,6 +17,8 @@ public interface TenantStaffRepository extends JpaRepository<TenantStaff, String
 
     Optional<TenantStaff> findByIdAndIsDeletedFalse(String id);
 
+    Optional<TenantStaff> findByKeycloakUserIdAndIsDeletedFalse(String keycloakUserId);
+
     Optional<TenantStaff> findByEmailAndIsDeletedFalse(String email);
 
     Optional<TenantStaff> findByStaffCodeAndIsDeletedFalse(String staffCode);

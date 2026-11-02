@@ -7,6 +7,7 @@ import com.nextturn.entity.CentralTenant;
 import com.nextturn.entity.TenantStaff;
 import com.nextturn.enums.StaffRole;
 import com.nextturn.enums.StaffStatus;
+import com.nextturn.enums.UserRole;
 import com.nextturn.exception.admin.AdminErrorCode;
 import com.nextturn.exception.admin.AdminException;
 import com.nextturn.exception.tenant.TenantErrorCode;
@@ -26,6 +27,8 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.security.SecureRandom;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -344,6 +347,108 @@ public class TenantStaffService {
         }
 
         log.info("Soft-deleted staff member [{}] in tenant [{}]", staff.getEmail(), tenantCode);
+    }
+
+    /**
+     * Synchronizes existing staff profile with claims from Keycloak/IdP upon login,
+     * or Just-In-Time (JIT) provisions a new staff record in the tenant database if the user
+     * authenticated via enterprise SSO and is an organization member.
+     *
+     * @param tenantCode the verified tenant code
+     * @param keycloakUserId Keycloak sub UUID
+     * @param email authenticated email address
+     * @param fullName full name claim from IdP / token
+     * @param roles client roles claim from token
+     * @return updated or newly provisioned {@link TenantStaff}
+     */
+    public TenantStaff syncOrProvisionStaffOnLogin(
+            String tenantCode,
+            String keycloakUserId,
+            String email,
+            String fullName,
+            List<String> roles
+    ) {
+        if (tenantCode == null || tenantCode.isBlank()) {
+            return null;
+        }
+
+        String previousTenant = TenantContextHolder.getTenantCode();
+        try {
+            TenantContextHolder.setTenantCode(tenantCode.trim().toLowerCase());
+
+            // 1. Look up existing staff by Keycloak user ID or email
+            Optional<TenantStaff> existing = Optional.empty();
+            if (keycloakUserId != null && !keycloakUserId.isBlank()) {
+                existing = staffRepository.findByKeycloakUserIdAndIsDeletedFalse(keycloakUserId.trim());
+            }
+            if (existing.isEmpty() && email != null && !email.isBlank()) {
+                existing = staffRepository.findByEmailAndIsDeletedFalse(email.trim().toLowerCase());
+            }
+
+            if (existing.isPresent()) {
+                TenantStaff staff = existing.get();
+                boolean changed = false;
+
+                if (keycloakUserId != null && !keycloakUserId.isBlank() && !keycloakUserId.equals(staff.getKeycloakUserId())) {
+                    staff.setKeycloakUserId(keycloakUserId.trim());
+                    changed = true;
+                }
+                if (fullName != null && !fullName.isBlank() && !fullName.trim().equals(staff.getFullName())) {
+                    staff.setFullName(fullName.trim());
+                    changed = true;
+                }
+                if (email != null && !email.isBlank() && !email.trim().equalsIgnoreCase(staff.getEmail())) {
+                    staff.setEmail(email.trim().toLowerCase());
+                    changed = true;
+                }
+
+                // Sync role if token claim has elevated privileges
+                if (roles != null && !roles.isEmpty()) {
+                    if (roles.contains(UserRole.TENANT_ADMIN_VALUE) && staff.getRole() != StaffRole.ADMIN) {
+                        staff.setRole(StaffRole.ADMIN);
+                        changed = true;
+                    } else if (roles.contains(UserRole.COUNTER_STAFF_VALUE) && staff.getRole() == StaffRole.SPECIALIST) {
+                        staff.setRole(StaffRole.COUNTER);
+                        changed = true;
+                    }
+                }
+
+                if (changed) {
+                    TenantStaff updated = executeInTransaction(status -> staffRepository.save(staff));
+                    log.info("Synchronized staff profile for [{}] in tenant [{}]", staff.getEmail(), tenantCode);
+                    return updated;
+                }
+                return staff;
+            }
+
+            // 2. Just-In-Time (JIT) Provisioning for new SSO users
+            String staffCode = generateUniqueStaffCode();
+            StaffRole assignedRole = (roles != null && roles.contains(UserRole.TENANT_ADMIN_VALUE))
+                    ? StaffRole.ADMIN
+                    : StaffRole.COUNTER;
+
+            String cleanName = (fullName != null && !fullName.isBlank()) ? fullName.trim() : (email != null ? email.trim() : "Staff Member");
+            String cleanEmail = email != null ? email.trim().toLowerCase() : (keycloakUserId + "@tenant.internal");
+
+            TenantStaff newStaff = TenantStaff.builder()
+                    .id(UUID.randomUUID().toString())
+                    .staffCode(staffCode)
+                    .keycloakUserId(keycloakUserId)
+                    .fullName(cleanName)
+                    .email(cleanEmail)
+                    .phoneNumber("0000000000") // default placeholder for SSO JIT onboarding
+                    .role(assignedRole)
+                    .status(StaffStatus.ACTIVE)
+                    .isDeleted(false)
+                    .build();
+
+            TenantStaff saved = executeInTransaction(status -> staffRepository.save(newStaff));
+            log.info("JIT provisioned new staff member [{}] (badge: [{}], role: [{}]) for tenant [{}] via SSO",
+                    cleanEmail, staffCode, assignedRole, tenantCode);
+            return saved;
+        } finally {
+            TenantContextHolder.setTenantCode(previousTenant);
+        }
     }
 
     private String resolveCurrentTenantCode() {
