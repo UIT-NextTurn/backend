@@ -100,7 +100,7 @@ INSERT INTO `tenant__staffs` (
 ) VALUES
 (
     '018f0000-0000-7000-8000-000000000301',
-    'STAFF_ADMIN_01',
+    'STAFF-0001',
     NULL,
     'Admin Shop B',
     'admin@shop-b.com',
@@ -113,7 +113,7 @@ INSERT INTO `tenant__staffs` (
 ),
 (
     '018f0000-0000-7000-8000-000000000302',
-    'STAFF_COUNTER_01',
+    'STAFF-0002',
     NULL,
     'Counter Shop B',
     'counter@shop-b.com',

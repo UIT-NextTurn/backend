@@ -1,5 +1,6 @@
 package com.nextturn.service.auth;
 
+import com.nextturn.constant.StaffConstant;
 import com.nextturn.dto.auth.CreateStaffRequest;
 import com.nextturn.dto.auth.StaffResponse;
 import com.nextturn.dto.auth.UpdateStaffRequest;
@@ -466,11 +467,11 @@ public class TenantStaffService {
 
     private String generateUniqueStaffCode() {
         for (int i = 0; i < 10; i++) {
-            String code = "STF-" + String.format("%06d", RANDOM.nextInt(1_000_000));
+            String code = StaffConstant.STAFF_CODE_PREFIX + String.format("%06d", RANDOM.nextInt(1_000_000));
             if (!staffRepository.existsByStaffCodeAndIsDeletedFalse(code)) {
                 return code;
             }
         }
-        return "STF-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+        return StaffConstant.STAFF_CODE_PREFIX + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
     }
 }

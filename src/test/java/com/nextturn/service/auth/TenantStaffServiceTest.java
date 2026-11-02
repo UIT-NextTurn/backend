@@ -102,7 +102,7 @@ class TenantStaffServiceTest {
         assertThat(response.getRole()).isEqualTo(StaffRole.COUNTER);
         assertThat(response.getStatus()).isEqualTo(StaffStatus.ACTIVE);
         assertThat(response.getKeycloakUserId()).isEqualTo("kc-user-uuid-999");
-        assertThat(response.getStaffCode()).startsWith("STF-");
+        assertThat(response.getStaffCode()).startsWith("STAFF-");
 
         verify(keycloakTokenService).addMemberToOrganization(ORG_ID, "kc-user-uuid-999");
         verify(staffRepository).save(any(TenantStaff.class));
@@ -169,7 +169,7 @@ class TenantStaffServiceTest {
     void shouldGetStaffList() {
         TenantStaff staff = TenantStaff.builder()
                 .id("staff-1")
-                .staffCode("STF-000001")
+                .staffCode("STAFF-000001")
                 .fullName("Nurse B")
                 .email("nurse.b@clinic.vn")
                 .phoneNumber("+84901234568")
@@ -191,7 +191,7 @@ class TenantStaffServiceTest {
     void shouldUpdateStaffAndSyncKeycloakStatus() {
         TenantStaff staff = TenantStaff.builder()
                 .id("staff-1")
-                .staffCode("STF-000001")
+                .staffCode("STAFF-000001")
                 .keycloakUserId("kc-user-uuid-1")
                 .fullName("Nurse B")
                 .email("nurse.b@clinic.vn")
@@ -270,7 +270,7 @@ class TenantStaffServiceTest {
     void shouldProvisionKeycloakWhenSpecialistPromotedToCounter() {
         TenantStaff staff = TenantStaff.builder()
                 .id("specialist-1")
-                .staffCode("STF-000009")
+                .staffCode("STAFF-000009")
                 .keycloakUserId(null)
                 .fullName("Dr. Promotee")
                 .email("promotee@clinic.vn")
@@ -301,7 +301,7 @@ class TenantStaffServiceTest {
     void shouldRemoveKeycloakWhenCounterReassignedToSpecialist() {
         TenantStaff staff = TenantStaff.builder()
                 .id("counter-1")
-                .staffCode("STF-000008")
+                .staffCode("STAFF-000008")
                 .keycloakUserId("kc-counter-uuid")
                 .fullName("Counter Staff A")
                 .email("counter.a@clinic.vn")
@@ -330,7 +330,7 @@ class TenantStaffServiceTest {
     void shouldCompensateKeycloakStatusWhenUpdateStaffFails() {
         TenantStaff staff = TenantStaff.builder()
                 .id("counter-active-1")
-                .staffCode("STF-000007")
+                .staffCode("STAFF-000007")
                 .keycloakUserId("kc-active-user-uuid")
                 .fullName("Active Staff")
                 .email("activestaff@clinic.vn")
@@ -360,7 +360,7 @@ class TenantStaffServiceTest {
     void shouldCompensateNewKeycloakUserWhenPromotionFailsOnDb() {
         TenantStaff staff = TenantStaff.builder()
                 .id("spec-to-promote")
-                .staffCode("STF-000006")
+                .staffCode("STAFF-000006")
                 .keycloakUserId(null)
                 .fullName("Dr. Promoted Error")
                 .email("promoted.error@clinic.vn")
@@ -391,7 +391,7 @@ class TenantStaffServiceTest {
     void shouldSyncExistingStaffProfileOnLogin() {
         TenantStaff staff = TenantStaff.builder()
                 .id("staff-uuid-001")
-                .staffCode("STF-111111")
+                .staffCode("STAFF-111111")
                 .keycloakUserId("kc-old-uuid")
                 .fullName("Old Name")
                 .email("doctor.a@clinic.vn")
@@ -440,6 +440,6 @@ class TenantStaffServiceTest {
         assertThat(result.getKeycloakUserId()).isEqualTo("kc-sso-uuid");
         assertThat(result.getRole()).isEqualTo(StaffRole.COUNTER);
         assertThat(result.getStatus()).isEqualTo(StaffStatus.ACTIVE);
-        assertThat(result.getStaffCode()).startsWith("STF-");
+        assertThat(result.getStaffCode()).startsWith("STAFF-");
     }
 }

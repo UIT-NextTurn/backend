@@ -1,5 +1,6 @@
 package com.nextturn.service.tenant;
 
+import com.nextturn.constant.StaffConstant;
 import com.nextturn.exception.tenant.TenantErrorCode;
 import com.nextturn.exception.tenant.TenantException;
 import org.flywaydb.core.Flyway;
@@ -218,7 +219,7 @@ public class TenantDatabaseProvisioningService {
             }
             try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
                 ps.setString(1, UUID.randomUUID().toString());
-                ps.setString(2, "STAFF_ADMIN_01");
+                ps.setString(2, StaffConstant.INITIAL_ADMIN_STAFF_CODE);
                 ps.setString(3, keycloakUserId);
                 ps.setString(4, (adminFullName != null && !adminFullName.isBlank()) ? adminFullName.trim() : "Admin " + schemaName);
                 ps.setString(5, adminEmail.trim().toLowerCase());
