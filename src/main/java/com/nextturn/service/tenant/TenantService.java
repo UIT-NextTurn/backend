@@ -103,6 +103,7 @@ public class TenantService {
 
         this.tenantCacheService = new TenantCacheService(redisTemplate, objectMapper);
         this.tenantTelemetryService = new TenantTelemetryService(this.tenantCacheService, staffRepository, dataSource);
+        TenantDatabaseProvisioningService dbProvService = dataSource != null ? new TenantDatabaseProvisioningService(dataSource) : null;
         this.tenantProvisioningService = new TenantProvisioningService(
                 centralTenantRepository,
                 quotaRepository,
@@ -110,6 +111,7 @@ public class TenantService {
                 keycloakProperties,
                 emailService,
                 this.tenantCacheService,
+                dbProvService,
                 transactionTemplate
         );
         this.tenantLifecycleService = new TenantLifecycleService(
@@ -120,6 +122,7 @@ public class TenantService {
                 emailService,
                 this.tenantTelemetryService,
                 this.tenantCacheService,
+                dbProvService,
                 transactionTemplate
         );
     }

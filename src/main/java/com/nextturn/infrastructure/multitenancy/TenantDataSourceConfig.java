@@ -1,5 +1,6 @@
 package com.nextturn.infrastructure.multitenancy;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
@@ -19,12 +20,16 @@ import java.util.Map;
 @ConditionalOnClass(DataSource.class)
 public class TenantDataSourceConfig {
 
+    @Bean(name = "masterDataSource")
+    @ConditionalOnMissingBean(name = "masterDataSource")
+    public DataSource masterDataSource(DataSourceProperties properties) {
+        return properties.initializeDataSourceBuilder().build();
+    }
+
     @Bean
     @Primary
     @ConditionalOnMissingBean(name = "dataSource")
-    public DataSource dataSource(DataSourceProperties properties) {
-        DataSource masterDataSource = properties.initializeDataSourceBuilder().build();
-
+    public DataSource dataSource(@Qualifier("masterDataSource") DataSource masterDataSource) {
         TenantRoutingDataSource routingDataSource = new TenantRoutingDataSource();
         routingDataSource.setDefaultTargetDataSource(masterDataSource);
 
@@ -36,3 +41,4 @@ public class TenantDataSourceConfig {
         return routingDataSource;
     }
 }
+

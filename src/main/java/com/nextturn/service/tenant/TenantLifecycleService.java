@@ -37,6 +37,7 @@ public class TenantLifecycleService {
     private final EmailService emailService;
     private final TenantTelemetryService telemetryService;
     private final TenantCacheService cacheService;
+    private final TenantDatabaseProvisioningService databaseProvisioningService;
     private final TransactionTemplate transactionTemplate;
 
     @Autowired
@@ -48,6 +49,7 @@ public class TenantLifecycleService {
             EmailService emailService,
             TenantTelemetryService telemetryService,
             TenantCacheService cacheService,
+            @Autowired(required = false) TenantDatabaseProvisioningService databaseProvisioningService,
             @Autowired(required = false) TransactionTemplate transactionTemplate
     ) {
         this.centralTenantRepository = centralTenantRepository;
@@ -57,7 +59,21 @@ public class TenantLifecycleService {
         this.emailService = emailService;
         this.telemetryService = telemetryService;
         this.cacheService = cacheService;
+        this.databaseProvisioningService = databaseProvisioningService;
         this.transactionTemplate = transactionTemplate;
+    }
+
+    public TenantLifecycleService(
+            CentralTenantRepository centralTenantRepository,
+            CentralTenantQuotaRepository quotaRepository,
+            KeycloakTokenService keycloakTokenService,
+            KeycloakProperties keycloakProperties,
+            EmailService emailService,
+            TenantTelemetryService telemetryService,
+            TenantCacheService cacheService,
+            TransactionTemplate transactionTemplate
+    ) {
+        this(centralTenantRepository, quotaRepository, keycloakTokenService, keycloakProperties, emailService, telemetryService, cacheService, null, transactionTemplate);
     }
 
     /**
@@ -202,6 +218,22 @@ public class TenantLifecycleService {
                         TenantErrorCode.AUTH_SERVICE_SYNC_FAILED,
                         "Kích hoạt tổ chức trên Keycloak thất bại: " + kcEx.getMessage()
                 );
+            }
+        }
+
+        // Provision isolated database schema and default admin staff upon approval (REQ-TNT-06)
+        if (databaseProvisioningService != null) {
+            try {
+                databaseProvisioningService.provisionTenantDatabase(
+                        savedTenant.getTenantCode(),
+                        savedTenant.getAdminEmail(),
+                        "Admin " + savedTenant.getTenantName(),
+                        savedTenant.getPhoneNumber(),
+                        null
+                );
+            } catch (Exception dbEx) {
+                log.error("Failed to provision tenant database during approval for [{}]: {}", savedTenant.getTenantCode(), dbEx.getMessage(), dbEx);
+                // Non-fatal or throw: log error but do not break if already exists
             }
         }
 

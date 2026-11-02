@@ -41,6 +41,7 @@ public class TenantProvisioningService {
     private final KeycloakProperties keycloakProperties;
     private final EmailService emailService;
     private final TenantCacheService cacheService;
+    private final TenantDatabaseProvisioningService databaseProvisioningService;
     private final TransactionTemplate transactionTemplate;
 
     @Autowired
@@ -51,6 +52,7 @@ public class TenantProvisioningService {
             KeycloakProperties keycloakProperties,
             EmailService emailService,
             TenantCacheService cacheService,
+            @Autowired(required = false) TenantDatabaseProvisioningService databaseProvisioningService,
             @Autowired(required = false) TransactionTemplate transactionTemplate
     ) {
         this.centralTenantRepository = centralTenantRepository;
@@ -59,7 +61,20 @@ public class TenantProvisioningService {
         this.keycloakProperties = keycloakProperties;
         this.emailService = emailService;
         this.cacheService = cacheService;
+        this.databaseProvisioningService = databaseProvisioningService;
         this.transactionTemplate = transactionTemplate;
+    }
+
+    public TenantProvisioningService(
+            CentralTenantRepository centralTenantRepository,
+            CentralTenantQuotaRepository quotaRepository,
+            KeycloakTokenService keycloakTokenService,
+            KeycloakProperties keycloakProperties,
+            EmailService emailService,
+            TenantCacheService cacheService,
+            TransactionTemplate transactionTemplate
+    ) {
+        this(centralTenantRepository, quotaRepository, keycloakTokenService, keycloakProperties, emailService, cacheService, null, transactionTemplate);
     }
 
     /**
@@ -233,7 +248,63 @@ public class TenantProvisioningService {
             );
         }
 
-        // 7. Send automated activation email to facility administrator
+        // 7. Provision dedicated tenant database schema and seed initial administrator
+        if (databaseProvisioningService != null) {
+            try {
+                String adminFullName = request.getAdminFullName() != null && !request.getAdminFullName().isBlank()
+                        ? request.getAdminFullName().trim()
+                        : "Admin " + tenantName;
+                databaseProvisioningService.provisionTenantDatabase(
+                        normalizedCode,
+                        normalizedEmail,
+                        adminFullName,
+                        cleanPhone,
+                        keycloakAdminId
+                );
+            } catch (Exception dbSchemaEx) {
+                log.error("Tenant database schema provisioning failed for [{}]. Initiating compensating rollback: {}",
+                        normalizedCode, dbSchemaEx.getMessage(), dbSchemaEx);
+
+                // Compensation: drop tenant schema, cleanup Keycloak, rollback central records
+                try {
+                    databaseProvisioningService.dropTenantDatabase(normalizedCode);
+                } catch (Exception cleanDbEx) {
+                    log.warn("Failed to drop partially created tenant database [{}]: {}", normalizedCode, cleanDbEx.getMessage());
+                }
+
+                if (orgId != null) {
+                    if (keycloakAdminId != null) {
+                        try {
+                            keycloakTokenService.deleteStaffUserInKeycloak(orgId, keycloakAdminId);
+                        } catch (Exception kcCleanEx) {
+                            log.warn("Failed to delete orphaned Keycloak user [{}] during rollback: {}", keycloakAdminId, kcCleanEx.getMessage());
+                        }
+                    }
+                    try {
+                        keycloakTokenService.deleteOrganizationInKeycloak(orgId);
+                    } catch (Exception orgCleanEx) {
+                        log.warn("Failed to delete orphaned Keycloak organization [{}] during rollback: {}", orgId, orgCleanEx.getMessage());
+                    }
+                }
+
+                final String targetTenantId = savedTenant.getId();
+                executeInTransaction(status -> {
+                    quotaRepository.deleteByTenantId(targetTenantId);
+                    centralTenantRepository.deleteById(targetTenantId);
+                    return null;
+                });
+
+                if (dbSchemaEx instanceof TenantException te) {
+                    throw te;
+                }
+                throw new TenantException(
+                        TenantErrorCode.TENANT_SCHEMA_MIGRATION_FAILED,
+                        "Khởi tạo cơ sở dữ liệu cho chi nhánh thất bại: " + dbSchemaEx.getMessage()
+                );
+            }
+        }
+
+        // 8. Send automated activation email to facility administrator
         String activationLink = resolveActivationLink(normalizedCode, normalizedEmail);
         try {
             emailService.sendTenantAdminActivationEmail(normalizedEmail, tenantName, activationLink);
@@ -247,7 +318,7 @@ public class TenantProvisioningService {
         TenantQuotaResponse quotaResponse = TenantQuotaResponse.fromEntity(savedQuota, 1L);
         TenantResponse response = TenantResponse.fromEntity(savedTenant, quotaResponse);
 
-        // 8. Warm cache in Valkey
+        // 9. Warm cache in Valkey
         cacheService.cacheTenantConfig(response);
 
         return response;
