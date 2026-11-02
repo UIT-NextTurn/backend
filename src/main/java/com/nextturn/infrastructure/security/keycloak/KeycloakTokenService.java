@@ -668,7 +668,8 @@ public class KeycloakTokenService {
         String orgsUrl = properties.adminOrganizationsEndpoint();
         var orgPayload = objectMapper.createObjectNode();
         orgPayload.put("name", tenantCode);
-        orgPayload.put("displayName", tenantName != null && !tenantName.isBlank() ? tenantName : tenantCode);
+        orgPayload.put("alias", tenantCode);
+        orgPayload.put("description", tenantName != null && !tenantName.isBlank() ? tenantName : tenantCode);
         orgPayload.put("enabled", enabled);
 
         try {
@@ -766,7 +767,8 @@ public class KeycloakTokenService {
 
             var orgPayload = objectMapper.createObjectNode();
             orgPayload.put("name", tenantCode);
-            orgPayload.put("displayName", tenantName != null && !tenantName.isBlank() ? tenantName : tenantCode);
+            orgPayload.put("alias", tenantCode);
+            orgPayload.put("description", tenantName != null && !tenantName.isBlank() ? tenantName : tenantCode);
             orgPayload.put("enabled", true);
 
             var postResponse = restClient.post()
