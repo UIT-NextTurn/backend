@@ -194,11 +194,11 @@ public class TenantManagementController {
     @RequireSuperAdmin
     @Operation(
             summary = "Tạm ngừng tổ chức (REQ-TNT-03)",
-            description = "Chuyển trạng thái sang SUSPENDED, tạm khóa toàn bộ tài khoản nhân sự và thu hồi phiên đăng nhập Keycloak, tạm dừng cổng tiếp nhận lịch hẹn."
+            description = "Chuyển trạng thái sang SUSPENDED (chỉ cho phép từ trạng thái ACTIVE), tạm khóa toàn bộ tài khoản nhân sự và thu hồi phiên đăng nhập Keycloak, tạm dừng cổng tiếp nhận lịch hẹn."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Tạm ngừng tổ chức thành công"),
-            @ApiResponse(responseCode = "400", description = "Tổ chức đã ở trạng thái SUSPENDED"),
+            @ApiResponse(responseCode = "400", description = "Tổ chức không ở trạng thái ACTIVE hoặc đã ở trạng thái SUSPENDED"),
             @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
             @ApiResponse(responseCode = "404", description = "Không tìm thấy tổ chức")
     })
@@ -219,11 +219,11 @@ public class TenantManagementController {
     @RequireSuperAdmin
     @Operation(
             summary = "Kích hoạt lại tổ chức (REQ-TNT-03)",
-            description = "Chuyển trạng thái sang ACTIVE, khôi phục quyền đăng nhập Keycloak cho nhân sự và mở lại dịch vụ trực tuyến."
+            description = "Chuyển trạng thái sang ACTIVE (chỉ cho phép kích hoạt lại từ trạng thái SUSPENDED; đối với hồ sơ PENDING_APPROVAL vui lòng sử dụng API approve), khôi phục quyền đăng nhập Keycloak cho nhân sự và mở lại dịch vụ trực tuyến."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Kích hoạt lại tổ chức thành công"),
-            @ApiResponse(responseCode = "400", description = "Tổ chức đã ở trạng thái ACTIVE"),
+            @ApiResponse(responseCode = "400", description = "Tổ chức không ở trạng thái SUSPENDED hoặc đã ở trạng thái ACTIVE"),
             @ApiResponse(responseCode = "403", description = "Quyền truy cập bị từ chối - chỉ chấp nhận SUPERADMIN"),
             @ApiResponse(responseCode = "404", description = "Không tìm thấy tổ chức")
     })

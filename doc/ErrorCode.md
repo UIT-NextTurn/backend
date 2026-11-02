@@ -64,6 +64,7 @@
 | TENANT_ALREADY_ACTIVE | TENANT_018 | Tổ chức này đã ở trạng thái hoạt động (ACTIVE). |
 | TENANT_NOT_PENDING_APPROVAL | TENANT_019 | Tổ chức không ở trạng thái chờ phê duyệt (PENDING_APPROVAL). |
 | REJECTION_REASON_REQUIRED | TENANT_020 | Lý do từ chối đăng ký tổ chức là bắt buộc. |
+| TENANT_NOT_SUSPENDED | TENANT_021 | Tổ chức không ở trạng thái tạm ngừng (SUSPENDED). |
 
 ## Queue (`QueueErrorCode`)
 

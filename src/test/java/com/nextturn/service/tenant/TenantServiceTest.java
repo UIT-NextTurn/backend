@@ -546,6 +546,38 @@ class TenantServiceTest {
     }
 
     @Test
+    @DisplayName("REQ-TNT-03: Reject suspension if tenant is not in ACTIVE status (TENANT_013)")
+    void suspendTenant_whenNotActive_throwsException() {
+        activeTenant.setStatus(TenantStatus.PENDING_APPROVAL);
+        when(centralTenantRepository.findById("tenant-uuid-001")).thenReturn(Optional.of(activeTenant));
+
+        assertThatThrownBy(() -> tenantService.suspendTenant("tenant-uuid-001"))
+                .isInstanceOf(TenantException.class)
+                .hasMessageContaining("Chỉ có thể tạm ngừng tổ chức đang ở trạng thái hoạt động (ACTIVE)")
+                .extracting("code")
+                .isEqualTo(TenantErrorCode.TENANT_NOT_ACTIVE.code());
+
+        verify(centralTenantRepository, never()).save(any());
+        verify(keycloakTokenService, never()).setOrganizationAndMembersActive(anyString(), any(Boolean.class));
+    }
+
+    @Test
+    @DisplayName("REQ-TNT-03: Reject activation if tenant is not in SUSPENDED status (TENANT_021)")
+    void activateTenant_whenNotSuspended_throwsException() {
+        activeTenant.setStatus(TenantStatus.PENDING_APPROVAL);
+        when(centralTenantRepository.findById("tenant-uuid-001")).thenReturn(Optional.of(activeTenant));
+
+        assertThatThrownBy(() -> tenantService.activateTenant("tenant-uuid-001"))
+                .isInstanceOf(TenantException.class)
+                .hasMessageContaining("Chỉ có thể kích hoạt lại tổ chức đang ở trạng thái tạm ngừng (SUSPENDED)")
+                .extracting("code")
+                .isEqualTo(TenantErrorCode.TENANT_NOT_SUSPENDED.code());
+
+        verify(centralTenantRepository, never()).save(any());
+        verify(keycloakTokenService, never()).setOrganizationAndMembersActive(anyString(), any(Boolean.class));
+    }
+
+    @Test
     @DisplayName("REQ-TNT-03: updateTenantStatus dispatches to suspend or activate")
     void updateTenantStatus_dispatchesCorrectly() {
         when(centralTenantRepository.findById("tenant-uuid-001")).thenReturn(Optional.of(activeTenant));

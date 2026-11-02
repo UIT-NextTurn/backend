@@ -71,6 +71,12 @@ public class TenantLifecycleService {
                     "Tổ chức đã ở trạng thái tạm ngừng (SUSPENDED)."
             );
         }
+        if (previousStatus != TenantStatus.ACTIVE) {
+            throw new TenantException(
+                    TenantErrorCode.TENANT_NOT_ACTIVE,
+                    "Chỉ có thể tạm ngừng tổ chức đang ở trạng thái hoạt động (ACTIVE)."
+            );
+        }
 
         tenant.setStatus(TenantStatus.SUSPENDED);
         CentralTenant updatedTenant = executeInTransaction(status -> centralTenantRepository.save(tenant));
@@ -110,6 +116,12 @@ public class TenantLifecycleService {
             throw new TenantException(
                     TenantErrorCode.TENANT_ALREADY_ACTIVE,
                     "Tổ chức đã ở trạng thái hoạt động (ACTIVE)."
+            );
+        }
+        if (previousStatus != TenantStatus.SUSPENDED) {
+            throw new TenantException(
+                    TenantErrorCode.TENANT_NOT_SUSPENDED,
+                    "Chỉ có thể kích hoạt lại tổ chức đang ở trạng thái tạm ngừng (SUSPENDED)."
             );
         }
 

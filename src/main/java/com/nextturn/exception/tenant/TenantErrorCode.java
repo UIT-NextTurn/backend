@@ -33,7 +33,8 @@ public enum TenantErrorCode implements BaseErrorCode {
     TENANT_ALREADY_SUSPENDED("TENANT_017", "Tổ chức này đã ở trạng thái tạm ngừng (SUSPENDED).", HttpStatus.BAD_REQUEST),
     TENANT_ALREADY_ACTIVE("TENANT_018", "Tổ chức này đã ở trạng thái hoạt động (ACTIVE).", HttpStatus.BAD_REQUEST),
     TENANT_NOT_PENDING_APPROVAL("TENANT_019", "Tổ chức không ở trạng thái chờ phê duyệt (PENDING_APPROVAL).", HttpStatus.BAD_REQUEST),
-    REJECTION_REASON_REQUIRED("TENANT_020", "Lý do từ chối đăng ký tổ chức là bắt buộc.", HttpStatus.BAD_REQUEST);
+    REJECTION_REASON_REQUIRED("TENANT_020", "Lý do từ chối đăng ký tổ chức là bắt buộc.", HttpStatus.BAD_REQUEST),
+    TENANT_NOT_SUSPENDED("TENANT_021", "Tổ chức không ở trạng thái tạm ngừng (SUSPENDED).", HttpStatus.BAD_REQUEST);
 
     private final String code;
     private final String message;
