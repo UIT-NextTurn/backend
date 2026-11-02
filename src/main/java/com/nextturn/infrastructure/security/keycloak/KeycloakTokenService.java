@@ -219,6 +219,16 @@ public class KeycloakTokenService {
             String email = payload.path(OAuth2Constant.FIELD_EMAIL).asText(null);
             String tenantCode = extractTenantCode(payload);
 
+            String fullName = payload.has(OAuth2Constant.FIELD_NAME) ? payload.path(OAuth2Constant.FIELD_NAME).asText(null) : null;
+            if (fullName == null && payload.has(OAuth2Constant.FIELD_GIVEN_NAME)) {
+                String given = payload.path(OAuth2Constant.FIELD_GIVEN_NAME).asText("");
+                String family = payload.path(OAuth2Constant.FIELD_FAMILY_NAME).asText("");
+                fullName = (given + " " + family).trim();
+            }
+            if (fullName == null || fullName.isBlank()) {
+                fullName = payload.has(OAuth2Constant.FIELD_PREFERRED_USERNAME) ? payload.path(OAuth2Constant.FIELD_PREFERRED_USERNAME).asText(null) : null;
+            }
+
             List<String> roles = extractRoles(payload);
 
             // =========================================================================
@@ -260,6 +270,7 @@ public class KeycloakTokenService {
                     .tokenType(tokenType != null ? tokenType : OAuth2Constant.TOKEN_TYPE_BEARER)
                     .userId(userId)
                     .email(email)
+                    .fullName(fullName)
                     .roles(roles)
                     .primaryRole(primaryRole)
                     .tenantCode(tenantCode)
@@ -928,6 +939,10 @@ public class KeycloakTokenService {
                     cred.put("temporary", false);
                     credsArray.add(cred);
                     userPayload.set("credentials", credsArray);
+                } else if (hasOrganizationIdp(null, tenantCode)) {
+                    // When tenant uses an external Identity Provider (SSO), do NOT force UPDATE_PASSWORD
+                    log.info("Tenant [{}] has active external IdP; provisioning staff [{}] for SSO without forcing local password reset",
+                            tenantCode, normalizedEmail);
                 } else {
                     var credsArray = objectMapper.createArrayNode();
                     var cred = objectMapper.createObjectNode();
@@ -1417,6 +1432,17 @@ public class KeycloakTokenService {
         }
 
         return null;
+    }
+
+    public boolean hasOrganizationIdp(String orgId, String tenantCode) {
+        if (tenantCode == null || tenantCode.isBlank()) {
+            return false;
+        }
+        try {
+            return getOrganizationIdp(orgId, tenantCode.trim().toLowerCase()) != null;
+        } catch (Exception ex) {
+            return false;
+        }
     }
 
     public void removeOrganizationIdp(String orgId, String tenantCode) {

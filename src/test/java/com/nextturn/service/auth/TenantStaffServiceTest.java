@@ -33,6 +33,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -383,5 +384,62 @@ class TenantStaffServiceTest {
                 .hasMessage("DB failure during promotion");
 
         verify(keycloakTokenService).deleteStaffUserInKeycloak(ORG_ID, "kc-new-to-delete-uuid");
+    }
+
+    @Test
+    @DisplayName("Should sync existing staff profile on SSO login")
+    void shouldSyncExistingStaffProfileOnLogin() {
+        TenantStaff staff = TenantStaff.builder()
+                .id("staff-uuid-001")
+                .staffCode("STF-111111")
+                .keycloakUserId("kc-old-uuid")
+                .fullName("Old Name")
+                .email("doctor.a@clinic.vn")
+                .phoneNumber("+84901234567")
+                .role(StaffRole.COUNTER)
+                .status(StaffStatus.ACTIVE)
+                .build();
+
+        when(staffRepository.findByKeycloakUserIdAndIsDeletedFalse("kc-new-uuid")).thenReturn(Optional.empty());
+        when(staffRepository.findByEmailAndIsDeletedFalse("doctor.a@clinic.vn")).thenReturn(Optional.of(staff));
+        when(staffRepository.save(any(TenantStaff.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TenantStaff result = staffService.syncOrProvisionStaffOnLogin(
+                TENANT_CODE,
+                "kc-new-uuid",
+                "doctor.a@clinic.vn",
+                "New Name From IdP",
+                List.of("TENANT_ADMIN")
+        );
+
+        assertThat(result).isNotNull();
+        assertThat(result.getFullName()).isEqualTo("New Name From IdP");
+        assertThat(result.getKeycloakUserId()).isEqualTo("kc-new-uuid");
+        assertThat(result.getRole()).isEqualTo(StaffRole.ADMIN);
+    }
+
+    @Test
+    @DisplayName("Should JIT provision new encounter staff on first SSO login")
+    void shouldJitProvisionNewStaffOnSsoLogin() {
+        when(staffRepository.findByKeycloakUserIdAndIsDeletedFalse("kc-sso-uuid")).thenReturn(Optional.empty());
+        when(staffRepository.findByEmailAndIsDeletedFalse("new.sso@clinic.vn")).thenReturn(Optional.empty());
+        when(staffRepository.existsByStaffCodeAndIsDeletedFalse(anyString())).thenReturn(false);
+        when(staffRepository.save(any(TenantStaff.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TenantStaff result = staffService.syncOrProvisionStaffOnLogin(
+                TENANT_CODE,
+                "kc-sso-uuid",
+                "new.sso@clinic.vn",
+                "Dr. New SSO User",
+                List.of("COUNTER_STAFF")
+        );
+
+        assertThat(result).isNotNull();
+        assertThat(result.getEmail()).isEqualTo("new.sso@clinic.vn");
+        assertThat(result.getFullName()).isEqualTo("Dr. New SSO User");
+        assertThat(result.getKeycloakUserId()).isEqualTo("kc-sso-uuid");
+        assertThat(result.getRole()).isEqualTo(StaffRole.COUNTER);
+        assertThat(result.getStatus()).isEqualTo(StaffStatus.ACTIVE);
+        assertThat(result.getStaffCode()).startsWith("STF-");
     }
 }
