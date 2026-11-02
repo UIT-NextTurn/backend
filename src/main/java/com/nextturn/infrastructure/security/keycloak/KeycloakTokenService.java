@@ -1054,14 +1054,12 @@ public class KeycloakTokenService {
 
         try {
             String url = properties.adminOrganizationsEndpoint() + "/" + orgId + "/members";
-            var payload = objectMapper.createObjectNode();
-            payload.put("id", keycloakUserId);
 
             restClient.post()
                     .uri(url)
                     .header("Authorization", "Bearer " + adminToken)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(objectMapper.writeValueAsString(payload))
+                    .body(objectMapper.writeValueAsString(keycloakUserId))
                     .retrieve()
                     .toBodilessEntity();
 
