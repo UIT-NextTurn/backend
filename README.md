@@ -108,7 +108,7 @@ Settings are automatically loaded from `.env` by `make run` or can be supplied a
 | `SPRING_DATASOURCE_URL` | MySQL JDBC URL | `jdbc:mysql://localhost:3306/nextturn_master?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC` |
 | `SPRING_DATASOURCE_USERNAME` | MySQL user | `nextturn` |
 | `SPRING_DATASOURCE_PASSWORD` | MySQL password | `nextturn_dev_secret` |
-| `SPRING_JPA_HIBERNATE_DDL_AUTO` | Hibernate schema mode | `update` |
+| `SPRING_JPA_HIBERNATE_DDL_AUTO` | Hibernate schema mode (`none` in multi-tenant) | `none` |
 | `SPRING_JPA_SHOW_SQL` | Log SQL queries | `true` |
 | `VALKEY_HOST` | Valkey cache & queue host | `localhost` |
 | `VALKEY_PORT` | Valkey client port | `6379` |
