@@ -929,6 +929,14 @@ public class KeycloakTokenService {
                     credsArray.add(cred);
                     userPayload.set("credentials", credsArray);
                 } else {
+                    var credsArray = objectMapper.createArrayNode();
+                    var cred = objectMapper.createObjectNode();
+                    cred.put("type", "password");
+                    cred.put("value", "Nextturn123!@#");
+                    cred.put("temporary", true);
+                    credsArray.add(cred);
+                    userPayload.set("credentials", credsArray);
+
                     var actionsArray = objectMapper.createArrayNode();
                     actionsArray.add("UPDATE_PASSWORD");
                     userPayload.set("requiredActions", actionsArray);

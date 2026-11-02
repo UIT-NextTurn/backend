@@ -220,3 +220,4 @@ flowchart LR
 | **Malformed Token** | `POST /api/v1/central/tenants` | `Bearer invalid_jwt` | `401 Unauthorized` |
 | **Forbidden Role** | `POST /api/v1/central/tenants` | `TENANT_ADMIN` token | `403 Forbidden` |
 | **Forbidden Role** | `DELETE /api/v1/central/tenants/{id}` | `COUNTER_STAFF` token | `403 Forbidden` |
+
