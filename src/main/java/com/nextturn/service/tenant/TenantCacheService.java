@@ -1,7 +1,9 @@
 package com.nextturn.service.tenant;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nextturn.constant.ValkeyKeyConstant;
+import com.nextturn.dto.service.ServiceResponse;
 import com.nextturn.dto.tenant.TenantResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,11 +13,12 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
- * Service managing Valkey/Redis caching and cache eviction for tenant configurations
- * and operational telemetry metrics (REQ-TNT-02, REQ-TNT-04).
+ * Service managing Valkey/Redis caching and cache eviction for tenant configurations,
+ * services catalog, and operational telemetry metrics.
  */
 @Service
 public class TenantCacheService {
@@ -47,7 +50,7 @@ public class TenantCacheService {
                 return;
             }
             String json = objectMapper.writeValueAsString(response);
-            Duration ttl = Duration.ofHours(24);
+            Duration ttl = Duration.ofHours(ValkeyKeyConstant.TENANT_PROFILE_TTL_HOURS);
             if (response.getId() != null) {
                 ops.set(ValkeyKeyConstant.tenantConfigKey(response.getId()), json, ttl);
             }
@@ -97,6 +100,7 @@ public class TenantCacheService {
                     keys.add(ValkeyKeyConstant.tenantConfigKey(tenantCode));
                     keys.add(ValkeyKeyConstant.tenantTodayTicketsKey(tenantCode));
                     keys.add(ValkeyKeyConstant.tenantActiveStaffKey(tenantCode));
+                    keys.add(ValkeyKeyConstant.tenantServicesKey(tenantCode));
                 }
                 redisTemplate.delete(keys);
                 log.debug("Evicted Valkey cache keys: {}", keys);
@@ -104,6 +108,71 @@ public class TenantCacheService {
                 log.warn("Valkey cache eviction failed for tenant [{}] / [{}]: {}", tenantId, tenantCode, ex.getMessage());
             }
         }
+    }
+
+    /**
+     * Invalidate and evict tenant service catalog cache.
+     */
+    public void evictTenantServiceCache(String tenantCode) {
+        if (redisTemplate != null && tenantCode != null && !tenantCode.isBlank()) {
+            try {
+                String key = ValkeyKeyConstant.tenantServicesKey(tenantCode);
+                redisTemplate.delete(key);
+                log.debug("Evicted Valkey service catalog cache for tenant [{}]: key [{}]", tenantCode, key);
+            } catch (Exception ex) {
+                log.warn("Valkey service cache eviction failed for tenant [{}]: {}", tenantCode, ex.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Caches active services list in Valkey for a given tenant.
+     *
+     * @param tenantCode tenant code
+     * @param services list of active service responses
+     */
+    public void cacheTenantServices(String tenantCode, List<ServiceResponse> services) {
+        if (redisTemplate == null || tenantCode == null || tenantCode.isBlank() || services == null) {
+            return;
+        }
+        try {
+            var ops = redisTemplate.opsForValue();
+            if (ops == null) {
+                return;
+            }
+            String key = ValkeyKeyConstant.tenantServicesKey(tenantCode);
+            String json = objectMapper.writeValueAsString(services);
+            ops.set(key, json, Duration.ofHours(ValkeyKeyConstant.TENANT_PROFILE_TTL_HOURS));
+            log.debug("Cached {} services in Valkey for tenant [{}]: key [{}]", services.size(), tenantCode, key);
+        } catch (Exception ex) {
+            log.warn("Failed to cache services in Valkey for tenant [{}]: {}", tenantCode, ex.getMessage());
+        }
+    }
+
+    /**
+     * Reads cached services list from Valkey for a given tenant.
+     *
+     * @param tenantCode tenant code
+     * @return list of cached service responses, or null if cache miss or error
+     */
+    public List<ServiceResponse> getCachedTenantServices(String tenantCode) {
+        if (redisTemplate == null || tenantCode == null || tenantCode.isBlank()) {
+            return null;
+        }
+        try {
+            var ops = redisTemplate.opsForValue();
+            if (ops == null) {
+                return null;
+            }
+            String key = ValkeyKeyConstant.tenantServicesKey(tenantCode);
+            String json = ops.get(key);
+            if (json != null && !json.isBlank()) {
+                return objectMapper.readValue(json, new TypeReference<List<ServiceResponse>>() {});
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to read cached services from Valkey for tenant [{}]: {}", tenantCode, ex.getMessage());
+        }
+        return null;
     }
 
     /**

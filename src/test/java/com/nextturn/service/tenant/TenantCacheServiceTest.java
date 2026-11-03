@@ -2,25 +2,26 @@ package com.nextturn.service.tenant;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nextturn.constant.ValkeyKeyConstant;
+import com.nextturn.dto.service.ServiceResponse;
 import com.nextturn.dto.tenant.TenantResponse;
+import com.nextturn.enums.ServiceStatus;
 import com.nextturn.enums.TenantStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -49,14 +50,14 @@ class TenantCacheServiceTest {
 
         TenantResponse response = TenantResponse.builder()
                 .id("t-123")
-                .tenantCode("bv-tam-duc")
+                .tenantCode("tenant-alpha")
                 .status(TenantStatus.ACTIVE)
                 .build();
 
         cacheService.cacheTenantConfig(response);
 
         verify(valueOperations).set(eq(ValkeyKeyConstant.tenantConfigKey("t-123")), any(), eq(Duration.ofHours(24)));
-        verify(valueOperations).set(eq(ValkeyKeyConstant.tenantConfigKey("bv-tam-duc")), any(), eq(Duration.ofHours(24)));
+        verify(valueOperations).set(eq(ValkeyKeyConstant.tenantConfigKey("tenant-alpha")), any(), eq(Duration.ofHours(24)));
     }
 
     @Test
@@ -64,7 +65,7 @@ class TenantCacheServiceTest {
     void getCachedTenantConfig_hit() throws Exception {
         TenantResponse original = TenantResponse.builder()
                 .id("t-123")
-                .tenantCode("bv-tam-duc")
+                .tenantCode("tenant-alpha")
                 .status(TenantStatus.ACTIVE)
                 .build();
         String json = objectMapper.writeValueAsString(original);
@@ -76,7 +77,7 @@ class TenantCacheServiceTest {
 
         assertThat(cached).isNotNull();
         assertThat(cached.getId()).isEqualTo("t-123");
-        assertThat(cached.getTenantCode()).isEqualTo("bv-tam-duc");
+        assertThat(cached.getTenantCode()).isEqualTo("tenant-alpha");
     }
 
     @Test
@@ -91,16 +92,83 @@ class TenantCacheServiceTest {
     }
 
     @Test
-    @DisplayName("evictTenantConfigCache should delete config, ticket count, and staff count keys")
+    @DisplayName("evictTenantConfigCache should delete config, ticket count, staff count, and service keys")
     void evictTenantConfigCache_success() {
-        cacheService.evictTenantConfigCache("t-123", "bv-tam-duc");
+        cacheService.evictTenantConfigCache("t-123", "tenant-alpha");
 
         verify(redisTemplate).delete(List.of(
                 ValkeyKeyConstant.tenantConfigKey("t-123"),
-                ValkeyKeyConstant.tenantConfigKey("bv-tam-duc"),
-                ValkeyKeyConstant.tenantTodayTicketsKey("bv-tam-duc"),
-                ValkeyKeyConstant.tenantActiveStaffKey("bv-tam-duc")
+                ValkeyKeyConstant.tenantConfigKey("tenant-alpha"),
+                ValkeyKeyConstant.tenantTodayTicketsKey("tenant-alpha"),
+                ValkeyKeyConstant.tenantActiveStaffKey("tenant-alpha"),
+                ValkeyKeyConstant.tenantServicesKey("tenant-alpha")
         ));
+    }
+
+    @Test
+    @DisplayName("evictTenantServiceCache should delete tenant services catalog key")
+    void evictTenantServiceCache_success() {
+        cacheService.evictTenantServiceCache("tenant-alpha");
+
+        verify(redisTemplate).delete(ValkeyKeyConstant.tenantServicesKey("tenant-alpha"));
+    }
+
+    @Test
+    @DisplayName("cacheTenantServices should serialize and store active services in Valkey")
+    void cacheTenantServices_success() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+
+        List<ServiceResponse> services = List.of(
+                ServiceResponse.builder()
+                        .id("svc-1")
+                        .serviceCode("SVC-0001")
+                        .serviceName("Tư Vấn Khách Hàng")
+                        .standardDuration(15)
+                        .price(new BigDecimal("150000.00"))
+                        .status(ServiceStatus.ACTIVE)
+                        .build()
+        );
+
+        cacheService.cacheTenantServices("tenant-alpha", services);
+
+        verify(valueOperations).set(eq(ValkeyKeyConstant.tenantServicesKey("tenant-alpha")), any(), eq(Duration.ofHours(24)));
+    }
+
+    @Test
+    @DisplayName("getCachedTenantServices should deserialize cached json list of services")
+    void getCachedTenantServices_hit() throws Exception {
+        List<ServiceResponse> services = List.of(
+                ServiceResponse.builder()
+                        .id("svc-1")
+                        .serviceCode("SVC-0001")
+                        .serviceName("Tư Vấn Khách Hàng")
+                        .standardDuration(15)
+                        .price(new BigDecimal("150000.00"))
+                        .status(ServiceStatus.ACTIVE)
+                        .build()
+        );
+        String json = objectMapper.writeValueAsString(services);
+
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get(ValkeyKeyConstant.tenantServicesKey("tenant-alpha"))).thenReturn(json);
+
+        List<ServiceResponse> cached = cacheService.getCachedTenantServices("tenant-alpha");
+
+        assertThat(cached).isNotNull();
+        assertThat(cached).hasSize(1);
+        assertThat(cached.get(0).getServiceCode()).isEqualTo("SVC-0001");
+        assertThat(cached.get(0).getServiceName()).isEqualTo("Tư Vấn Khách Hàng");
+    }
+
+    @Test
+    @DisplayName("getCachedTenantServices should return null when cache key is absent")
+    void getCachedTenantServices_miss() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get(ValkeyKeyConstant.tenantServicesKey("tenant-alpha"))).thenReturn(null);
+
+        List<ServiceResponse> cached = cacheService.getCachedTenantServices("tenant-alpha");
+
+        assertThat(cached).isNull();
     }
 
     @Test

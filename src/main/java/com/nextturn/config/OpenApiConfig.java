@@ -104,7 +104,8 @@ public class OpenApiConfig {
             if (beanType.equals(TenantAuthController.class)
                     || beanType.equals(CustomerAuthController.class)
                     || beanType.equals(HealthCheckController.class)
-                    || beanType.equals(TenantManagementController.class)) {
+                    || beanType.equals(TenantManagementController.class)
+                    || beanType.getSimpleName().equals("PublicCatalogController")) {
                 return operation;
             }
 
