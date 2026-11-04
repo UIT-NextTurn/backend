@@ -17,9 +17,10 @@ import com.nextturn.exception.tenant.TenantException;
 import com.nextturn.infrastructure.security.keycloak.KeycloakProperties;
 import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
 import com.nextturn.repository.auth.CentralTenantRepository;
-import com.nextturn.repository.auth.TenantStaffRepository;
+import com.nextturn.repository.staff.TenantStaffRepository;
 import com.nextturn.repository.tenant.CentralTenantQuotaRepository;
 import com.nextturn.service.notification.EmailService;
+import com.nextturn.service.BaseService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,7 +52,7 @@ import java.util.UUID;
  * </ul>
  */
 @Service
-public class TenantService {
+public class TenantService extends BaseService {
 
     private static final Logger log = LoggerFactory.getLogger(TenantService.class);
 
@@ -61,7 +62,6 @@ public class TenantService {
     private final TenantLifecycleService tenantLifecycleService;
     private final TenantTelemetryService tenantTelemetryService;
     private final TenantCacheService tenantCacheService;
-    private final TransactionTemplate transactionTemplate;
 
     @Autowired
     public TenantService(
@@ -73,13 +73,13 @@ public class TenantService {
             TenantCacheService tenantCacheService,
             @Autowired(required = false) TransactionTemplate transactionTemplate
     ) {
+        super(transactionTemplate);
         this.centralTenantRepository = centralTenantRepository;
         this.quotaRepository = quotaRepository;
         this.tenantProvisioningService = tenantProvisioningService;
         this.tenantLifecycleService = tenantLifecycleService;
         this.tenantTelemetryService = tenantTelemetryService;
         this.tenantCacheService = tenantCacheService;
-        this.transactionTemplate = transactionTemplate;
     }
 
     /**
@@ -97,9 +97,9 @@ public class TenantService {
             TransactionTemplate transactionTemplate,
             DataSource dataSource
     ) {
+        super(transactionTemplate);
         this.centralTenantRepository = centralTenantRepository;
         this.quotaRepository = quotaRepository;
-        this.transactionTemplate = transactionTemplate;
 
         this.tenantCacheService = new TenantCacheService(redisTemplate, objectMapper);
         this.tenantTelemetryService = new TenantTelemetryService(this.tenantCacheService, staffRepository, dataSource);
@@ -356,12 +356,5 @@ public class TenantService {
                 .filter(t -> !Boolean.TRUE.equals(t.getIsDeleted()))
                 .or(() -> centralTenantRepository.findByTenantCodeIgnoreCaseAndIsDeletedFalse(cleanId))
                 .orElseThrow(() -> new TenantException(TenantErrorCode.TENANT_NOT_FOUND, "Tenant [" + cleanId + "] not found in registry"));
-    }
-
-    private <T> T executeInTransaction(TransactionCallback<T> action) {
-        if (transactionTemplate != null) {
-            return transactionTemplate.execute(action);
-        }
-        return action.doInTransaction(null);
     }
 }

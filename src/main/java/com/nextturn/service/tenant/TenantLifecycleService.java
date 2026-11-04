@@ -17,6 +17,7 @@ import com.nextturn.service.notification.EmailService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.nextturn.service.BaseService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -26,7 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * registration approval/rejection workflows, and safe soft-deletion (REQ-TNT-03, REQ-TNT-06).
  */
 @Service
-public class TenantLifecycleService {
+public class TenantLifecycleService extends BaseService {
 
     private static final Logger log = LoggerFactory.getLogger(TenantLifecycleService.class);
 
@@ -38,7 +39,6 @@ public class TenantLifecycleService {
     private final TenantTelemetryService telemetryService;
     private final TenantCacheService cacheService;
     private final TenantDatabaseProvisioningService databaseProvisioningService;
-    private final TransactionTemplate transactionTemplate;
 
     @Autowired
     public TenantLifecycleService(
@@ -52,6 +52,7 @@ public class TenantLifecycleService {
             @Autowired(required = false) TenantDatabaseProvisioningService databaseProvisioningService,
             @Autowired(required = false) TransactionTemplate transactionTemplate
     ) {
+        super(transactionTemplate);
         this.centralTenantRepository = centralTenantRepository;
         this.quotaRepository = quotaRepository;
         this.keycloakTokenService = keycloakTokenService;
@@ -60,7 +61,6 @@ public class TenantLifecycleService {
         this.telemetryService = telemetryService;
         this.cacheService = cacheService;
         this.databaseProvisioningService = databaseProvisioningService;
-        this.transactionTemplate = transactionTemplate;
     }
 
     public TenantLifecycleService(
@@ -360,12 +360,5 @@ public class TenantLifecycleService {
             return keycloakProperties.authServerUrl() + "/realms/" + keycloakProperties.realm() + "/account";
         }
         return "http://localhost:8180/realms/nextturn/account";
-    }
-
-    private <T> T executeInTransaction(TransactionCallback<T> action) {
-        if (transactionTemplate != null) {
-            return transactionTemplate.execute(action);
-        }
-        return action.doInTransaction(null);
     }
 }
