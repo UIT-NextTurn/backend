@@ -11,6 +11,7 @@ import com.nextturn.exception.tenant.TenantException;
 import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
 import com.nextturn.repository.auth.CentralTenantRepository;
+import com.nextturn.service.auth.impl.TenantIdpServiceImpl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -43,7 +44,7 @@ class TenantIdpServiceTest {
     private KeycloakTokenService keycloakTokenService;
 
     @InjectMocks
-    private TenantIdpService idpService;
+    private TenantIdpServiceImpl idpService;
 
     private CentralTenant mockTenant;
 

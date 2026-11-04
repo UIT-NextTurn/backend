@@ -4,6 +4,7 @@ import com.nextturn.constant.ValkeyKeyConstant;
 import com.nextturn.dto.auth.CustomerOtpResponse;
 import com.nextturn.exception.auth.AuthErrorCode;
 import com.nextturn.exception.auth.AuthException;
+import com.nextturn.service.auth.impl.OtpServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,12 +26,12 @@ import static org.mockito.Mockito.when;
 
 class OtpServiceTest {
 
-    private OtpService otpService;
+    private OtpServiceImpl otpService;
 
     @BeforeEach
     void setUp() {
         // TTL = 300 seconds (5 min), max attempts = 3, cooldown = 60s, max daily = 5
-        otpService = new OtpService(null, null, 300, 3, 60, 5);
+        otpService = new OtpServiceImpl(null, null, 300, 3, 60, 5);
     }
 
     @Test
@@ -97,7 +98,7 @@ class OtpServiceTest {
         otpService.generateAndSendOtp("test@example.com", false);
 
         // Fetch generated code from internal record for test assertion
-        OtpService.OtpRecord record = getRecord("test@example.com");
+        OtpServiceImpl.OtpRecord record = getRecord("test@example.com");
         assertThat(record).isNotNull();
         String validCode = record.code();
 
@@ -153,7 +154,7 @@ class OtpServiceTest {
         ValueOperations<String, String> mockOps = mock(ValueOperations.class);
         when(mockRedis.opsForValue()).thenReturn(mockOps);
 
-        OtpService valkeyOtpService = new OtpService(mockRedis, null, 300, 3, 60, 5);
+        OtpServiceImpl valkeyOtpService = new OtpServiceImpl(mockRedis, null, 300, 3, 60, 5);
         valkeyOtpService.generateAndSendOtp("valkey@example.com", false);
 
         verify(mockOps).set(
@@ -171,12 +172,12 @@ class OtpServiceTest {
         verify(mockRedis).delete(anyList());
     }
 
-    private OtpService.OtpRecord getRecord(String email) {
+    private OtpServiceImpl.OtpRecord getRecord(String email) {
         try {
-            var field = OtpService.class.getDeclaredField("otpStore");
+            var field = OtpServiceImpl.class.getDeclaredField("otpStore");
             field.setAccessible(true);
             @SuppressWarnings("unchecked")
-            var map = (Map<String, OtpService.OtpRecord>) field.get(otpService);
+            var map = (Map<String, OtpServiceImpl.OtpRecord>) field.get(otpService);
             return map.get(email.toLowerCase());
         } catch (Exception e) {
             throw new RuntimeException(e);

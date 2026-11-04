@@ -16,6 +16,7 @@ import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
 import com.nextturn.repository.auth.CentralAllowedDomainRepository;
 import com.nextturn.repository.auth.CentralTenantRepository;
 import com.nextturn.repository.auth.CentralUserRepository;
+import com.nextturn.service.auth.impl.CustomerAuthServiceImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -54,7 +55,7 @@ class CustomerAuthServiceTest {
     private CentralAllowedDomainRepository centralAllowedDomainRepository;
 
     @InjectMocks
-    private CustomerAuthService customerAuthService;
+    private CustomerAuthServiceImpl customerAuthService;
 
     @Test
     @DisplayName("Should detect existing active user and dispatch OTP with existingUser=true")
