@@ -1,5 +1,6 @@
 package com.nextturn.service.notification;
 
+import com.nextturn.service.notification.impl.EmailServiceImpl;
 import jakarta.mail.BodyPart;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
@@ -22,7 +23,7 @@ class EmailServiceTest {
     @Test
     @DisplayName("Should detect unconfigured SMTP when host or credentials are blank")
     void shouldDetectUnconfiguredSmtp() {
-        EmailService service = new EmailService(null, "localhost", "", "no-reply@nextturn.com", "NextTurn");
+        EmailService service = new EmailServiceImpl(null, "localhost", "", "no-reply@nextturn.com", "NextTurn");
         assertThat(service.isConfigured()).isFalse();
 
         boolean sent = service.sendOtpEmail("test@example.com", "123456", 300).join();
@@ -33,7 +34,7 @@ class EmailServiceTest {
     @DisplayName("Should detect configured SMTP when credentials and valid host are provided")
     void shouldDetectConfiguredSmtp() {
         JavaMailSender mailSender = mock(JavaMailSender.class);
-        EmailService service = new EmailService(mailSender, "smtp.gmail.com", "admin@nextturn.com", "no-reply@nextturn.com", "NextTurn");
+        EmailService service = new EmailServiceImpl(mailSender, "smtp.gmail.com", "admin@nextturn.com", "no-reply@nextturn.com", "NextTurn");
         assertThat(service.isConfigured()).isTrue();
     }
 
@@ -44,7 +45,7 @@ class EmailServiceTest {
         MimeMessage mimeMessage = new MimeMessage(Session.getInstance(new Properties()));
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
 
-        EmailService service = new EmailService(mailSender, "smtp.gmail.com", "admin@nextturn.com", "no-reply@nextturn.com", "NextTurn");
+        EmailService service = new EmailServiceImpl(mailSender, "smtp.gmail.com", "admin@nextturn.com", "no-reply@nextturn.com", "NextTurn");
 
         boolean sent = service.sendOtpEmail("recipient@example.com", "888888", 300).join();
 
@@ -59,7 +60,7 @@ class EmailServiceTest {
         MimeMessage mimeMessage = new MimeMessage(Session.getInstance(new Properties()));
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
 
-        EmailService service = new EmailService(mailSender, "smtp.gmail.com", "admin@nextturn.com", "no-reply@nextturn.com", "NextTurn");
+        EmailService service = new EmailServiceImpl(mailSender, "smtp.gmail.com", "admin@nextturn.com", "no-reply@nextturn.com", "NextTurn");
 
         String adminEmail = "tenant.admin@pk-alpha.vn";
         String tenantName = "Phòng khám Đa khoa Alpha";
