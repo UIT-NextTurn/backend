@@ -3,7 +3,7 @@ package com.nextturn.service.tenant;
 import com.nextturn.constant.ValkeyKeyConstant;
 import com.nextturn.enums.StaffStatus;
 import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
-import com.nextturn.repository.auth.TenantStaffRepository;
+import com.nextturn.repository.staff.TenantStaffRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;

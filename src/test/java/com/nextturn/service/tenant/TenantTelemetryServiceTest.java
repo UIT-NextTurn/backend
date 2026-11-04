@@ -2,7 +2,7 @@ package com.nextturn.service.tenant;
 
 import com.nextturn.constant.ValkeyKeyConstant;
 import com.nextturn.enums.StaffStatus;
-import com.nextturn.repository.auth.TenantStaffRepository;
+import com.nextturn.repository.staff.TenantStaffRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

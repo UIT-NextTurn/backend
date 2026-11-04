@@ -7,7 +7,7 @@ import com.nextturn.dto.service.ServiceResponse;
 import com.nextturn.dto.service.UpdateServiceRequest;
 import com.nextturn.enums.ServiceStatus;
 import com.nextturn.infrastructure.security.annotation.RequireTenantAdmin;
-import com.nextturn.service.catalog.TenantCatalogService;
+import com.nextturn.service.service.TenantServiceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -45,9 +45,9 @@ import java.util.List;
 @Tag(name = "Tenant Service Catalog", description = "Endpoints for Tenant Administrators to manage services, standard durations, status, and catalog search")
 public class TenantCatalogController {
 
-    private final TenantCatalogService catalogService;
+    private final TenantServiceService catalogService;
 
-    public TenantCatalogController(TenantCatalogService catalogService) {
+    public TenantCatalogController(TenantServiceService catalogService) {
         this.catalogService = catalogService;
     }
 

@@ -17,6 +17,7 @@ import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
 import com.nextturn.repository.auth.CentralAllowedDomainRepository;
 import com.nextturn.repository.auth.CentralTenantRepository;
 import com.nextturn.repository.auth.CentralUserRepository;
+import com.nextturn.service.BaseService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,7 +44,7 @@ import java.util.UUID;
  * 4. Verification with idempotent database user lookup, login timestamp updates, and 30-day session tokens.
  */
 @Service
-public class CustomerAuthService {
+public class CustomerAuthService extends BaseService {
 
     private static final Logger log = LoggerFactory.getLogger(CustomerAuthService.class);
 
@@ -52,7 +53,6 @@ public class CustomerAuthService {
     private final KeycloakTokenService keycloakTokenService;
     private final CentralTenantRepository centralTenantRepository;
     private final CentralAllowedDomainRepository centralAllowedDomainRepository;
-    private final TransactionTemplate transactionTemplate;
 
     @Autowired
     public CustomerAuthService(
@@ -63,12 +63,12 @@ public class CustomerAuthService {
             @Autowired(required = false) CentralAllowedDomainRepository centralAllowedDomainRepository,
             @Autowired(required = false) TransactionTemplate transactionTemplate
     ) {
+        super(transactionTemplate);
         this.centralUserRepository = centralUserRepository;
         this.otpService = otpService;
         this.keycloakTokenService = keycloakTokenService;
         this.centralTenantRepository = centralTenantRepository;
         this.centralAllowedDomainRepository = centralAllowedDomainRepository;
-        this.transactionTemplate = transactionTemplate;
     }
 
     public CustomerAuthService(
@@ -77,13 +77,6 @@ public class CustomerAuthService {
             KeycloakTokenService keycloakTokenService
     ) {
         this(centralUserRepository, otpService, keycloakTokenService, null, null, null);
-    }
-
-    private <T> T executeInTransaction(TransactionCallback<T> action) {
-        if (transactionTemplate != null) {
-            return transactionTemplate.execute(action);
-        }
-        return action.doInTransaction(null);
     }
 
     /**

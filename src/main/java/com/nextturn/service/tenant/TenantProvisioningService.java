@@ -17,6 +17,7 @@ import com.nextturn.repository.auth.CentralTenantRepository;
 import com.nextturn.repository.tenant.CentralTenantQuotaRepository;
 import com.nextturn.service.notification.EmailService;
 import com.nextturn.util.EmailValidationUtil;
+import com.nextturn.service.BaseService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,7 +32,7 @@ import java.util.UUID;
  * with distributed compensating rollback transactions (REQ-TNT-01, REQ-TNT-05).
  */
 @Service
-public class TenantProvisioningService {
+public class TenantProvisioningService extends BaseService {
 
     private static final Logger log = LoggerFactory.getLogger(TenantProvisioningService.class);
 
@@ -42,7 +43,6 @@ public class TenantProvisioningService {
     private final EmailService emailService;
     private final TenantCacheService cacheService;
     private final TenantDatabaseProvisioningService databaseProvisioningService;
-    private final TransactionTemplate transactionTemplate;
 
     @Autowired
     public TenantProvisioningService(
@@ -55,6 +55,7 @@ public class TenantProvisioningService {
             @Autowired(required = false) TenantDatabaseProvisioningService databaseProvisioningService,
             @Autowired(required = false) TransactionTemplate transactionTemplate
     ) {
+        super(transactionTemplate);
         this.centralTenantRepository = centralTenantRepository;
         this.quotaRepository = quotaRepository;
         this.keycloakTokenService = keycloakTokenService;
@@ -62,7 +63,6 @@ public class TenantProvisioningService {
         this.emailService = emailService;
         this.cacheService = cacheService;
         this.databaseProvisioningService = databaseProvisioningService;
-        this.transactionTemplate = transactionTemplate;
     }
 
     public TenantProvisioningService(
@@ -545,12 +545,5 @@ public class TenantProvisioningService {
             return keycloakProperties.authServerUrl() + "/realms/" + keycloakProperties.realm() + "/account";
         }
         return "http://localhost:8180/realms/nextturn/account";
-    }
-
-    private <T> T executeInTransaction(TransactionCallback<T> action) {
-        if (transactionTemplate != null) {
-            return transactionTemplate.execute(action);
-        }
-        return action.doInTransaction(null);
     }
 }

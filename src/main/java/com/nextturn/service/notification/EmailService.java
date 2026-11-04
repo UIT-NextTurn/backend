@@ -156,6 +156,42 @@ public class EmailService {
     }
 
     /**
+     * Asynchronously sends an automated activation and password setup email to a newly created staff member.
+     *
+     * @param toEmail recipient staff email
+     * @param fullName staff full name
+     * @param tenantName tenant organization name
+     * @param activationLink password setup / activation URL
+     * @return CompletableFuture containing dispatch outcome
+     */
+    @Async
+    public CompletableFuture<Boolean> sendStaffActivationEmail(String toEmail, String fullName, String tenantName, String activationLink) {
+        String subject = "[NextTurn] Kích hoạt tài khoản nhân viên - " + (tenantName != null ? tenantName : "Cơ sở của bạn");
+        String htmlBody = buildStaffActivationHtmlTemplate(toEmail, fullName, tenantName, activationLink);
+
+        if (!isConfigured()) {
+            log.info("================================================================================");
+            log.info("[STAFF ACTIVATION DISPATCH (CONSOLE)] Account activation for [{}] ({}) at [{}]", toEmail, fullName, tenantName);
+            log.info("                                      Activation Link: [{}]", activationLink);
+            log.info("================================================================================");
+            return CompletableFuture.completedFuture(false);
+        }
+
+        try {
+            sendHtmlEmail(toEmail, subject, htmlBody);
+            log.info("Successfully sent staff activation email to [{}] via SMTP [{}]", toEmail, mailHost);
+            return CompletableFuture.completedFuture(true);
+        } catch (Exception ex) {
+            log.error("Failed to send staff activation email to [{}] via SMTP: {}. Falling back to console.", toEmail, ex.getMessage());
+            log.info("================================================================================");
+            log.info("[STAFF ACTIVATION DISPATCH (FALLBACK)] Account activation for [{}] ({}) at [{}]", toEmail, fullName, tenantName);
+            log.info("                                       Activation Link: [{}]", activationLink);
+            log.info("================================================================================");
+            return CompletableFuture.completedFuture(false);
+        }
+    }
+
+    /**
      * Sends an email confirming receipt of a tenant registration application (REQ-TNT-05).
      *
      * @param toEmail    applicant email address
@@ -398,6 +434,23 @@ public class EmailService {
             return rendered;
         }
         return "<p>Xin chào " + email + ", cơ sở " + facility + " đã được tạo. Vui lòng kích hoạt tài khoản tại: <a href=\"" + link + "\">" + link + "</a></p>";
+    }
+
+    private String buildStaffActivationHtmlTemplate(String email, String fullName, String tenantName, String activationLink) {
+        String facility = (tenantName != null && !tenantName.isBlank()) ? tenantName : "NextTurn";
+        String name = (fullName != null && !fullName.isBlank()) ? fullName : email;
+        String link = (activationLink != null && !activationLink.isBlank()) ? activationLink : "#";
+        Map<String, String> variables = Map.of(
+                "email", email != null ? email : "",
+                "fullName", name,
+                "tenantName", facility,
+                "activationLink", link
+        );
+        String rendered = loadTemplate("templates/email/staff-activation.html", variables);
+        if (!rendered.isBlank()) {
+            return rendered;
+        }
+        return "<p>Xin chào " + name + ", bạn đã được thêm vào hệ thống nhân sự tại " + facility + ". Vui lòng thiết lập mật khẩu ban đầu và kích hoạt tài khoản tại: <a href=\"" + link + "\">" + link + "</a></p>";
     }
 
     private String buildTenantRegistrationReceivedHtmlTemplate(String email, String tenantName, String tenantCode) {

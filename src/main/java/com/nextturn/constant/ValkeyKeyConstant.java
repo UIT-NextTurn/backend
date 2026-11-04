@@ -127,4 +127,22 @@ public final class ValkeyKeyConstant {
     public static String tenantServicesKey(String tenantCode) {
         return TENANT_SERVICES_PREFIX + (tenantCode != null ? tenantCode.trim().toLowerCase() : "");
     }
+
+    /**
+     * Key prefix for staff assigned to a specific service.
+     */
+    public static final String TENANT_SERVICE_STAFF_PREFIX = "nextturn:tenant:service_staff:";
+
+    /**
+     * Formats the Redis key for caching assigned staff members for a specific service.
+     *
+     * @param tenantCode tenant code
+     * @param serviceId service unique ID
+     * @return cache key
+     */
+    public static String tenantServiceStaffKey(String tenantCode, String serviceId) {
+        String cleanCode = tenantCode != null ? tenantCode.trim().toLowerCase() : "";
+        String cleanService = serviceId != null ? serviceId.trim() : "";
+        return TENANT_SERVICE_STAFF_PREFIX + cleanCode + ":" + cleanService;
+    }
 }
