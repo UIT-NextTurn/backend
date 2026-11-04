@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nextturn.constant.ValkeyKeyConstant;
 import com.nextturn.dto.service.ServiceResponse;
+import com.nextturn.dto.calendar.CalendarSettingsResponse;
+import com.nextturn.dto.calendar.TimeSlotResponse;
 import com.nextturn.dto.tenant.TenantResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,6 +14,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -228,6 +231,146 @@ public class TenantCacheService {
             }
         } catch (Exception ex) {
             log.trace("Cache write error for count key [{}]: {}", key, ex.getMessage());
+        }
+    }
+
+    /**
+     * Caches available booking time slots in Valkey for a specific service and date.
+     *
+     * @param tenantCode active facility identifier
+     * @param serviceId service UUID
+     * @param workDate scheduled work date
+     * @param slots list of available slot responses
+     */
+    public void cacheTenantSlots(String tenantCode, String serviceId, LocalDate workDate, List<TimeSlotResponse> slots) {
+        if (redisTemplate == null || tenantCode == null || tenantCode.isBlank() || serviceId == null || workDate == null || slots == null) {
+            return;
+        }
+        try {
+            var ops = redisTemplate.opsForValue();
+            if (ops == null) {
+                return;
+            }
+            String key = ValkeyKeyConstant.tenantSlotsKey(tenantCode, serviceId, workDate);
+            String json = objectMapper.writeValueAsString(slots);
+            ops.set(key, json, Duration.ofHours(ValkeyKeyConstant.TENANT_PROFILE_TTL_HOURS));
+            log.debug("Cached {} time slots in Valkey for tenant [{}], service [{}], date [{}]: key [{}]", slots.size(), tenantCode, serviceId, workDate, key);
+        } catch (Exception ex) {
+            log.warn("Failed to cache time slots in Valkey for tenant [{}], service [{}], date [{}]: {}", tenantCode, serviceId, workDate, ex.getMessage());
+        }
+    }
+
+    /**
+     * Reads cached available booking time slots from Valkey for a specific service and date.
+     *
+     * @param tenantCode active facility identifier
+     * @param serviceId service UUID
+     * @param workDate scheduled work date
+     * @return list of cached time slot responses, or null if cache miss or error
+     */
+    public List<TimeSlotResponse> getCachedTenantSlots(String tenantCode, String serviceId, LocalDate workDate) {
+        if (redisTemplate == null || tenantCode == null || tenantCode.isBlank() || serviceId == null || workDate == null) {
+            return null;
+        }
+        try {
+            var ops = redisTemplate.opsForValue();
+            if (ops == null) {
+                return null;
+            }
+            String key = ValkeyKeyConstant.tenantSlotsKey(tenantCode, serviceId, workDate);
+            String json = ops.get(key);
+            if (json != null && !json.isBlank()) {
+                return objectMapper.readValue(json, new TypeReference<List<TimeSlotResponse>>() {});
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to read cached time slots from Valkey for tenant [{}], service [{}], date [{}]: {}", tenantCode, serviceId, workDate, ex.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Evicts cached booking time slots from Valkey for a specific service and date.
+     *
+     * @param tenantCode active facility identifier
+     * @param serviceId service UUID
+     * @param workDate scheduled work date
+     */
+    public void evictTenantSlots(String tenantCode, String serviceId, LocalDate workDate) {
+        if (redisTemplate != null && tenantCode != null && !tenantCode.isBlank() && serviceId != null && workDate != null) {
+            try {
+                String key = ValkeyKeyConstant.tenantSlotsKey(tenantCode, serviceId, workDate);
+                redisTemplate.delete(key);
+                log.debug("Evicted Valkey time slots cache for tenant [{}], service [{}], date [{}]: key [{}]", tenantCode, serviceId, workDate, key);
+            } catch (Exception ex) {
+                log.warn("Valkey time slots cache eviction failed for tenant [{}], service [{}], date [{}]: {}", tenantCode, serviceId, workDate, ex.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Caches facility-level calendar advance booking policies in Valkey.
+     *
+     * @param tenantCode active facility identifier
+     * @param settings settings response
+     */
+    public void cacheTenantCalendarSettings(String tenantCode, CalendarSettingsResponse settings) {
+        if (redisTemplate == null || tenantCode == null || tenantCode.isBlank() || settings == null) {
+            return;
+        }
+        try {
+            var ops = redisTemplate.opsForValue();
+            if (ops == null) {
+                return;
+            }
+            String key = ValkeyKeyConstant.tenantSettingsKey(tenantCode);
+            String json = objectMapper.writeValueAsString(settings);
+            ops.set(key, json, Duration.ofHours(ValkeyKeyConstant.TENANT_PROFILE_TTL_HOURS));
+            log.debug("Cached calendar settings in Valkey for tenant [{}]: key [{}]", tenantCode, key);
+        } catch (Exception ex) {
+            log.warn("Failed to cache calendar settings in Valkey for tenant [{}]: {}", tenantCode, ex.getMessage());
+        }
+    }
+
+    /**
+     * Reads cached facility-level calendar booking policies from Valkey.
+     *
+     * @param tenantCode active facility identifier
+     * @return cached settings response or null if cache miss
+     */
+    public CalendarSettingsResponse getCachedTenantCalendarSettings(String tenantCode) {
+        if (redisTemplate == null || tenantCode == null || tenantCode.isBlank()) {
+            return null;
+        }
+        try {
+            var ops = redisTemplate.opsForValue();
+            if (ops == null) {
+                return null;
+            }
+            String key = ValkeyKeyConstant.tenantSettingsKey(tenantCode);
+            String json = ops.get(key);
+            if (json != null && !json.isBlank()) {
+                return objectMapper.readValue(json, CalendarSettingsResponse.class);
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to read cached calendar settings from Valkey for tenant [{}]: {}", tenantCode, ex.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Evicts cached facility-level calendar booking policies from Valkey.
+     *
+     * @param tenantCode active facility identifier
+     */
+    public void evictTenantCalendarSettings(String tenantCode) {
+        if (redisTemplate != null && tenantCode != null && !tenantCode.isBlank()) {
+            try {
+                String key = ValkeyKeyConstant.tenantSettingsKey(tenantCode);
+                redisTemplate.delete(key);
+                log.debug("Evicted Valkey calendar settings cache for tenant [{}]: key [{}]", tenantCode, key);
+            } catch (Exception ex) {
+                log.warn("Valkey calendar settings cache eviction failed for tenant [{}]: {}", tenantCode, ex.getMessage());
+            }
         }
     }
 }

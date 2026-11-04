@@ -145,4 +145,58 @@ public final class ValkeyKeyConstant {
         String cleanService = serviceId != null ? serviceId.trim() : "";
         return TENANT_SERVICE_STAFF_PREFIX + cleanCode + ":" + cleanService;
     }
+
+    /**
+     * Key prefix for tenant generated appointment booking time slots.
+     */
+    public static final String TENANT_SLOTS_PREFIX = "nextturn:tenant:slots:";
+
+    /**
+     * Formats the Redis key for caching available time slots for a service on a given date.
+     *
+     * @param tenantCode tenant code
+     * @param serviceId service unique ID
+     * @param workDate scheduled work date
+     * @return cache key
+     */
+    public static String tenantSlotsKey(String tenantCode, String serviceId, java.time.LocalDate workDate) {
+        String cleanCode = tenantCode != null ? tenantCode.trim().toLowerCase() : "";
+        String cleanService = serviceId != null ? serviceId.trim() : "";
+        String dateStr = workDate != null ? workDate.toString() : "";
+        return TENANT_SLOTS_PREFIX + cleanCode + ":" + cleanService + ":" + dateStr;
+    }
+
+    /**
+     * Key prefix for distributed locks on appointment booking time slots.
+     */
+    public static final String SLOT_LOCK_PREFIX = "nextturn:lock:slot:";
+
+    /**
+     * Formats the Redis key for distributed locking during slot holding.
+     *
+     * @param tenantCode tenant code
+     * @param slotId time slot UUID
+     * @return distributed lock key
+     */
+    public static String slotLockKey(String tenantCode, String slotId) {
+        String cleanCode = tenantCode != null ? tenantCode.trim().toLowerCase() : "";
+        String cleanSlot = slotId != null ? slotId.trim() : "";
+        return SLOT_LOCK_PREFIX + cleanCode + ":" + cleanSlot;
+    }
+
+    /**
+     * Key prefix for tenant calendar advance booking settings cache.
+     */
+    public static final String TENANT_SETTINGS_PREFIX = "nextturn:tenant:settings:";
+
+    /**
+     * Formats the Redis key for caching facility-level booking policies.
+     *
+     * @param tenantCode tenant code
+     * @return cache key
+     */
+    public static String tenantSettingsKey(String tenantCode) {
+        String cleanCode = tenantCode != null ? tenantCode.trim().toLowerCase() : "";
+        return TENANT_SETTINGS_PREFIX + cleanCode;
+    }
 }
