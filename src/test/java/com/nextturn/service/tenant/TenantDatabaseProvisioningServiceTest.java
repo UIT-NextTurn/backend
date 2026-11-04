@@ -2,6 +2,7 @@ package com.nextturn.service.tenant;
 
 import com.nextturn.exception.tenant.TenantErrorCode;
 import com.nextturn.exception.tenant.TenantException;
+import com.nextturn.service.tenant.impl.TenantDatabaseProvisioningServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -40,11 +41,11 @@ class TenantDatabaseProvisioningServiceTest {
     @Mock
     private ResultSet resultSet;
 
-    private TenantDatabaseProvisioningService service;
+    private TenantDatabaseProvisioningServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new TenantDatabaseProvisioningService(masterDataSource, masterDataSource);
+        service = new TenantDatabaseProvisioningServiceImpl(masterDataSource, masterDataSource);
     }
 
     @Test
@@ -98,7 +99,7 @@ class TenantDatabaseProvisioningServiceTest {
     @Test
     @DisplayName("tenantDatabaseExists: returns false when masterDataSource is null")
     void tenantDatabaseExists_nullDataSource() {
-        TenantDatabaseProvisioningService serviceWithoutDs = new TenantDatabaseProvisioningService(null, null);
+        TenantDatabaseProvisioningService serviceWithoutDs = new TenantDatabaseProvisioningServiceImpl(null, null);
         assertThat(serviceWithoutDs.tenantDatabaseExists("bv-tam-duc")).isFalse();
     }
 }

@@ -6,6 +6,7 @@ import com.nextturn.dto.service.ServiceResponse;
 import com.nextturn.dto.tenant.TenantResponse;
 import com.nextturn.enums.ServiceStatus;
 import com.nextturn.enums.TenantStatus;
+import com.nextturn.service.tenant.impl.TenantCacheServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,11 +37,11 @@ class TenantCacheServiceTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
-    private TenantCacheService cacheService;
+    private TenantCacheServiceImpl cacheService;
 
     @BeforeEach
     void setUp() {
-        cacheService = new TenantCacheService(redisTemplate, objectMapper);
+        cacheService = new TenantCacheServiceImpl(redisTemplate, objectMapper);
     }
 
     @Test

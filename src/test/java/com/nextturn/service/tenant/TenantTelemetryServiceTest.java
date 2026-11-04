@@ -3,6 +3,7 @@ package com.nextturn.service.tenant;
 import com.nextturn.constant.ValkeyKeyConstant;
 import com.nextturn.enums.StaffStatus;
 import com.nextturn.repository.staff.TenantStaffRepository;
+import com.nextturn.service.tenant.impl.TenantTelemetryServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,11 +32,11 @@ class TenantTelemetryServiceTest {
     @Mock
     private DataSource dataSource;
 
-    private TenantTelemetryService telemetryService;
+    private TenantTelemetryServiceImpl telemetryService;
 
     @BeforeEach
     void setUp() {
-        telemetryService = new TenantTelemetryService(cacheService, staffRepository, dataSource);
+        telemetryService = new TenantTelemetryServiceImpl(cacheService, staffRepository, dataSource);
     }
 
     @Test
