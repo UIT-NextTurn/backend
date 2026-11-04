@@ -19,7 +19,7 @@ import com.nextturn.exception.tenant.TenantException;
 import com.nextturn.infrastructure.security.keycloak.KeycloakProperties;
 import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
 import com.nextturn.repository.auth.CentralTenantRepository;
-import com.nextturn.repository.auth.TenantStaffRepository;
+import com.nextturn.repository.staff.TenantStaffRepository;
 import com.nextturn.repository.tenant.CentralTenantQuotaRepository;
 import com.nextturn.service.notification.EmailService;
 import com.nextturn.dto.tenant.TenantMonitoringResponse;

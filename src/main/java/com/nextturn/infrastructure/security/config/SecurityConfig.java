@@ -66,6 +66,7 @@ public class SecurityConfig implements WebMvcConfigurer {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                         // 1. Authenticated Auth endpoints for Tenant Admin
+                        .requestMatchers("/api/v1/staff", "/api/v1/staff/**").hasRole("TENANT_ADMIN")
                         .requestMatchers("/api/v1/auth/staff", "/api/v1/auth/staff/**").hasRole("TENANT_ADMIN")
                         .requestMatchers("/api/v1/auth/idp", "/api/v1/auth/idp/**").hasRole("TENANT_ADMIN")
                         .requestMatchers("/api/v1/services", "/api/v1/services/**").hasRole("TENANT_ADMIN")
@@ -122,7 +123,7 @@ public class SecurityConfig implements WebMvcConfigurer {
         if (uri == null) {
             return false;
         }
-        if (uri.startsWith("/api/v1/auth/staff") || uri.startsWith("/api/v1/auth/idp")) {
+        if (uri.startsWith("/api/v1/staff") || uri.startsWith("/api/v1/auth/staff") || uri.startsWith("/api/v1/auth/idp")) {
             return false;
         }
         return uri.startsWith("/api/v1/public")

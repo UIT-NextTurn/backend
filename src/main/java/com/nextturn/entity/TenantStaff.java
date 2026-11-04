@@ -21,8 +21,8 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.LocalDateTime;
 
 /**
- * Entity mapping to {@code tenant__staffs} table in the tenant-isolated schema ({@code tenant__{tenantCode}}).
- * Represents internal healthcare staff, counter operators, and clinic administrators.
+ * Entity mapping to {@code tenant__staffs} table in the tenant-isolated schema ({@code tenant_{tenantCode}}).
+ * Represents encounter staff, counter operators, specialists, and facility administrators.
  */
 @Entity
 @Table(

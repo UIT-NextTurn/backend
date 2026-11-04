@@ -126,6 +126,24 @@ public class TenantCacheService {
     }
 
     /**
+     * Invalidate and evict cached staff assigned to a specific service.
+     *
+     * @param tenantCode tenant code
+     * @param serviceId service unique ID
+     */
+    public void evictServiceStaffCache(String tenantCode, String serviceId) {
+        if (redisTemplate != null && tenantCode != null && !tenantCode.isBlank() && serviceId != null && !serviceId.isBlank()) {
+            try {
+                String key = ValkeyKeyConstant.tenantServiceStaffKey(tenantCode, serviceId);
+                redisTemplate.delete(key);
+                log.debug("Evicted service staff cache for tenant [{}] service [{}]: key [{}]", tenantCode, serviceId, key);
+            } catch (Exception ex) {
+                log.warn("Valkey service staff cache eviction failed for tenant [{}] service [{}]: {}", tenantCode, serviceId, ex.getMessage());
+            }
+        }
+    }
+
+    /**
      * Caches active services list in Valkey for a given tenant.
      *
      * @param tenantCode tenant code

@@ -4,7 +4,7 @@ import com.nextturn.controller.HealthCheckController;
 import com.nextturn.controller.auth.CustomerAuthController;
 import com.nextturn.controller.auth.TenantAuthController;
 import com.nextturn.controller.auth.TenantIdpController;
-import com.nextturn.controller.auth.TenantStaffController;
+import com.nextturn.controller.staff.TenantStaffController;
 import com.nextturn.controller.tenant.TenantManagementController;
 import com.nextturn.infrastructure.security.annotation.RequireTenantAdmin;
 import io.swagger.v3.oas.models.Components;

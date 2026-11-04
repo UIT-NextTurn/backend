@@ -2,7 +2,7 @@ package com.nextturn.constant;
 
 /**
  * Standard constants for tenant staff identification, badge code formats, and initial seeding.
- * Compliant with REQ-STAFF-01 specification (STAFF-xxxx format).
+ * Follows standard STAFF-xxxx format.
  */
 public final class StaffConstant {
 
@@ -11,7 +11,7 @@ public final class StaffConstant {
     }
 
     /**
-     * Standard prefix for staff member identifier badge code (REQ-STAFF-01).
+     * Standard prefix for staff member identifier badge code.
      * Format: STAFF-xxxx (e.g. STAFF-0001, STAFF-000123).
      */
     public static final String STAFF_CODE_PREFIX = "STAFF-";
