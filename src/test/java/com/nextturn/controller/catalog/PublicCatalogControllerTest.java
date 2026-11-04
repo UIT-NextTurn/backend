@@ -12,7 +12,7 @@ import com.nextturn.infrastructure.security.keycloak.KeycloakJwtAuthenticationCo
 import com.nextturn.infrastructure.security.keycloak.KeycloakJwtGrantedAuthoritiesConverter;
 import com.nextturn.infrastructure.security.principal.CurrentUserArgumentResolver;
 import com.nextturn.infrastructure.security.service.SecurityContextHelper;
-import com.nextturn.service.catalog.TenantCatalogService;
+import com.nextturn.service.service.TenantServiceService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,7 +53,7 @@ class PublicCatalogControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private TenantCatalogService catalogService;
+    private TenantServiceService catalogService;
 
     @Test
     @DisplayName("GET /api/v1/public/services: should allow unauthenticated access for customer pre-booking")

@@ -32,6 +32,8 @@ public interface TenantServiceRepository extends JpaRepository<TenantService, St
 
     boolean existsByServiceCodeAndIsDeletedFalse(String serviceCode);
 
+    boolean existsByServiceCode(String serviceCode);
+
     Page<TenantService> findAllByIsDeletedFalse(Pageable pageable);
 
     Page<TenantService> findAllByStatusAndIsDeletedFalse(ServiceStatus status, Pageable pageable);

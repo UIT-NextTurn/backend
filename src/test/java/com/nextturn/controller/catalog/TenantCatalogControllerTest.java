@@ -17,7 +17,7 @@ import com.nextturn.infrastructure.security.keycloak.KeycloakJwtAuthenticationCo
 import com.nextturn.infrastructure.security.keycloak.KeycloakJwtGrantedAuthoritiesConverter;
 import com.nextturn.infrastructure.security.principal.CurrentUserArgumentResolver;
 import com.nextturn.infrastructure.security.service.SecurityContextHelper;
-import com.nextturn.service.catalog.TenantCatalogService;
+import com.nextturn.service.service.TenantServiceService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -75,7 +75,7 @@ class TenantCatalogControllerTest {
     private KeycloakJwtAuthenticationConverter authenticationConverter;
 
     @MockitoBean
-    private TenantCatalogService catalogService;
+    private TenantServiceService catalogService;
 
     @Test
     @DisplayName("POST /api/v1/services: should create service and return 201 Created for TENANT_ADMIN")

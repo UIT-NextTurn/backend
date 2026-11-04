@@ -5,7 +5,7 @@ import com.nextturn.constant.TenantHeaderConstant;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.service.ServiceResponse;
 import com.nextturn.enums.ServiceStatus;
-import com.nextturn.service.catalog.TenantCatalogService;
+import com.nextturn.service.service.TenantServiceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,9 +30,9 @@ import java.util.List;
 @Tag(name = "Public Service Catalog", description = "Public / Customer endpoints for browsing services and online appointment scheduling")
 public class PublicCatalogController {
 
-    private final TenantCatalogService catalogService;
+    private final TenantServiceService catalogService;
 
-    public PublicCatalogController(TenantCatalogService catalogService) {
+    public PublicCatalogController(TenantServiceService catalogService) {
         this.catalogService = catalogService;
     }
 
