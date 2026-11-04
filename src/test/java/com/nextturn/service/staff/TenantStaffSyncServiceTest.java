@@ -5,6 +5,7 @@ import com.nextturn.enums.StaffRole;
 import com.nextturn.enums.StaffStatus;
 import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.repository.staff.TenantStaffRepository;
+import com.nextturn.service.staff.impl.TenantStaffSyncServiceImpl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,7 +34,7 @@ class TenantStaffSyncServiceTest {
     private TenantStaffCodeGenerator codeGenerator;
 
     @InjectMocks
-    private TenantStaffSyncService syncService;
+    private TenantStaffSyncServiceImpl syncService;
 
     @AfterEach
     void tearDown() {

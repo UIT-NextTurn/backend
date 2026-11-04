@@ -17,6 +17,7 @@ import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.repository.service.TenantServiceRepository;
 import com.nextturn.repository.staff.TenantStaffRepository;
 import com.nextturn.repository.staff.TenantStaffServiceRepository;
+import com.nextturn.service.staff.impl.TenantStaffAssignmentServiceImpl;
 import com.nextturn.service.tenant.TenantCacheService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,7 +59,7 @@ class TenantStaffAssignmentServiceTest {
     private TenantCacheService tenantCacheService;
 
     @InjectMocks
-    private TenantStaffAssignmentService assignmentService;
+    private TenantStaffAssignmentServiceImpl assignmentService;
 
     private TenantStaff activeStaff;
 

@@ -1,6 +1,7 @@
 package com.nextturn.service.staff;
 
 import com.nextturn.repository.staff.TenantStaffRepository;
+import com.nextturn.service.staff.impl.TenantStaffCodeGeneratorImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,7 +21,7 @@ class TenantStaffCodeGeneratorTest {
     private TenantStaffRepository staffRepository;
 
     @InjectMocks
-    private TenantStaffCodeGenerator codeGenerator;
+    private TenantStaffCodeGeneratorImpl codeGenerator;
 
     @Test
     @DisplayName("Should generate STAFF-0001 when no staff records exist")

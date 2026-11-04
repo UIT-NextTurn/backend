@@ -22,6 +22,7 @@ import com.nextturn.repository.auth.CentralTenantRepository;
 import com.nextturn.repository.staff.TenantStaffRepository;
 import com.nextturn.repository.tenant.CentralTenantQuotaRepository;
 import com.nextturn.service.notification.EmailService;
+import com.nextturn.service.tenant.impl.TenantServiceImpl;
 import com.nextturn.dto.tenant.TenantMonitoringResponse;
 import com.nextturn.dto.tenant.UpdateTenantStatusRequest;
 import org.junit.jupiter.api.BeforeEach;
@@ -88,7 +89,7 @@ class TenantServiceTest {
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @InjectMocks
-    private TenantService tenantService;
+    private TenantServiceImpl tenantService;
 
     private CreateTenantRequest validCreateRequest;
     private CentralTenant activeTenant;

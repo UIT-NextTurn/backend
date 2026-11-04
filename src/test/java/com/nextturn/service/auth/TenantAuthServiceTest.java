@@ -12,6 +12,7 @@ import com.nextturn.exception.auth.AuthException;
 import com.nextturn.helper.KeycloakAuthHelper;
 import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
 import com.nextturn.repository.auth.CentralTenantRepository;
+import com.nextturn.service.auth.impl.TenantAuthServiceImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -54,7 +55,7 @@ class TenantAuthServiceTest {
     private KeycloakTokenService keycloakTokenService;
 
     @InjectMocks
-    private TenantAuthService service;
+    private TenantAuthServiceImpl service;
 
     @Test
     @DisplayName("Should successfully authenticate active tenant, invoke helper for login URL, and map response")

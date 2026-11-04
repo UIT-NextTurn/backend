@@ -9,6 +9,7 @@ import com.nextturn.exception.service.ServiceErrorCode;
 import com.nextturn.exception.service.ServiceException;
 import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.repository.service.TenantServiceRepository;
+import com.nextturn.service.service.impl.TenantServiceServiceImpl;
 import com.nextturn.service.tenant.TenantCacheService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,7 +50,7 @@ class TenantServiceServiceTest {
     private TenantCacheService tenantCacheService;
 
     @InjectMocks
-    private TenantServiceService serviceService;
+    private TenantServiceServiceImpl serviceService;
 
     @BeforeEach
     void setUp() {
