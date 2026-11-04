@@ -1,6 +1,7 @@
 package com.nextturn.service.service;
 
 import com.nextturn.repository.service.TenantServiceRepository;
+import com.nextturn.service.service.impl.TenantServiceCodeGeneratorImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,7 +21,7 @@ class TenantServiceCodeGeneratorTest {
     private TenantServiceRepository serviceRepository;
 
     @InjectMocks
-    private TenantServiceCodeGenerator codeGenerator;
+    private TenantServiceCodeGeneratorImpl codeGenerator;
 
     @Test
     @DisplayName("Should generate SVC-0001 when catalog has no existing services")
