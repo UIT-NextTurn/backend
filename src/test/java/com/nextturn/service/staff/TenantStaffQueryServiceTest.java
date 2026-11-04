@@ -11,6 +11,7 @@ import com.nextturn.exception.staff.StaffException;
 import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.repository.staff.TenantStaffRepository;
 import com.nextturn.repository.staff.TenantStaffServiceRepository;
+import com.nextturn.service.staff.impl.TenantStaffQueryServiceImpl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -44,7 +45,7 @@ class TenantStaffQueryServiceTest {
     private TenantStaffServiceRepository staffServiceRepository;
 
     @InjectMocks
-    private TenantStaffQueryService queryService;
+    private TenantStaffQueryServiceImpl queryService;
 
     private TenantStaff sampleStaff;
 

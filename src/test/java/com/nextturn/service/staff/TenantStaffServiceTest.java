@@ -22,6 +22,7 @@ import com.nextturn.repository.service.TenantServiceRepository;
 import com.nextturn.repository.staff.TenantStaffRepository;
 import com.nextturn.repository.staff.TenantStaffServiceRepository;
 import com.nextturn.service.notification.EmailService;
+import com.nextturn.service.staff.impl.TenantStaffServiceImpl;
 import com.nextturn.service.tenant.TenantCacheService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -78,7 +79,7 @@ class TenantStaffServiceTest {
     private EmailService emailService;
 
     @InjectMocks
-    private TenantStaffService staffService;
+    private TenantStaffServiceImpl staffService;
 
     private CentralTenant mockTenant;
 

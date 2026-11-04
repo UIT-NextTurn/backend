@@ -3,6 +3,7 @@ package com.nextturn.service.staff;
 import com.nextturn.exception.staff.StaffErrorCode;
 import com.nextturn.exception.staff.StaffException;
 import com.nextturn.repository.staff.TenantStaffRepository;
+import com.nextturn.service.staff.impl.TenantStaffGuardServiceImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,7 +31,7 @@ class TenantStaffGuardServiceTest {
     private TenantStaffRepository staffRepository;
 
     @InjectMocks
-    private TenantStaffGuardService guardService;
+    private TenantStaffGuardServiceImpl guardService;
 
     @Test
     @DisplayName("Should pass deactivation check when staff has no upcoming appointments and no shifts")
