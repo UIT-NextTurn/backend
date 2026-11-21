@@ -61,7 +61,7 @@ class TenantCalendarValidatorTest {
                 .fullName("Nguyễn Văn A")
                 .email("staff.a@nextturn.com")
                 .phoneNumber("0912345678")
-                .role(StaffRole.COUNTER)
+                .role(StaffRole.SPECIALIST)
                 .status(StaffStatus.ACTIVE)
                 .build();
 
@@ -109,6 +109,22 @@ class TenantCalendarValidatorTest {
         assertThatThrownBy(() -> validator.validateStaff("staff-uuid-1"))
                 .isInstanceOf(CalendarException.class)
                 .hasFieldOrPropertyWithValue("code", CalendarErrorCode.STAFF_NOT_ACTIVE.code());
+    }
+
+    @Test
+    @DisplayName("validateStaff: should throw STAFF_NOT_SPECIALIST when staff role is COUNTER or ADMIN")
+    void validateStaff_NotSpecialist() {
+        staff.setRole(StaffRole.COUNTER);
+        when(staffRepository.findByIdAndIsDeletedFalse("staff-uuid-1")).thenReturn(Optional.of(staff));
+
+        assertThatThrownBy(() -> validator.validateStaff("staff-uuid-1"))
+                .isInstanceOf(CalendarException.class)
+                .hasFieldOrPropertyWithValue("code", CalendarErrorCode.STAFF_NOT_SPECIALIST.code());
+
+        staff.setRole(StaffRole.ADMIN);
+        assertThatThrownBy(() -> validator.validateStaff("staff-uuid-1"))
+                .isInstanceOf(CalendarException.class)
+                .hasFieldOrPropertyWithValue("code", CalendarErrorCode.STAFF_NOT_SPECIALIST.code());
     }
 
     @Test

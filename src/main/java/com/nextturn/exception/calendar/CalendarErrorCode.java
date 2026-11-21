@@ -108,6 +108,11 @@ public enum CalendarErrorCode implements BaseErrorCode {
             "CAL_019",
             "Thông số chính sách đặt hẹn không hợp lệ.",
             HttpStatus.BAD_REQUEST
+    ),
+    STAFF_NOT_SPECIALIST(
+            "CAL_020",
+            "Chỉ nhân viên chuyên môn (SPECIALIST) mới được phân bổ ca làm việc phục vụ dịch vụ (không phân ca cho nhân viên quầy hoặc quản trị viên).",
+            HttpStatus.BAD_REQUEST
     );
 
     private final String code;
