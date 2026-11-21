@@ -4,6 +4,7 @@ import com.nextturn.dto.auth.AuthTokenResponse;
 import com.nextturn.dto.auth.CustomerOtpResponse;
 import com.nextturn.dto.auth.CustomerSendOtpRequest;
 import com.nextturn.dto.auth.CustomerVerifyOtpRequest;
+import com.nextturn.dto.auth.CustomerWidgetSsoRequest;
 import com.nextturn.dto.auth.LogoutRequest;
 import com.nextturn.entity.CentralAllowedDomain;
 import com.nextturn.entity.CentralTenant;
@@ -30,10 +31,17 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Base64;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 /**
  * Service managing passwordless authentication lifecycle for Public Customers (END_USER)
@@ -305,6 +313,215 @@ public class CustomerAuthServiceImpl extends BaseService implements CustomerAuth
 
         // 4. Issue centralized Keycloak tokens with 30-day session lifetime (REQ-AUTH-07)
         return keycloakTokenService.issueCustomerTokens(identityContact, user.getId());
+    }
+
+    /**
+     * Authenticates a customer directly from an enterprise host website into the embedded widget
+     * by verifying an HMAC-SHA256 digital signature and 5-minute timestamp window, bypassing OTP (REQ-AUTH-08).
+     *
+     * @param request          widget SSO payload containing customer identity, timestamp, and signature
+     * @param widgetKeyHeader  optional X-Widget-Key header
+     * @param originHeader     optional Origin header
+     * @param refererHeader    optional Referer header
+     * @return {@link AuthTokenResponse} containing 30-day customer session tokens
+     */
+    @Override
+    public AuthTokenResponse authenticateWidgetSso(
+            CustomerWidgetSsoRequest request,
+            String widgetKeyHeader,
+            String originHeader,
+            String refererHeader
+    ) {
+        if (request == null) {
+            throw new AuthException(AuthErrorCode.INVALID_CREDENTIALS, "Request body is required");
+        }
+
+        String effectiveWidgetKey = (request.getWidgetApiKey() != null && !request.getWidgetApiKey().isBlank())
+                ? request.getWidgetApiKey().trim()
+                : (widgetKeyHeader != null ? widgetKeyHeader.trim() : null);
+
+        if (effectiveWidgetKey == null || effectiveWidgetKey.isBlank()) {
+            throw new AuthException(AuthErrorCode.WIDGET_KEY_INVALID, "Public widget integration key is required");
+        }
+
+        String email = (request.getEmail() != null && !request.getEmail().isBlank())
+                ? request.getEmail().trim().toLowerCase()
+                : null;
+        String phone = (request.getPhoneNumber() != null && !request.getPhoneNumber().isBlank())
+                ? request.getPhoneNumber().trim()
+                : null;
+
+        if (email == null && phone == null) {
+            throw new AuthException(AuthErrorCode.INVALID_CREDENTIALS, "Customer email or phone number is required");
+        }
+
+        // 1. Validate widget integration key, active facility status, and origin domain whitelist
+        if (centralTenantRepository == null) {
+            throw new AuthException(AuthErrorCode.WIDGET_KEY_INVALID, "Tenant repository unavailable");
+        }
+
+        CentralTenant tenant = centralTenantRepository.findByWidgetApiKeyAndIsDeletedFalse(effectiveWidgetKey)
+                .orElseThrow(() -> new AuthException(AuthErrorCode.WIDGET_KEY_INVALID, "Invalid or unrecognized widget integration key"));
+
+        if (tenant.getStatus() != TenantStatus.ACTIVE) {
+            throw new AuthException(AuthErrorCode.TENANT_INACTIVE, "Tenant facility is not active. Status: " + tenant.getStatus());
+        }
+
+        if (originHeader != null || refererHeader != null || (request.getOriginDomain() != null && !request.getOriginDomain().isBlank())) {
+            validateWidgetIntegration(effectiveWidgetKey, originHeader, refererHeader, request.getOriginDomain());
+        }
+
+        // 2. Verify timestamp within 5-minute (300 seconds) window to prevent replay attacks (REQ-AUTH-08 Step 4)
+        if (request.getTimestamp() == null) {
+            throw new AuthException(AuthErrorCode.WIDGET_SIGNATURE_EXPIRED, "Timestamp is required for widget signature verification");
+        }
+        long rawTimestamp = request.getTimestamp();
+        // Support both Unix epoch seconds and epoch milliseconds
+        long requestEpochSeconds = (rawTimestamp > 100_000_000_000L) ? (rawTimestamp / 1000L) : rawTimestamp;
+        long currentEpochSeconds = Instant.now().getEpochSecond();
+        if (Math.abs(currentEpochSeconds - requestEpochSeconds) > 300L) {
+            log.warn("Widget SSO signature expired for tenant [{}]: timestamp [{}] vs server [{}]",
+                    tenant.getTenantCode(), requestEpochSeconds, currentEpochSeconds);
+            throw new AuthException(
+                    AuthErrorCode.WIDGET_SIGNATURE_EXPIRED,
+                    "Phiên làm việc đã hết hạn. Vui lòng tải lại trang hoặc xác thực bằng mã OTP."
+            );
+        }
+
+        // 3. Recompute HMAC-SHA256 signature using tenant's widget_secret_key and compare in constant time
+        String secretKey = tenant.getWidgetSecretKey();
+        if (secretKey == null || secretKey.isBlank() || request.getSignature() == null || request.getSignature().isBlank()) {
+            throw new AuthException(
+                    AuthErrorCode.WIDGET_SIGNATURE_INVALID,
+                    "Chữ ký bảo mật không hợp lệ hoặc dữ liệu đã bị sửa đổi. Vui lòng xác thực bằng mã OTP."
+            );
+        }
+
+        String cleanMemberId = request.getExternalMemberId() != null ? request.getExternalMemberId().trim() : "";
+        String cleanFullName = request.getFullName() != null ? request.getFullName().trim() : "";
+        String canonicalPayload = buildCanonicalWidgetPayload(
+                effectiveWidgetKey,
+                cleanMemberId,
+                email != null ? email : "",
+                phone != null ? phone : "",
+                cleanFullName,
+                rawTimestamp
+        );
+
+        if (!verifyHmacSha256Signature(canonicalPayload, secretKey.trim(), request.getSignature().trim())) {
+            log.warn("Widget SSO signature mismatch for tenant [{}] and member [{}]", tenant.getTenantCode(), cleanMemberId);
+            throw new AuthException(
+                    AuthErrorCode.WIDGET_SIGNATURE_INVALID,
+                    "Chữ ký bảo mật không hợp lệ hoặc dữ liệu đã bị sửa đổi. Vui lòng xác thực bằng mã OTP."
+            );
+        }
+
+        // 4. Resolve or create central customer record and update profile attributes (REQ-AUTH-08 Step 5)
+        CentralUser user = executeInTransaction(status ->
+                resolveOrUpdateWidgetCustomer(email, phone, cleanFullName)
+        );
+
+        // 5. Synchronize with Keycloak and issue 30-day customer session tokens without OTP
+        String identityContact = user.getEmail() != null ? user.getEmail() : user.getPhoneNumber();
+        keycloakTokenService.syncCustomerIdentity(identityContact, user.getFullName());
+        return keycloakTokenService.issueCustomerTokens(identityContact, user.getId());
+    }
+
+    @Override
+    public AuthTokenResponse authenticateWidgetSso(CustomerWidgetSsoRequest request) {
+        return authenticateWidgetSso(request, null, null, null);
+    }
+
+    public static String buildCanonicalWidgetPayload(
+            String widgetApiKey,
+            String externalMemberId,
+            String email,
+            String phoneNumber,
+            String fullName,
+            long timestamp
+    ) {
+        return (widgetApiKey != null ? widgetApiKey : "") + "|"
+                + (externalMemberId != null ? externalMemberId : "") + "|"
+                + (email != null ? email : "") + "|"
+                + (phoneNumber != null ? phoneNumber : "") + "|"
+                + (fullName != null ? fullName : "") + "|"
+                + timestamp;
+    }
+
+    public static String computeHmacSha256Hex(String payload, String secretKey) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            SecretKeySpec keySpec = new SecretKeySpec(secretKey.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+            mac.init(keySpec);
+            byte[] rawHmac = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(rawHmac);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to compute HMAC-SHA256 signature", e);
+        }
+    }
+
+    private boolean verifyHmacSha256Signature(String payload, String secretKey, String providedSignature) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            SecretKeySpec keySpec = new SecretKeySpec(secretKey.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+            mac.init(keySpec);
+            byte[] rawHmac = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+
+            String expectedHex = HexFormat.of().formatHex(rawHmac);
+            String expectedBase64 = Base64.getEncoder().encodeToString(rawHmac);
+
+            byte[] providedBytes = providedSignature.toLowerCase().getBytes(StandardCharsets.UTF_8);
+            byte[] expectedHexBytes = expectedHex.toLowerCase().getBytes(StandardCharsets.UTF_8);
+            if (MessageDigest.isEqual(providedBytes, expectedHexBytes)) {
+                return true;
+            }
+            return MessageDigest.isEqual(
+                    providedSignature.getBytes(StandardCharsets.UTF_8),
+                    expectedBase64.getBytes(StandardCharsets.UTF_8)
+            );
+        } catch (Exception e) {
+            log.error("Error verifying HMAC-SHA256 signature: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    @Transactional
+    protected CentralUser resolveOrUpdateWidgetCustomer(String email, String phone, String fullName) {
+        Optional<CentralUser> existingOpt = Optional.empty();
+        if (email != null && !email.isBlank()) {
+            existingOpt = centralUserRepository.findByEmailIgnoreCaseAndIsDeletedFalse(email);
+        }
+        if (existingOpt.isEmpty() && phone != null && !phone.isBlank()) {
+            existingOpt = centralUserRepository.findByPhoneNumberAndIsDeletedFalse(phone);
+        }
+
+        if (existingOpt.isPresent()) {
+            CentralUser existing = existingOpt.get();
+            if (existing.getStatus() != UserStatus.ACTIVE) {
+                throw new AuthException(AuthErrorCode.USER_BLOCKED, "Account is suspended. Status: " + existing.getStatus());
+            }
+            if (fullName != null && !fullName.isBlank()) {
+                existing.setFullName(fullName);
+            }
+            if (email != null && !email.isBlank() && (existing.getEmail() == null || existing.getEmail().isBlank())) {
+                existing.setEmail(email);
+            }
+            if (phone != null && !phone.isBlank() && (existing.getPhoneNumber() == null || existing.getPhoneNumber().isBlank())) {
+                existing.setPhoneNumber(phone);
+            }
+            existing.setUpdatedAt(LocalDateTime.now());
+            return centralUserRepository.save(existing);
+        }
+
+        CentralUser newUser = CentralUser.builder()
+                .id(UUID.randomUUID().toString())
+                .email(email)
+                .phoneNumber(phone)
+                .fullName(fullName != null && !fullName.isBlank() ? fullName : (email != null ? extractDefaultName(email) : "Customer"))
+                .status(UserStatus.ACTIVE)
+                .isDeleted(false)
+                .build();
+        return centralUserRepository.save(newUser);
     }
 
     private Optional<CentralUser> findUserByContact(String contact) {

@@ -6,6 +6,7 @@ import com.nextturn.dto.auth.AuthTokenResponse;
 import com.nextturn.dto.auth.CustomerOtpResponse;
 import com.nextturn.dto.auth.CustomerSendOtpRequest;
 import com.nextturn.dto.auth.CustomerVerifyOtpRequest;
+import com.nextturn.dto.auth.CustomerWidgetSsoRequest;
 import com.nextturn.dto.auth.LogoutRequest;
 import com.nextturn.service.auth.CustomerAuthService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -119,6 +120,53 @@ public class CustomerAuthController {
     ) {
         AuthTokenResponse response = customerAuthService.verifyOtp(request);
         return ResponseEntity.ok(BaseResponse.ok("Customer authenticated successfully", response));
+    }
+
+    /**
+     * Authenticates a logged-in customer from an enterprise host website via HMAC-SHA256 signature,
+     * bypassing OTP verification (REQ-AUTH-08).
+     *
+     * @param request         widget SSO payload with user data, timestamp, and HMAC signature
+     * @param widgetKeyHeader optional X-Widget-Key header
+     * @param originHeader    optional Origin header
+     * @param refererHeader   optional Referer header
+     * @return {@link BaseResponse} containing {@link AuthTokenResponse}
+     */
+    @PostMapping(AuthEndpointConstant.WIDGET_SSO_VERIFY)
+    @Operation(
+            summary = "Inherit customer identity from host website via HMAC signature (REQ-AUTH-08)",
+            description = "Verifies the 5-minute timestamp window and HMAC-SHA256 signature computed with the facility's widget_secret_key. Automatically provisions/updates the customer profile and issues 30-day session tokens without OTP."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Widget customer identity verified and authenticated",
+                    content = @Content(schema = @Schema(implementation = BaseResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "Signature mismatch, tampered payload, or expired timestamp (> 5 minutes)",
+                    content = @Content(schema = @Schema(implementation = BaseResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "403",
+                    description = "Unauthorized origin domain, inactive facility, or blocked user account",
+                    content = @Content(schema = @Schema(implementation = BaseResponse.class))
+            )
+    })
+    public ResponseEntity<BaseResponse<AuthTokenResponse>> verifyWidgetSso(
+            @Valid @RequestBody CustomerWidgetSsoRequest request,
+            @RequestHeader(value = "X-Widget-Key", required = false) String widgetKeyHeader,
+            @RequestHeader(value = "Origin", required = false) String originHeader,
+            @RequestHeader(value = "Referer", required = false) String refererHeader
+    ) {
+        AuthTokenResponse response = customerAuthService.authenticateWidgetSso(
+                request,
+                widgetKeyHeader,
+                originHeader,
+                refererHeader
+        );
+        return ResponseEntity.ok(BaseResponse.ok("Customer identity inherited and authenticated successfully", response));
     }
 
     /**

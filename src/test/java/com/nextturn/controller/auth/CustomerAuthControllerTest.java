@@ -197,4 +197,40 @@ class CustomerAuthControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("Logged out successfully"));
     }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/customer/widget/sso - Should return 200 and session tokens when HMAC signature is valid (REQ-AUTH-08)")
+    void shouldVerifyWidgetSsoSuccessfully() throws Exception {
+        AuthTokenResponse mockResponse = AuthTokenResponse.builder()
+                .accessToken("mock-widget-sso-access-token")
+                .refreshToken("mock-widget-sso-refresh-token")
+                .userId("usr-sso-999")
+                .email("member@clinic.vn")
+                .roles(List.of(UserRole.END_USER_VALUE))
+                .primaryRole(UserRole.END_USER_VALUE)
+                .build();
+
+        when(customerAuthService.authenticateWidgetSso(any(), any(), any(), any()))
+                .thenReturn(mockResponse);
+
+        com.nextturn.dto.auth.CustomerWidgetSsoRequest request = com.nextturn.dto.auth.CustomerWidgetSsoRequest.builder()
+                .widgetApiKey("nt_pub_clinic123")
+                .externalMemberId("MEM-999")
+                .fullName("Nguyễn Văn A")
+                .email("member@clinic.vn")
+                .phoneNumber("0901234567")
+                .timestamp(1795250000L)
+                .signature("valid-hmac-signature")
+                .build();
+
+        mockMvc.perform(post("/api/v1/auth/customer/widget/sso")
+                        .header("X-Widget-Key", "nt_pub_clinic123")
+                        .header("Origin", "https://clinic.vn")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.accessToken").value("mock-widget-sso-access-token"))
+                .andExpect(jsonPath("$.data.userId").value("usr-sso-999"));
+    }
 }

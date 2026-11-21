@@ -457,4 +457,123 @@ class CustomerAuthServiceTest {
         assertThat(CustomerAuthService.isDomainWhitelisted("pkalpha.vn", (List<?>) null)).isFalse();
         assertThat(CustomerAuthService.isDomainWhitelisted("pkalpha.vn", List.of())).isFalse();
     }
+
+    @Test
+    @DisplayName("Should authenticate customer via Widget HMAC-SHA256 SSO without OTP when signature and timestamp are valid (REQ-AUTH-08)")
+    void shouldAuthenticateWidgetSsoWithValidSignature() {
+        String widgetKey = "nt_pub_clinic123";
+        String widgetSecret = "nt_sec_supersecret999";
+        long nowSeconds = java.time.Instant.now().getEpochSecond();
+
+        CentralTenant tenant = CentralTenant.builder()
+                .id("t-sso-01")
+                .tenantCode("clinic_alpha")
+                .status(TenantStatus.ACTIVE)
+                .widgetApiKey(widgetKey)
+                .widgetSecretKey(widgetSecret)
+                .build();
+
+        when(centralTenantRepository.findByWidgetApiKeyAndIsDeletedFalse(widgetKey))
+                .thenReturn(Optional.of(tenant));
+        when(centralUserRepository.findByEmailIgnoreCaseAndIsDeletedFalse("member@enterprise.vn"))
+                .thenReturn(Optional.empty());
+        when(centralUserRepository.save(any(CentralUser.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        AuthTokenResponse mockToken = AuthTokenResponse.builder()
+                .accessToken("jwt-widget-sso-token")
+                .refreshToken("jwt-widget-sso-refresh")
+                .refreshExpiresIn(2592000L)
+                .email("member@enterprise.vn")
+                .primaryRole(UserRole.END_USER_VALUE)
+                .build();
+        when(keycloakTokenService.issueCustomerTokens(eq("member@enterprise.vn"), any()))
+                .thenReturn(mockToken);
+
+        String payload = com.nextturn.service.auth.impl.CustomerAuthServiceImpl.buildCanonicalWidgetPayload(
+                widgetKey, "MEM-001", "member@enterprise.vn", "0909123456", "Nguyễn Văn Thành Viên", nowSeconds
+        );
+        String signature = com.nextturn.service.auth.impl.CustomerAuthServiceImpl.computeHmacSha256Hex(payload, widgetSecret);
+
+        com.nextturn.dto.auth.CustomerWidgetSsoRequest request = com.nextturn.dto.auth.CustomerWidgetSsoRequest.builder()
+                .widgetApiKey(widgetKey)
+                .externalMemberId("MEM-001")
+                .fullName("Nguyễn Văn Thành Viên")
+                .email("member@enterprise.vn")
+                .phoneNumber("0909123456")
+                .timestamp(nowSeconds)
+                .signature(signature)
+                .build();
+
+        AuthTokenResponse response = customerAuthService.authenticateWidgetSso(request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getAccessToken()).isEqualTo("jwt-widget-sso-token");
+        verify(otpService, never()).verifyOtp(any(), any());
+        verify(keycloakTokenService).syncCustomerIdentity("member@enterprise.vn", "Nguyễn Văn Thành Viên");
+    }
+
+    @Test
+    @DisplayName("Should reject Widget SSO when HMAC signature is invalid or payload is tampered (REQ-AUTH-08 Exception 1)")
+    void shouldRejectWidgetSsoWhenSignatureIsInvalid() {
+        String widgetKey = "nt_pub_clinic123";
+        long nowSeconds = java.time.Instant.now().getEpochSecond();
+
+        CentralTenant tenant = CentralTenant.builder()
+                .id("t-sso-01")
+                .tenantCode("clinic_alpha")
+                .status(TenantStatus.ACTIVE)
+                .widgetApiKey(widgetKey)
+                .widgetSecretKey("nt_sec_supersecret999")
+                .build();
+
+        when(centralTenantRepository.findByWidgetApiKeyAndIsDeletedFalse(widgetKey))
+                .thenReturn(Optional.of(tenant));
+
+        com.nextturn.dto.auth.CustomerWidgetSsoRequest request = com.nextturn.dto.auth.CustomerWidgetSsoRequest.builder()
+                .widgetApiKey(widgetKey)
+                .externalMemberId("MEM-001")
+                .fullName("Tampered Name")
+                .email("member@enterprise.vn")
+                .phoneNumber("0909123456")
+                .timestamp(nowSeconds)
+                .signature("deadbeef0000invalidhmacsignature")
+                .build();
+
+        assertThatThrownBy(() -> customerAuthService.authenticateWidgetSso(request))
+                .isInstanceOf(AuthException.class)
+                .satisfies(ex -> assertThat(((AuthException) ex).getCode()).isEqualTo(AuthErrorCode.WIDGET_SIGNATURE_INVALID.code()));
+    }
+
+    @Test
+    @DisplayName("Should reject Widget SSO when timestamp differs by more than 5 minutes (REQ-AUTH-08 Exception 2)")
+    void shouldRejectWidgetSsoWhenTimestampIsExpired() {
+        String widgetKey = "nt_pub_clinic123";
+        long expiredTimestamp = java.time.Instant.now().getEpochSecond() - 360L; // 6 minutes ago
+
+        CentralTenant tenant = CentralTenant.builder()
+                .id("t-sso-01")
+                .tenantCode("clinic_alpha")
+                .status(TenantStatus.ACTIVE)
+                .widgetApiKey(widgetKey)
+                .widgetSecretKey("nt_sec_supersecret999")
+                .build();
+
+        when(centralTenantRepository.findByWidgetApiKeyAndIsDeletedFalse(widgetKey))
+                .thenReturn(Optional.of(tenant));
+
+        com.nextturn.dto.auth.CustomerWidgetSsoRequest request = com.nextturn.dto.auth.CustomerWidgetSsoRequest.builder()
+                .widgetApiKey(widgetKey)
+                .externalMemberId("MEM-001")
+                .fullName("Nguyễn Văn Thành Viên")
+                .email("member@enterprise.vn")
+                .phoneNumber("0909123456")
+                .timestamp(expiredTimestamp)
+                .signature("any-signature")
+                .build();
+
+        assertThatThrownBy(() -> customerAuthService.authenticateWidgetSso(request))
+                .isInstanceOf(AuthException.class)
+                .satisfies(ex -> assertThat(((AuthException) ex).getCode()).isEqualTo(AuthErrorCode.WIDGET_SIGNATURE_EXPIRED.code()));
+    }
 }

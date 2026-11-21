@@ -33,7 +33,9 @@ public enum AuthErrorCode implements BaseErrorCode {
     OTP_COOLDOWN_ACTIVE("AUTH_017", "Please wait before requesting a new verification code", HttpStatus.TOO_MANY_REQUESTS),
     OTP_DAILY_LIMIT_EXCEEDED("AUTH_018", "Daily limit of 5 verification codes reached for this contact. Please try again after 24 hours.", HttpStatus.TOO_MANY_REQUESTS),
     WIDGET_KEY_INVALID("AUTH_019", "Invalid or unrecognized widget integration key", HttpStatus.UNAUTHORIZED),
-    UNAUTHORIZED_ORIGIN_DOMAIN("AUTH_020", "Website domain is not authorized to embed the widget for this facility", HttpStatus.FORBIDDEN);
+    UNAUTHORIZED_ORIGIN_DOMAIN("AUTH_020", "Website domain is not authorized to embed the widget for this facility", HttpStatus.FORBIDDEN),
+    WIDGET_SIGNATURE_INVALID("AUTH_021", "Chữ ký bảo mật không hợp lệ hoặc dữ liệu đã bị sửa đổi. Vui lòng xác thực bằng mã OTP.", HttpStatus.UNAUTHORIZED),
+    WIDGET_SIGNATURE_EXPIRED("AUTH_022", "Phiên làm việc đã hết hạn. Vui lòng tải lại trang hoặc xác thực bằng mã OTP.", HttpStatus.UNAUTHORIZED);
 
     private final String code;
     private final String message;

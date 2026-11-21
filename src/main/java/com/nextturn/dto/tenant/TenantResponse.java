@@ -41,6 +41,9 @@ public class TenantResponse {
     @Schema(description = "Keycloak Organization ID", example = "org-bv-tam-duc")
     private String organisationId;
 
+    @Schema(description = "Custom brand logo URL for Keycloak login screen", example = "https://cdn.tamduc.vn/logo.png")
+    private String logoUrl;
+
     @Schema(description = "Rejection reason if status is REJECTED", example = "Hồ sơ chưa đầy đủ thông tin")
     private String rejectionReason;
 
@@ -68,6 +71,7 @@ public class TenantResponse {
                 .phoneNumber(tenant.getPhoneNumber())
                 .status(tenant.getStatus())
                 .organisationId(tenant.getOrganisationId())
+                .logoUrl(tenant.getLogoUrl())
                 .rejectionReason(tenant.getRejectionReason())
                 .widgetApiKey(tenant.getWidgetApiKey())
                 .quotas(quotas)
