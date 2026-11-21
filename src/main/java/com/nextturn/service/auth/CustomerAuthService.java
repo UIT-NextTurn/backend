@@ -4,6 +4,7 @@ import com.nextturn.dto.auth.AuthTokenResponse;
 import com.nextturn.dto.auth.CustomerOtpResponse;
 import com.nextturn.dto.auth.CustomerSendOtpRequest;
 import com.nextturn.dto.auth.CustomerVerifyOtpRequest;
+import com.nextturn.dto.auth.CustomerWidgetSsoRequest;
 import com.nextturn.dto.auth.LogoutRequest;
 import com.nextturn.entity.CentralAllowedDomain;
 import com.nextturn.entity.CentralUser;
@@ -13,7 +14,7 @@ import java.util.List;
 
 /**
  * Service contract managing passwordless authentication lifecycle for Public Customers (END_USER)
- * across standalone web applications and embedded booking/queue widgets (REQ-AUTH-06 & REQ-AUTH-07).
+ * across standalone web applications and embedded booking/queue widgets (REQ-AUTH-06, REQ-AUTH-07 & REQ-AUTH-08).
  */
 public interface CustomerAuthService {
 
@@ -34,6 +35,15 @@ public interface CustomerAuthService {
     CustomerOtpResponse sendOtp(CustomerSendOtpRequest request);
 
     AuthTokenResponse verifyOtp(CustomerVerifyOtpRequest request);
+
+    AuthTokenResponse authenticateWidgetSso(
+            CustomerWidgetSsoRequest request,
+            String widgetKeyHeader,
+            String originHeader,
+            String refererHeader
+    );
+
+    AuthTokenResponse authenticateWidgetSso(CustomerWidgetSsoRequest request);
 
     CentralUser resolveOrCreateUser(String contact);
 

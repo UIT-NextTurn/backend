@@ -13,9 +13,10 @@ public final class AuthEndpointConstant {
     public static final String AUTH_BASE = "/api/v1/auth";
     public static final String CUSTOMER_AUTH_BASE = "/api/v1/auth/customer";
 
-    // Customer OTP endpoints
+    // Customer OTP & Widget SSO endpoints
     public static final String OTP_SEND = "/otp/send";
     public static final String OTP_VERIFY = "/otp/verify";
+    public static final String WIDGET_SSO_VERIFY = "/widget/sso";
 
     // Tenant authentication endpoints
     public static final String TENANT_VERIFY = "/tenant/verify";

@@ -80,6 +80,9 @@ public class CentralTenant {
     @Column(name = "organisation_id", length = 36, unique = true)
     private String organisationId;
 
+    @Column(name = "logo_url", length = 512)
+    private String logoUrl;
+
     @Column(name = "rejection_reason", length = 500)
     private String rejectionReason;
 

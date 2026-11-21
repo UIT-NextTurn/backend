@@ -27,6 +27,9 @@ public final class OAuth2Constant {
     public static final String PARAM_SCOPE = "scope";
     public static final String PARAM_ORGANIZATION = "organization";
     public static final String PARAM_TENANT_CODE = "tenant_code";
+    public static final String PARAM_TENANT_NAME = "tenant_name";
+    public static final String PARAM_LOGO_URL = "logo_url";
+    public static final String PARAM_PORTAL = "portal";
 
     // Response Types & Scopes
     public static final String RESPONSE_TYPE_CODE = "code";

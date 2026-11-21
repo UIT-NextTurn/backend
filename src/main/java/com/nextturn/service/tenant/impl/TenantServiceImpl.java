@@ -188,6 +188,9 @@ public class TenantServiceImpl extends BaseService implements TenantService {
         if (request.getPhoneNumber() != null && !request.getPhoneNumber().isBlank()) {
             tenant.setPhoneNumber(request.getPhoneNumber().trim());
         }
+        if (request.getLogoUrl() != null) {
+            tenant.setLogoUrl(request.getLogoUrl().isBlank() ? null : request.getLogoUrl().trim());
+        }
 
         // 5. Update or create operational quota entity
         CentralTenantQuota quota = quotaRepository.findByTenantId(tenant.getId())

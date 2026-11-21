@@ -27,7 +27,7 @@ class KeycloakAuthHelperTest {
     }
 
     @Test
-    @DisplayName("Should build complete login URL with organization parameter when present")
+    @DisplayName("Should build complete login URL with organization parameter and tenant name when present")
     void shouldBuildLoginUrlWithOrganization() {
         CentralTenant tenant = CentralTenant.builder()
                 .tenantCode("clinic_sai_gon")
@@ -45,7 +45,26 @@ class KeycloakAuthHelperTest {
                 .contains("scope=openid%20organization")
                 .contains("redirect_uri=http://localhost:3000/auth/callback")
                 .contains("tenant_code=clinic_sai_gon")
-                .contains("organization=kc-org-999");
+                .contains("organization=kc-org-999")
+                .contains("tenant_name=Ph%C3%B2ng%20kh%C3%A1m%20S%C3%A0i%20G%C3%B2n");
+    }
+
+    @Test
+    @DisplayName("Should build login URL with custom logo URL when present (Method 2)")
+    void shouldBuildLoginUrlWithLogoUrl() {
+        CentralTenant tenant = CentralTenant.builder()
+                .tenantCode("dental_care")
+                .tenantName("Nha Khoa Nụ Cười")
+                .logoUrl("https://cdn.example.com/branding/dental_care/logo.png")
+                .status(TenantStatus.ACTIVE)
+                .build();
+
+        String url = helper.buildStaffLoginUrl(tenant);
+
+        assertThat(url)
+                .contains("tenant_code=dental_care")
+                .contains("tenant_name=Nha%20Khoa%20N%E1%BB%A5%20C%C6%B0%E1%BB%9Di")
+                .contains("logo_url=https://cdn.example.com/branding/dental_care/logo.png");
     }
 
     @Test
@@ -86,7 +105,7 @@ class KeycloakAuthHelperTest {
     }
 
     @Test
-    @DisplayName("Should build Super Admin login URL without tenant or organization query parameters")
+    @DisplayName("Should build Super Admin login URL with portal=superadmin parameter and without tenant context")
     void shouldBuildSuperAdminLoginUrl() {
         String url = helper.buildSuperAdminLoginUrl();
 
@@ -96,6 +115,7 @@ class KeycloakAuthHelperTest {
                 .contains("response_type=code")
                 .contains("scope=openid")
                 .contains("redirect_uri=http://localhost:3000/auth/callback")
+                .contains("portal=superadmin")
                 .doesNotContain("tenant_code=")
                 .doesNotContain("organization=");
     }

@@ -52,4 +52,8 @@ public class TenantRegistrationRequest {
 
     @Schema(description = "Initial password for tenant admin; if omitted or blank, activation email will require setting password upon first login")
     private String initialPassword;
+
+    @Size(max = 512, message = "Đường dẫn logo không được vượt quá 512 ký tự")
+    @Schema(description = "Optional custom brand logo URL for facility login screen (REQ-AUTH-01)", example = "https://cdn.saigonclinic.vn/logo.png")
+    private String logoUrl;
 }

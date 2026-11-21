@@ -28,6 +28,10 @@ public class UpdateTenantRequest {
     @Schema(description = "Updated contact phone number (10 digits)", example = "0912345678")
     private String phoneNumber;
 
+    @Size(max = 512, message = "Đường dẫn logo không được vượt quá 512 ký tự")
+    @Schema(description = "Updated custom brand logo URL for Keycloak login screen (REQ-AUTH-01)", example = "https://cdn.tamduc.vn/logo.png")
+    private String logoUrl;
+
     @Min(value = 1, message = "Số lượng nhân viên tối đa phải là số nguyên dương >= 1")
     @Schema(description = "Maximum active staff members allowed (>= 1)", example = "15")
     private Integer maxStaffs;

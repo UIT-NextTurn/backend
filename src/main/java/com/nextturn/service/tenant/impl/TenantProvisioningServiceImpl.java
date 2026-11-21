@@ -172,6 +172,9 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
         );
 
         // 3. Build tenant entity
+        String cleanLogoUrl = (request.getLogoUrl() != null && !request.getLogoUrl().isBlank())
+                ? request.getLogoUrl().trim()
+                : null;
         String tenantId = UUID.randomUUID().toString();
         CentralTenant tenant = CentralTenant.builder()
                 .id(tenantId)
@@ -179,6 +182,7 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
                 .tenantName(tenantName)
                 .adminEmail(normalizedEmail)
                 .phoneNumber(cleanPhone)
+                .logoUrl(cleanLogoUrl)
                 .status(TenantStatus.ACTIVE)
                 .isDeleted(false)
                 .widgetApiKey("nt_pub_" + UUID.randomUUID().toString().replace("-", ""))
@@ -411,6 +415,9 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
         }
 
         // 2. Build tenant entity with status = PENDING_APPROVAL
+        String cleanLogoUrl = (request.getLogoUrl() != null && !request.getLogoUrl().isBlank())
+                ? request.getLogoUrl().trim()
+                : null;
         String tenantId = UUID.randomUUID().toString();
         CentralTenant tenant = CentralTenant.builder()
                 .id(tenantId)
@@ -418,6 +425,7 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
                 .tenantName(tenantName)
                 .adminEmail(normalizedEmail)
                 .phoneNumber(cleanPhone)
+                .logoUrl(cleanLogoUrl)
                 .status(TenantStatus.PENDING_APPROVAL)
                 .isDeleted(false)
                 .widgetApiKey("nt_pub_" + UUID.randomUUID().toString().replace("-", ""))

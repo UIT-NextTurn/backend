@@ -112,6 +112,7 @@ public class TenantAuthServiceImpl implements TenantAuthService {
                 .tenantName(tenant.getTenantName())
                 .status(tenant.getStatus().name())
                 .organisationId(tenant.getOrganisationId())
+                .logoUrl(tenant.getLogoUrl())
                 .loginUrl(loginUrl)
                 .allowedRoles(STAFF_ALLOWED_ROLES)
                 .build();
