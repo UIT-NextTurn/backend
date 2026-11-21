@@ -1,6 +1,7 @@
 package com.nextturn.controller.catalog;
 
 import com.nextturn.constant.ServiceEndpointConstant;
+import com.nextturn.controller.BaseController;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.service.CreateServiceRequest;
 import com.nextturn.dto.service.ServiceResponse;
@@ -43,7 +44,7 @@ import java.util.List;
 @RequireTenantAdmin
 @SecurityRequirement(name = "bearerAuth")
 @Tag(name = "Tenant Service Catalog", description = "Endpoints for Tenant Administrators to manage services, standard durations, status, and catalog search")
-public class TenantCatalogController {
+public class TenantCatalogController extends BaseController {
 
     private final TenantServiceService catalogService;
 

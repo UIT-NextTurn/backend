@@ -1,6 +1,7 @@
 package com.nextturn.controller.auth;
 
 import com.nextturn.constant.AuthEndpointConstant;
+import com.nextturn.controller.BaseController;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.auth.AuthTokenResponse;
 import com.nextturn.dto.auth.CustomerOtpResponse;
@@ -36,7 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping(AuthEndpointConstant.CUSTOMER_AUTH_BASE)
 @Tag(name = "Customer Authentication", description = "Passwordless Email OTP authentication for public customers (END_USER)")
 @SecurityRequirements
-public class CustomerAuthController {
+public class CustomerAuthController extends BaseController {
 
     private final CustomerAuthService customerAuthService;
 

@@ -1,6 +1,7 @@
 package com.nextturn.controller.calendar;
 
 import com.nextturn.constant.CalendarEndpointConstant;
+import com.nextturn.controller.BaseController;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.calendar.CalendarSettingsRequest;
 import com.nextturn.dto.calendar.CalendarSettingsResponse;
@@ -53,7 +54,7 @@ import java.util.List;
 @RequireTenantAdmin
 @Tag(name = "Tenant Calendar Management", description = "Endpoints for managing calendar work shifts, capacity booking time slots, and facility booking policies")
 @SecurityRequirement(name = "bearerAuth")
-public class TenantCalendarController {
+public class TenantCalendarController extends BaseController {
 
     private final TenantCalendarService calendarService;
     private final TenantTimeSlotQueryService timeSlotQueryService;
