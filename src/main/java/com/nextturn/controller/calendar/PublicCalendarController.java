@@ -2,6 +2,7 @@ package com.nextturn.controller.calendar;
 
 import com.nextturn.constant.CalendarEndpointConstant;
 import com.nextturn.constant.TenantHeaderConstant;
+import com.nextturn.controller.BaseController;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.calendar.CalendarSettingsResponse;
 import com.nextturn.dto.calendar.ConfirmSlotRequest;
@@ -9,7 +10,6 @@ import com.nextturn.dto.calendar.HoldSlotRequest;
 import com.nextturn.dto.calendar.ReleaseSlotRequest;
 import com.nextturn.dto.calendar.SlotHoldingResponse;
 import com.nextturn.dto.calendar.TimeSlotResponse;
-import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.service.calendar.TenantCalendarSettingsService;
 import com.nextturn.service.calendar.TenantTimeSlotHoldingService;
 import com.nextturn.service.calendar.TenantTimeSlotQueryService;
@@ -38,7 +38,7 @@ import java.util.List;
 @RestController
 @RequestMapping(CalendarEndpointConstant.PUBLIC_CALENDAR_BASE)
 @Tag(name = "Public Calendar & Booking", description = "Public / Customer endpoints for viewing available booking slots, temporary holding, and facility booking policies")
-public class PublicCalendarController {
+public class PublicCalendarController extends BaseController {
 
     private final TenantTimeSlotQueryService timeSlotQueryService;
     private final TenantTimeSlotHoldingService timeSlotHoldingService;
@@ -143,16 +143,6 @@ public class PublicCalendarController {
         ensureTenantContext(headerTenantCode, tenantCode);
         CalendarSettingsResponse response = calendarSettingsService.getSettings();
         return ResponseEntity.ok(BaseResponse.ok("Lấy chính sách đặt hẹn cơ sở thành công", response));
-    }
-
-    private void ensureTenantContext(String headerTenantCode, String paramTenantCode) {
-        String effective = (headerTenantCode != null && !headerTenantCode.isBlank())
-                ? headerTenantCode.trim()
-                : (paramTenantCode != null && !paramTenantCode.isBlank() ? paramTenantCode.trim() : null);
-
-        if (effective != null && !effective.isBlank()) {
-            TenantContextHolder.setTenantCode(effective);
-        }
     }
 }
 

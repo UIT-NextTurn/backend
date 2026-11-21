@@ -2,6 +2,7 @@ package com.nextturn.controller.staff;
 
 import com.nextturn.constant.AuthEndpointConstant;
 import com.nextturn.constant.StaffEndpointConstant;
+import com.nextturn.controller.BaseController;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.service.ServiceResponse;
 import com.nextturn.dto.staff.AssignStaffServicesRequest;
@@ -47,7 +48,7 @@ import java.util.List;
 @RequireTenantAdmin
 @Tag(name = "Tenant Staff Management", description = "Endpoints for Tenant Administrators to manage staff accounts, roles, and service assignments")
 @SecurityRequirement(name = "bearerAuth")
-public class TenantStaffController {
+public class TenantStaffController extends BaseController {
 
     private final TenantStaffService staffService;
 

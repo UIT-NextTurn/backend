@@ -1,6 +1,7 @@
 package com.nextturn.controller.auth;
 
 import com.nextturn.constant.AuthEndpointConstant;
+import com.nextturn.controller.BaseController;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.auth.ConfigureIdpRequest;
 import com.nextturn.dto.auth.TenantIdpResponse;
@@ -32,7 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequireTenantAdmin
 @Tag(name = "Authentication & Tenant SSO", description = "Endpoints for Tenant Administrators to configure enterprise Single Sign-On via Keycloak Organizations")
 @SecurityRequirement(name = "bearerAuth")
-public class TenantIdpController {
+public class TenantIdpController extends BaseController {
 
     private final TenantIdpService idpService;
 

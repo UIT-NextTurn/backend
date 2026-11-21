@@ -68,7 +68,7 @@ class TenantCalendarServiceTest {
                 .id("staff-uuid-1")
                 .staffCode("STAFF-0001")
                 .fullName("Nguyễn Văn A")
-                .role(StaffRole.COUNTER)
+                .role(StaffRole.SPECIALIST)
                 .status(StaffStatus.ACTIVE)
                 .build();
 

@@ -2,6 +2,7 @@ package com.nextturn.controller.catalog;
 
 import com.nextturn.constant.ServiceEndpointConstant;
 import com.nextturn.constant.TenantHeaderConstant;
+import com.nextturn.controller.BaseController;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.service.ServiceResponse;
 import com.nextturn.enums.ServiceStatus;
@@ -28,7 +29,7 @@ import java.util.List;
 @RestController
 @RequestMapping(ServiceEndpointConstant.PUBLIC_SERVICES_BASE)
 @Tag(name = "Public Service Catalog", description = "Public / Customer endpoints for browsing services and online appointment scheduling")
-public class PublicCatalogController {
+public class PublicCatalogController extends BaseController {
 
     private final TenantServiceService catalogService;
 
@@ -52,7 +53,7 @@ public class PublicCatalogController {
             @RequestParam(required = false) ServiceStatus status,
             @PageableDefault(size = 20, sort = "serviceCode") Pageable pageable
     ) {
-        String targetTenant = (headerTenantCode != null && !headerTenantCode.isBlank()) ? headerTenantCode : tenantCode;
+        String targetTenant = ensureTenantContext(headerTenantCode, tenantCode);
         Page<ServiceResponse> page = catalogService.searchPublicServices(targetTenant, keyword, status, pageable);
         return ResponseEntity.ok(BaseResponse.okPaged("Lấy danh mục dịch vụ cơ sở thành công", page));
     }

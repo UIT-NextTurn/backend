@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Xác nhận đặt lịch hẹn thành công</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+        .card { max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+        .logo { font-size: 22px; font-weight: 800; color: #0284c7; letter-spacing: -0.5px; margin-bottom: 24px; }
+        .header { font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #065f46; }
+        .desc { font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 20px; }
+        .info-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 14px; line-height: 1.8; }
+        .qr-box { word-break: break-all; background: #eff6ff; border: 1px dashed #3b82f6; padding: 14px; border-radius: 8px; font-size: 13px; color: #1e40af; text-align: center; font-family: monospace; margin-bottom: 20px; }
+        .footer { font-size: 12px; color: #94a3b8; line-height: 1.5; border-top: 1px solid #f1f5f9; padding-top: 20px; margin-top: 24px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo">NextTurn</div>
+        <div class="header">Xác nhận đặt lịch hẹn thành công</div>
+        <div class="desc">
+            Xin chào <strong>{{customerName}}</strong>,<br><br>
+            Lịch hẹn của quý khách tại <strong>{{tenantName}}</strong> đã được xác nhận thành công với thông tin chi tiết sau:
+        </div>
+        <div class="info-box">
+            <div><strong>Mã cuộc hẹn:</strong> <code>{{appointmentCode}}</code></div>
+            <div><strong>Dịch vụ:</strong> {{serviceName}}</div>
+            <div><strong>Ngày hẹn:</strong> {{workDate}}</div>
+            <div><strong>Khung giờ:</strong> {{slotStart}} - {{slotEnd}}</div>
+        </div>
+        <div class="desc" style="margin-bottom: 8px;">
+            Vui lòng xuất trình mã xác thực Check-in dưới đây tại quầy tiếp đón khi đến cơ sở:
+        </div>
+        <div class="qr-box">{{qrToken}}</div>
+        <div class="footer">
+            Thông báo tự động từ Hệ thống Quản trị Tiếp đón &amp; Điều phối Hàng đợi NextTurn.<br>
+            Vui lòng không trả lời trực tiếp email này.
+        </div>
+    </div>
+</body>
+</html>

@@ -4,6 +4,7 @@ import com.nextturn.entity.TenantService;
 import com.nextturn.entity.TenantShift;
 import com.nextturn.entity.TenantStaff;
 import com.nextturn.entity.TenantStaffServiceAssignment;
+import com.nextturn.enums.StaffRole;
 import com.nextturn.enums.StaffStatus;
 import com.nextturn.exception.calendar.CalendarErrorCode;
 import com.nextturn.exception.calendar.CalendarException;
@@ -54,6 +55,12 @@ public class TenantCalendarValidatorImpl implements TenantCalendarValidator {
         if (staff.getStatus() != StaffStatus.ACTIVE) {
             log.warn("Shift validation rejected: staff [{}] is in status [{}]", staff.getStaffCode(), staff.getStatus());
             throw new CalendarException(CalendarErrorCode.STAFF_NOT_ACTIVE);
+        }
+
+        if (staff.getRole() != StaffRole.SPECIALIST) {
+            log.warn("Shift validation rejected: staff [{}] has role [{}] (only SPECIALIST can be assigned shifts)",
+                    staff.getStaffCode(), staff.getRole());
+            throw new CalendarException(CalendarErrorCode.STAFF_NOT_SPECIALIST);
         }
         return staff;
     }

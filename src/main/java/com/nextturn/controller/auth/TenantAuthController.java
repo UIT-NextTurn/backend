@@ -1,7 +1,7 @@
 package com.nextturn.controller.auth;
 
 import com.nextturn.constant.AuthEndpointConstant;
-import com.nextturn.constant.TenantHeaderConstant;
+import com.nextturn.controller.BaseController;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.auth.AuthTokenResponse;
 import com.nextturn.dto.auth.LogoutRequest;
@@ -44,7 +44,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping(AuthEndpointConstant.AUTH_BASE)
 @Tag(name = "Authentication & Multi-Tenancy", description = "Endpoints for tenant resolution, authentication, and login routing")
 @SecurityRequirements
-public class TenantAuthController {
+public class TenantAuthController extends BaseController {
 
     private static final Logger log = LoggerFactory.getLogger(TenantAuthController.class);
 
@@ -143,26 +143,6 @@ public class TenantAuthController {
                 .build();
         TenantAuthResponse response = tenantAuthService.authenticateTenant(request);
         return ResponseEntity.ok(BaseResponse.ok("Tenant recognized successfully", response));
-    }
-
-    private void validateHeaderSync(String targetTenantCode, HttpServletRequest servletRequest) {
-        if (servletRequest == null || targetTenantCode == null || targetTenantCode.isBlank()) {
-            return;
-        }
-        String headerTenant = servletRequest.getHeader(TenantHeaderConstant.X_TENANT_CODE_HEADER);
-        if (headerTenant == null || headerTenant.isBlank()) {
-            headerTenant = servletRequest.getHeader(TenantHeaderConstant.X_TENANT_ID_HEADER);
-        }
-        if (headerTenant != null && !headerTenant.isBlank()) {
-            String cleanHeader = headerTenant.trim();
-            if (!cleanHeader.equalsIgnoreCase(targetTenantCode.trim())) {
-                log.warn("Tenant code mismatch: Header [{}] does not match requested tenantCode [{}]", cleanHeader, targetTenantCode);
-                throw new AuthException(
-                        AuthErrorCode.TENANT_MISMATCH,
-                        "Header " + TenantHeaderConstant.X_TENANT_CODE_HEADER + " [" + cleanHeader + "] does not match requested tenantCode [" + targetTenantCode.trim() + "]"
-                );
-            }
-        }
     }
 
     /**
