@@ -4,6 +4,7 @@ import com.nextturn.dto.auth.AuthTokenResponse;
 import com.nextturn.dto.auth.CustomerOtpResponse;
 import com.nextturn.dto.auth.CustomerSendOtpRequest;
 import com.nextturn.dto.auth.CustomerVerifyOtpRequest;
+import com.nextturn.dto.auth.CustomerWidgetSsoRequest;
 import com.nextturn.entity.CentralAllowedDomain;
 import com.nextturn.entity.CentralTenant;
 import com.nextturn.entity.CentralUser;
@@ -25,6 +26,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -463,7 +465,7 @@ class CustomerAuthServiceTest {
     void shouldAuthenticateWidgetSsoWithValidSignature() {
         String widgetKey = "nt_pub_clinic123";
         String widgetSecret = "nt_sec_supersecret999";
-        long nowSeconds = java.time.Instant.now().getEpochSecond();
+        long nowSeconds = Instant.now().getEpochSecond();
 
         CentralTenant tenant = CentralTenant.builder()
                 .id("t-sso-01")
@@ -490,12 +492,12 @@ class CustomerAuthServiceTest {
         when(keycloakTokenService.issueCustomerTokens(eq("member@enterprise.vn"), any()))
                 .thenReturn(mockToken);
 
-        String payload = com.nextturn.service.auth.impl.CustomerAuthServiceImpl.buildCanonicalWidgetPayload(
+        String payload = CustomerAuthServiceImpl.buildCanonicalWidgetPayload(
                 widgetKey, "MEM-001", "member@enterprise.vn", "0909123456", "Nguyễn Văn Thành Viên", nowSeconds
         );
-        String signature = com.nextturn.service.auth.impl.CustomerAuthServiceImpl.computeHmacSha256Hex(payload, widgetSecret);
+        String signature = CustomerAuthServiceImpl.computeHmacSha256Hex(payload, widgetSecret);
 
-        com.nextturn.dto.auth.CustomerWidgetSsoRequest request = com.nextturn.dto.auth.CustomerWidgetSsoRequest.builder()
+        CustomerWidgetSsoRequest request = CustomerWidgetSsoRequest.builder()
                 .widgetApiKey(widgetKey)
                 .externalMemberId("MEM-001")
                 .fullName("Nguyễn Văn Thành Viên")
@@ -517,7 +519,7 @@ class CustomerAuthServiceTest {
     @DisplayName("Should reject Widget SSO when HMAC signature is invalid or payload is tampered (REQ-AUTH-08 Exception 1)")
     void shouldRejectWidgetSsoWhenSignatureIsInvalid() {
         String widgetKey = "nt_pub_clinic123";
-        long nowSeconds = java.time.Instant.now().getEpochSecond();
+        long nowSeconds = Instant.now().getEpochSecond();
 
         CentralTenant tenant = CentralTenant.builder()
                 .id("t-sso-01")
@@ -530,7 +532,7 @@ class CustomerAuthServiceTest {
         when(centralTenantRepository.findByWidgetApiKeyAndIsDeletedFalse(widgetKey))
                 .thenReturn(Optional.of(tenant));
 
-        com.nextturn.dto.auth.CustomerWidgetSsoRequest request = com.nextturn.dto.auth.CustomerWidgetSsoRequest.builder()
+        CustomerWidgetSsoRequest request = CustomerWidgetSsoRequest.builder()
                 .widgetApiKey(widgetKey)
                 .externalMemberId("MEM-001")
                 .fullName("Tampered Name")
@@ -549,7 +551,7 @@ class CustomerAuthServiceTest {
     @DisplayName("Should reject Widget SSO when timestamp differs by more than 5 minutes (REQ-AUTH-08 Exception 2)")
     void shouldRejectWidgetSsoWhenTimestampIsExpired() {
         String widgetKey = "nt_pub_clinic123";
-        long expiredTimestamp = java.time.Instant.now().getEpochSecond() - 360L; // 6 minutes ago
+        long expiredTimestamp = Instant.now().getEpochSecond() - 360L; // 6 minutes ago
 
         CentralTenant tenant = CentralTenant.builder()
                 .id("t-sso-01")
@@ -562,7 +564,7 @@ class CustomerAuthServiceTest {
         when(centralTenantRepository.findByWidgetApiKeyAndIsDeletedFalse(widgetKey))
                 .thenReturn(Optional.of(tenant));
 
-        com.nextturn.dto.auth.CustomerWidgetSsoRequest request = com.nextturn.dto.auth.CustomerWidgetSsoRequest.builder()
+        CustomerWidgetSsoRequest request = CustomerWidgetSsoRequest.builder()
                 .widgetApiKey(widgetKey)
                 .externalMemberId("MEM-001")
                 .fullName("Nguyễn Văn Thành Viên")

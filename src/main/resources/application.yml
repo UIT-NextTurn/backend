@@ -28,6 +28,7 @@ spring:
   # JPA / Hibernate ORM Configuration
   # -------------------------------------------------------------------
   jpa:
+    open-in-view: ${SPRING_JPA_OPEN_IN_VIEW:false}
     hibernate:
       ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:none}
     show-sql: ${SPRING_JPA_SHOW_SQL:true}

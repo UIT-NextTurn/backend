@@ -8,6 +8,7 @@ import com.nextturn.dto.auth.AuthTokenResponse;
 import com.nextturn.dto.auth.CustomerOtpResponse;
 import com.nextturn.dto.auth.CustomerSendOtpRequest;
 import com.nextturn.dto.auth.CustomerVerifyOtpRequest;
+import com.nextturn.dto.auth.CustomerWidgetSsoRequest;
 import com.nextturn.enums.UserRole;
 import com.nextturn.exception.GlobalExceptionHandler;
 import com.nextturn.exception.auth.AuthErrorCode;
@@ -213,7 +214,7 @@ class CustomerAuthControllerTest {
         when(customerAuthService.authenticateWidgetSso(any(), any(), any(), any()))
                 .thenReturn(mockResponse);
 
-        com.nextturn.dto.auth.CustomerWidgetSsoRequest request = com.nextturn.dto.auth.CustomerWidgetSsoRequest.builder()
+        CustomerWidgetSsoRequest request = CustomerWidgetSsoRequest.builder()
                 .widgetApiKey("nt_pub_clinic123")
                 .externalMemberId("MEM-999")
                 .fullName("Nguyễn Văn A")
