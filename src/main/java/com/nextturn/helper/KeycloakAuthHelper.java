@@ -45,7 +45,12 @@ public class KeycloakAuthHelper {
         if (tenant == null) {
             return null;
         }
-        return buildStaffLoginUrl(tenant.getTenantCode(), tenant.getOrganisationId());
+        return buildStaffLoginUrl(
+                tenant.getTenantCode(),
+                tenant.getOrganisationId(),
+                tenant.getTenantName(),
+                tenant.getLogoUrl()
+        );
     }
 
     /**
@@ -56,6 +61,19 @@ public class KeycloakAuthHelper {
      * @return absolute Keycloak OIDC authorization URL
      */
     public String buildStaffLoginUrl(String tenantCode, String organisationId) {
+        return buildStaffLoginUrl(tenantCode, organisationId, null, null);
+    }
+
+    /**
+     * Constructs the Keycloak authorization URL with full tenant branding parameters (Method 2).
+     *
+     * @param tenantCode     the unique tenant code
+     * @param organisationId the Keycloak organization identifier (optional)
+     * @param tenantName     the human-readable facility name
+     * @param logoUrl        the URL of the tenant's custom logo image (optional)
+     * @return absolute Keycloak OIDC authorization URL
+     */
+    public String buildStaffLoginUrl(String tenantCode, String organisationId, String tenantName, String logoUrl) {
         String authEndpoint = keycloakProperties.authEndpoint();
 
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(authEndpoint)
@@ -73,12 +91,20 @@ public class KeycloakAuthHelper {
             builder.queryParam(OAuth2Constant.PARAM_ORGANIZATION, organisationId.trim());
         }
 
+        if (tenantName != null && !tenantName.isBlank()) {
+            builder.queryParam(OAuth2Constant.PARAM_TENANT_NAME, tenantName.trim());
+        }
+
+        if (logoUrl != null && !logoUrl.isBlank()) {
+            builder.queryParam(OAuth2Constant.PARAM_LOGO_URL, logoUrl.trim());
+        }
+
         return builder.toUriString();
     }
 
     /**
      * Constructs the Keycloak authorization URL for platform-wide Super Admin login.
-     * Does not attach any tenant-specific or organization-specific query parameters.
+     * Attaches portal=superadmin to trigger NextTurn platform branding in the login theme.
      *
      * @return absolute Keycloak OIDC authorization URL for Super Admin
      */
@@ -90,6 +116,7 @@ public class KeycloakAuthHelper {
                 .queryParam(OAuth2Constant.PARAM_RESPONSE_TYPE, OAuth2Constant.RESPONSE_TYPE_CODE)
                 .queryParam(OAuth2Constant.PARAM_SCOPE, OAuth2Constant.SCOPE_OPENID)
                 .queryParam(OAuth2Constant.PARAM_REDIRECT_URI, defaultRedirectUri)
+                .queryParam(OAuth2Constant.PARAM_PORTAL, "superadmin")
                 .toUriString();
     }
 

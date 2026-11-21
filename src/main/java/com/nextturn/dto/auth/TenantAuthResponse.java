@@ -24,6 +24,7 @@ public class TenantAuthResponse {
     private String tenantName;
     private String status;
     private String organisationId;
+    private String logoUrl;
     private String loginUrl;
     private List<String> allowedRoles;
 }
