@@ -28,5 +28,10 @@ public class TicketQueueEventResponse {
     private Long peopleAheadCount;
     private Long estimatedWaitMinutes;
     private Boolean approachingTurnAlert;
+    private Boolean highPriorityCall;
+    private Boolean vibrateAlert;
+    private String highlightColor;
+    private String counterLabel;
+    private String alertMessage;
     private LocalDateTime timestamp;
 }

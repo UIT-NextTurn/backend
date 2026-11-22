@@ -87,6 +87,14 @@ public class TenantAppointment {
     @Builder.Default
     private AppointmentStatus status = AppointmentStatus.CONFIRMED;
 
+    @Column(name = "reminder_24h_sent", nullable = false)
+    @Builder.Default
+    private Boolean reminder24hSent = false;
+
+    @Column(name = "reminder_1h_sent", nullable = false)
+    @Builder.Default
+    private Boolean reminder1hSent = false;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

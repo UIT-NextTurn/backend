@@ -78,4 +78,17 @@ public interface TenantAppointmentRepository extends JpaRepository<TenantAppoint
             String customerPhone,
             List<AppointmentStatus> statuses
     );
+
+    /**
+     * Fetches confirmed appointments that still have at least one reminder milestone pending (REQ-NOTI-01).
+     */
+    @Query("""
+        SELECT a FROM TenantAppointment a
+        LEFT JOIN FETCH a.service
+        LEFT JOIN FETCH a.slot s
+        WHERE a.status = 'CONFIRMED'
+          AND (a.reminder24hSent = false OR a.reminder1hSent = false)
+        ORDER BY s.workDate ASC, s.slotStart ASC
+    """)
+    List<TenantAppointment> findConfirmedAppointmentsPendingReminder();
 }
