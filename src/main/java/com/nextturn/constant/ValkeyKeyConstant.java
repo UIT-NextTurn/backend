@@ -199,4 +199,44 @@ public final class ValkeyKeyConstant {
         String cleanCode = tenantCode != null ? tenantCode.trim().toLowerCase() : "";
         return TENANT_SETTINGS_PREFIX + cleanCode;
     }
+
+    /**
+     * Key prefix for daily monotonic atomic ticket sequences per tenant and service.
+     */
+    public static final String TICKET_SEQUENCE_PREFIX = "nextturn:ticket:seq:";
+
+    /**
+     * Formats the Redis key for daily monotonic ticket sequence counters.
+     *
+     * @param tenantCode tenant code
+     * @param serviceId  service UUID
+     * @param workDate   operating work date (enables automatic reset at 00:00:00)
+     * @return sequence counter key
+     */
+    public static String ticketSequenceKey(String tenantCode, String serviceId, java.time.LocalDate workDate) {
+        String cleanCode = tenantCode != null ? tenantCode.trim().toLowerCase() : "";
+        String cleanService = serviceId != null ? serviceId.trim() : "";
+        String dateStr = workDate != null ? workDate.toString() : "";
+        return TICKET_SEQUENCE_PREFIX + cleanCode + ":" + cleanService + ":" + dateStr;
+    }
+
+    /**
+     * Key prefix for distributed locks during queue ticket issuance.
+     */
+    public static final String TICKET_LOCK_PREFIX = "nextturn:lock:ticket:";
+
+    /**
+     * Formats the Redis key for distributed mutex locking during queue ticket issuance.
+     *
+     * @param tenantCode tenant code
+     * @param serviceId  service UUID
+     * @param workDate   operating work date
+     * @return distributed lock key
+     */
+    public static String ticketLockKey(String tenantCode, String serviceId, java.time.LocalDate workDate) {
+        String cleanCode = tenantCode != null ? tenantCode.trim().toLowerCase() : "";
+        String cleanService = serviceId != null ? serviceId.trim() : "";
+        String dateStr = workDate != null ? workDate.toString() : "";
+        return TICKET_LOCK_PREFIX + cleanCode + ":" + cleanService + ":" + dateStr;
+    }
 }

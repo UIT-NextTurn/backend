@@ -3,9 +3,12 @@ package com.nextturn.repository.calendar;
 import com.nextturn.entity.TenantTimeSlot;
 import com.nextturn.enums.TimeSlotStatus;
 import jakarta.persistence.LockModeType;
+import jakarta.persistence.QueryHint;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
@@ -56,8 +59,21 @@ public interface TenantTimeSlotRepository extends JpaRepository<TenantTimeSlot, 
 
     Optional<TenantTimeSlot> findByHoldingToken(String holdingToken);
 
-    @Query("SELECT ts FROM TenantTimeSlot ts WHERE ts.status = 'HOLDING' AND ts.holdingExpiresAt < :now")
-    List<TenantTimeSlot> findExpiredHoldingSlots(@Param("now") LocalDateTime now);
+    /**
+     * Fetches a bounded batch of expired {@code HOLDING} slots using {@code FOR UPDATE SKIP LOCKED}
+     * ({@code jakarta.persistence.lock.timeout = -2}) so cleanup workers skip rows actively locked
+     * by concurrent {@code holdSlot}/{@code confirmSlot} transactions and avoid duplicate processing
+     * across multiple backend instances.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))
+    @Query("""
+        SELECT ts FROM TenantTimeSlot ts
+        WHERE ts.status = 'HOLDING'
+          AND ts.holdingExpiresAt < :now
+        ORDER BY ts.holdingExpiresAt ASC
+    """)
+    List<TenantTimeSlot> findExpiredHoldingSlots(@Param("now") LocalDateTime now, Pageable pageable);
 
     @Query("""
         SELECT COALESCE(SUM(ts.bookedCount), 0) FROM TenantTimeSlot ts
