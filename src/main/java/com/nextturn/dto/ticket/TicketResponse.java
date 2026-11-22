@@ -5,6 +5,7 @@ import com.nextturn.entity.TenantAppointment;
 import com.nextturn.entity.TenantQueueTicket;
 import com.nextturn.entity.TenantReceptionPoint;
 import com.nextturn.entity.TenantService;
+import com.nextturn.entity.TenantStaff;
 import com.nextturn.enums.TicketCustomerType;
 import com.nextturn.enums.TicketStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -42,6 +43,18 @@ public class TicketResponse {
     private String appointmentCode;
     private String receptionPointId;
     private String receptionPointName;
+
+    private String counterStaffId;
+    private String counterStaffName;
+    private String counterLabel;
+
+    private String providerId;
+    private String providerName;
+
+    private Integer recallCount;
+    private Integer version;
+    private Boolean autoCompleted;
+    private Integer actualDuration;
 
     private TicketCustomerType customerType;
     private String customerName;
@@ -81,6 +94,8 @@ public class TicketResponse {
         TenantService service = ticket.getService();
         TenantAppointment appointment = ticket.getAppointment();
         TenantReceptionPoint receptionPoint = ticket.getReceptionPoint();
+        TenantStaff counterStaff = ticket.getCounterStaff();
+        TenantStaff provider = ticket.getProvider();
 
         return TicketResponse.builder()
                 .id(ticket.getId())
@@ -95,6 +110,15 @@ public class TicketResponse {
                 .appointmentCode(appointment != null ? appointment.getAppointmentCode() : null)
                 .receptionPointId(receptionPoint != null ? receptionPoint.getId() : null)
                 .receptionPointName(receptionPoint != null ? receptionPoint.getPointName() : null)
+                .counterStaffId(counterStaff != null ? counterStaff.getId() : null)
+                .counterStaffName(counterStaff != null ? counterStaff.getFullName() : null)
+                .counterLabel(ticket.getCounterLabel())
+                .providerId(provider != null ? provider.getId() : null)
+                .providerName(provider != null ? provider.getFullName() : null)
+                .recallCount(ticket.getRecallCount())
+                .version(ticket.getVersion())
+                .autoCompleted(ticket.getAutoCompleted())
+                .actualDuration(ticket.getActualDuration())
                 .customerType(ticket.getCustomerType())
                 .customerName(ticket.getCustomerName())
                 .customerPhone(ticket.getCustomerPhone())

@@ -89,6 +89,9 @@ public class TenantQueueTicket {
     @JoinColumn(name = "provider_id")
     private TenantStaff provider;
 
+    @Column(name = "counter_label", length = 50)
+    private String counterLabel;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "customer_type", length = 20, nullable = false)
     @Builder.Default

@@ -19,7 +19,8 @@ public enum CounterErrorCode implements BaseErrorCode {
     COUNTER_OFFLINE("COUNTER_003", "Counter is currently closed or operator is offline", HttpStatus.BAD_REQUEST),
     COUNTER_BUSY("COUNTER_004", "Counter is currently serving another active ticket", HttpStatus.CONFLICT),
     COUNTER_NOT_ASSIGNED("COUNTER_005", "Staff member is not assigned to this counter", HttpStatus.FORBIDDEN),
-    COUNTER_SERVICE_MISMATCH("COUNTER_006", "Counter is not configured to handle tickets for this queue service", HttpStatus.BAD_REQUEST);
+    COUNTER_SERVICE_MISMATCH("COUNTER_006", "Counter is not configured to handle tickets for this queue service", HttpStatus.BAD_REQUEST),
+    COUNTER_HAS_ACTIVE_CALL("COUNTER_007", "Quầy đang có lượt giao dịch chưa hoàn tất. Vui lòng xử lý xong lượt hiện tại trước khi gọi số kế tiếp.", HttpStatus.CONFLICT);
 
     private final String code;
     private final String message;

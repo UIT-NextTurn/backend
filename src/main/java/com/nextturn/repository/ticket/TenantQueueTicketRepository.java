@@ -34,6 +34,8 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
         LEFT JOIN FETCH t.service
         LEFT JOIN FETCH t.appointment
         LEFT JOIN FETCH t.receptionPoint
+        LEFT JOIN FETCH t.counterStaff
+        LEFT JOIN FETCH t.provider
         WHERE t.id = :id
     """)
     Optional<TenantQueueTicket> findByIdWithDetails(@Param("id") String id);
@@ -43,6 +45,8 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
         LEFT JOIN FETCH t.service
         LEFT JOIN FETCH t.appointment
         LEFT JOIN FETCH t.receptionPoint
+        LEFT JOIN FETCH t.counterStaff
+        LEFT JOIN FETCH t.provider
         WHERE LOWER(t.ticketCode) = LOWER(:ticketCode)
           AND t.workDate = :workDate
     """)
@@ -56,6 +60,8 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
         LEFT JOIN FETCH t.service
         LEFT JOIN FETCH t.appointment
         LEFT JOIN FETCH t.receptionPoint
+        LEFT JOIN FETCH t.counterStaff
+        LEFT JOIN FETCH t.provider
         WHERE t.appointment.id = :appointmentId
     """)
     Optional<TenantQueueTicket> findByAppointmentIdWithDetails(@Param("appointmentId") String appointmentId);
@@ -65,6 +71,8 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
         LEFT JOIN FETCH t.service
         LEFT JOIN FETCH t.appointment
         LEFT JOIN FETCH t.receptionPoint
+        LEFT JOIN FETCH t.counterStaff
+        LEFT JOIN FETCH t.provider
         WHERE t.customerPhone = :customerPhone
           AND t.workDate = :workDate
           AND t.status IN :statuses
@@ -79,7 +87,10 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
     @Query("""
         SELECT t FROM TenantQueueTicket t
         LEFT JOIN FETCH t.service
+        LEFT JOIN FETCH t.appointment
         LEFT JOIN FETCH t.receptionPoint
+        LEFT JOIN FETCH t.counterStaff
+        LEFT JOIN FETCH t.provider
         WHERE t.workDate = :workDate
           AND (:serviceId IS NULL OR t.service.id = :serviceId)
         ORDER BY t.issuedAt ASC, t.sequenceNumber ASC
@@ -131,4 +142,88 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
             LocalDate workDate,
             List<TicketStatus> statuses
     );
+
+    /**
+     * Checks whether a counter staff member currently has a ticket in the given state today (e.g. CALLING).
+     */
+    boolean existsByCounterStaffIdAndWorkDateAndStatus(
+            String counterStaffId,
+            LocalDate workDate,
+            TicketStatus status
+    );
+
+    /**
+     * Extracts the single highest-priority WAITING ticket using SRS REQ-QC-01 dynamic scoring
+     * (W_base: APPOINTMENT=100, WALK_IN=0 + 5 pts/min waiting) with FOR UPDATE SKIP LOCKED
+     * to prevent concurrent counter staff from picking the same ticket.
+     */
+    @Query(value = """
+        SELECT * FROM tenant__queue_tickets
+        WHERE work_date = :workDate
+          AND service_id = :serviceId
+          AND status = 'WAITING'
+        ORDER BY
+          ((CASE WHEN customer_type = 'APPOINTMENT' THEN 100 ELSE 0 END)
+           + (GREATEST(0, TIMESTAMPDIFF(MINUTE, issued_at, :now)) * 5)) DESC,
+          issued_at ASC,
+          sequence_number ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+    """, nativeQuery = true)
+    Optional<TenantQueueTicket> findNextPriorityWaitingTicketForUpdate(
+            @Param("serviceId") String serviceId,
+            @Param("workDate") LocalDate workDate,
+            @Param("now") LocalDateTime now
+    );
+
+    /**
+     * Counts currently SERVING tickets assigned to each specialist on the given date.
+     */
+    @Query("""
+        SELECT t.provider.id, COUNT(t) FROM TenantQueueTicket t
+        WHERE t.workDate = :workDate
+          AND t.status = 'SERVING'
+          AND t.provider IS NOT NULL
+        GROUP BY t.provider.id
+    """)
+    List<Object[]> countServingTicketsGroupedByProvider(@Param("workDate") LocalDate workDate);
+
+    /**
+     * Counts daily handled tickets (SERVING or COMPLETED) per specialist for least-loaded balancing (REQ-QC-02).
+     */
+    @Query("""
+        SELECT t.provider.id, COUNT(t) FROM TenantQueueTicket t
+        WHERE t.workDate = :workDate
+          AND t.status IN ('SERVING', 'COMPLETED')
+          AND t.provider IS NOT NULL
+        GROUP BY t.provider.id
+    """)
+    List<Object[]> countHandledTicketsGroupedByProvider(@Param("workDate") LocalDate workDate);
+
+    /**
+     * Fetches all active SERVING tickets with service duration metadata for auto-complete safety net (REQ-QC-03).
+     */
+    @Query("""
+        SELECT t FROM TenantQueueTicket t
+        LEFT JOIN FETCH t.service
+        LEFT JOIN FETCH t.counterStaff
+        LEFT JOIN FETCH t.provider
+        WHERE t.status = 'SERVING'
+          AND t.servedAt IS NOT NULL
+    """)
+    List<TenantQueueTicket> findAllServingWithDetails();
+
+    /**
+     * Fetches currently active CALLING and SERVING tickets for Lobby TV Display (REQ-QC-01, REQ-QC-04).
+     */
+    @Query("""
+        SELECT t FROM TenantQueueTicket t
+        LEFT JOIN FETCH t.service
+        LEFT JOIN FETCH t.counterStaff
+        LEFT JOIN FETCH t.provider
+        WHERE t.workDate = :workDate
+          AND t.status IN ('CALLING', 'SERVING')
+        ORDER BY COALESCE(t.calledAt, t.servedAt, t.issuedAt) DESC
+    """)
+    List<TenantQueueTicket> findActiveLobbyTicketsByWorkDate(@Param("workDate") LocalDate workDate);
 }
