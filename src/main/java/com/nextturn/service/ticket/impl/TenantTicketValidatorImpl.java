@@ -26,6 +26,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -50,6 +51,7 @@ public class TenantTicketValidatorImpl implements TenantTicketValidator {
     private final TenantShiftRepository shiftRepository;
     private final CentralTenantRepository centralTenantRepository;
     private final CentralTenantQuotaRepository quotaRepository;
+    private final Clock clock;
 
     @Autowired
     public TenantTicketValidatorImpl(
@@ -60,12 +62,26 @@ public class TenantTicketValidatorImpl implements TenantTicketValidator {
             @Autowired(required = false) CentralTenantRepository centralTenantRepository,
             @Autowired(required = false) CentralTenantQuotaRepository quotaRepository
     ) {
+        this(serviceRepository, appointmentRepository, ticketRepository, shiftRepository,
+                centralTenantRepository, quotaRepository, Clock.systemDefaultZone());
+    }
+
+    public TenantTicketValidatorImpl(
+            TenantServiceRepository serviceRepository,
+            TenantAppointmentRepository appointmentRepository,
+            TenantQueueTicketRepository ticketRepository,
+            TenantShiftRepository shiftRepository,
+            CentralTenantRepository centralTenantRepository,
+            CentralTenantQuotaRepository quotaRepository,
+            Clock clock
+    ) {
         this.serviceRepository = serviceRepository;
         this.appointmentRepository = appointmentRepository;
         this.ticketRepository = ticketRepository;
         this.shiftRepository = shiftRepository;
         this.centralTenantRepository = centralTenantRepository;
         this.quotaRepository = quotaRepository;
+        this.clock = clock != null ? clock : Clock.systemDefaultZone();
     }
 
     @Override
@@ -153,25 +169,33 @@ public class TenantTicketValidatorImpl implements TenantTicketValidator {
             throw new TicketException(TicketErrorCode.DUPLICATE_ACTIVE_TICKET);
         }
 
-        // Verify shift capacity if calendar shifts are scheduled for this service today (REQ-CHECK-IN-02)
+        // Verify an active shift covers now and service has remaining shift capacity today (REQ-CHECK-IN-02)
         if (shiftRepository != null && ticketRepository != null) {
             List<TenantShift> todayShifts = shiftRepository.searchShifts(
                     today, null, null, null, service.getId(), ShiftStatus.SCHEDULED
             );
-            if (!todayShifts.isEmpty()) {
-                int standardDuration = (service.getStandardDuration() != null && service.getStandardDuration() > 0)
-                        ? service.getStandardDuration()
-                        : 15;
-                long totalShiftMinutes = todayShifts.stream()
-                        .mapToLong(s -> Duration.between(s.getShiftStart(), s.getShiftEnd()).toMinutes())
-                        .sum();
-                long maxShiftCapacity = Math.max(1L, totalShiftMinutes / standardDuration);
-                long todayIssuedForService = ticketRepository.countByServiceIdAndWorkDate(service.getId(), today);
-                if (todayIssuedForService >= maxShiftCapacity) {
-                    log.warn("Walk-in capacity full for service [{}] on [{}]: issued {} >= max {}",
-                            service.getServiceCode(), today, todayIssuedForService, maxShiftCapacity);
-                    throw new TicketException(TicketErrorCode.WALK_IN_CAPACITY_FULL);
-                }
+            LocalTime nowTime = LocalTime.now(clock);
+            boolean hasActiveShiftNow = todayShifts.stream()
+                    .anyMatch(s -> !s.getShiftStart().isAfter(nowTime) && s.getShiftEnd().isAfter(nowTime));
+            if (todayShifts.isEmpty() || !hasActiveShiftNow) {
+                log.warn("No active shift currently open for walk-in intake on service [{}] at [{}]",
+                        service.getServiceCode(), nowTime);
+                throw new TicketException(TicketErrorCode.WALK_IN_CAPACITY_FULL);
+            }
+
+            int standardDuration = (service.getStandardDuration() != null && service.getStandardDuration() > 0)
+                    ? service.getStandardDuration()
+                    : 15;
+            long totalShiftMinutes = todayShifts.stream()
+                    .filter(s -> !s.getShiftStart().isAfter(nowTime))
+                    .mapToLong(s -> Duration.between(s.getShiftStart(), s.getShiftEnd()).toMinutes())
+                    .sum();
+            long maxShiftCapacity = Math.max(1L, totalShiftMinutes / standardDuration);
+            long todayIssuedForService = ticketRepository.countByServiceIdAndWorkDate(service.getId(), today);
+            if (todayIssuedForService >= maxShiftCapacity) {
+                log.warn("Walk-in capacity full for service [{}] on [{}]: issued {} >= max {}",
+                        service.getServiceCode(), today, todayIssuedForService, maxShiftCapacity);
+                throw new TicketException(TicketErrorCode.WALK_IN_CAPACITY_FULL);
             }
         }
     }

@@ -5,17 +5,22 @@ import com.nextturn.dto.ticket.IssueTicketRequest;
 import com.nextturn.dto.ticket.TicketResponse;
 import com.nextturn.entity.TenantAppointment;
 import com.nextturn.entity.TenantQueueTicket;
+import com.nextturn.entity.TenantReceptionPoint;
 import com.nextturn.entity.TenantService;
 import com.nextturn.entity.TenantTicketAuditLog;
 import com.nextturn.enums.AppointmentStatus;
 import com.nextturn.enums.TicketCustomerType;
 import com.nextturn.enums.TicketStatus;
+import com.nextturn.exception.checkin.CheckInErrorCode;
+import com.nextturn.exception.checkin.CheckInException;
 import com.nextturn.exception.ticket.TicketErrorCode;
 import com.nextturn.exception.ticket.TicketException;
 import com.nextturn.repository.appointment.TenantAppointmentRepository;
 import com.nextturn.repository.ticket.TenantQueueTicketRepository;
 import com.nextturn.repository.ticket.TenantTicketAuditLogRepository;
 import com.nextturn.service.BaseService;
+import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
+import com.nextturn.service.checkin.TenantReceptionQrTokenService;
 import com.nextturn.service.tenant.TenantCacheService;
 import com.nextturn.service.ticket.TenantTicketQueryService;
 import com.nextturn.service.ticket.TenantTicketSequenceGenerator;
@@ -59,6 +64,7 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
     private final TenantTicketQueryService queryService;
     private final TenantTicketSseBroadcaster sseBroadcaster;
     private final TenantCacheService cacheService;
+    private final TenantReceptionQrTokenService receptionQrTokenService;
 
     @Autowired
     public TenantTicketServiceImpl(
@@ -70,6 +76,7 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
             TenantTicketQueryService queryService,
             @Autowired(required = false) TenantTicketSseBroadcaster sseBroadcaster,
             @Autowired(required = false) TenantCacheService cacheService,
+            @Autowired(required = false) TenantReceptionQrTokenService receptionQrTokenService,
             @Autowired(required = false) TransactionTemplate transactionTemplate
     ) {
         super(transactionTemplate);
@@ -81,6 +88,25 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
         this.queryService = queryService;
         this.sseBroadcaster = sseBroadcaster;
         this.cacheService = cacheService;
+        this.receptionQrTokenService = receptionQrTokenService;
+    }
+
+    /**
+     * Backward-compatible constructor used by unit tests.
+     */
+    public TenantTicketServiceImpl(
+            TenantQueueTicketRepository ticketRepository,
+            TenantTicketAuditLogRepository auditLogRepository,
+            TenantAppointmentRepository appointmentRepository,
+            TenantTicketSequenceGenerator sequenceGenerator,
+            TenantTicketValidator validator,
+            TenantTicketQueryService queryService,
+            TenantTicketSseBroadcaster sseBroadcaster,
+            TenantCacheService cacheService,
+            TransactionTemplate transactionTemplate
+    ) {
+        this(ticketRepository, auditLogRepository, appointmentRepository, sequenceGenerator,
+                validator, queryService, sseBroadcaster, cacheService, null, transactionTemplate);
     }
 
     @Override
@@ -89,11 +115,26 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
             throw new TicketException(TicketErrorCode.INVALID_TICKET_STATE, "Yêu cầu cấp vé không được để trống.");
         }
 
+        if ((TenantContextHolder.getTenantCode() == null || TenantContextHolder.getTenantCode().isBlank())
+                && request.getReceptionQrToken() != null && !request.getReceptionQrToken().isBlank()
+                && receptionQrTokenService != null) {
+            String embeddedTenant = receptionQrTokenService.extractTenantCodeFromToken(request.getReceptionQrToken());
+            if (embeddedTenant != null && !embeddedTenant.isBlank()) {
+                TenantContextHolder.setTenantCode(embeddedTenant);
+            }
+        }
+
         String tenantCode = resolveCurrentTenantCode();
         LocalDate today = LocalDate.now();
 
         boolean isAppointmentFlow = (request.getAppointmentId() != null && !request.getAppointmentId().isBlank())
                 || (request.getQrToken() != null && !request.getQrToken().isBlank());
+
+        TenantReceptionPoint receptionPoint = null;
+        if (request.getReceptionQrToken() != null && !request.getReceptionQrToken().isBlank()
+                && receptionQrTokenService != null) {
+            receptionPoint = receptionQrTokenService.validateAndResolveToken(request.getReceptionQrToken());
+        }
 
         TenantAppointment preValidatedAppointment = isAppointmentFlow
                 ? validator.validateAppointmentForCheckIn(request, today)
@@ -109,9 +150,7 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
             }
         }
 
-        String targetServiceId = preValidatedAppointment != null && preValidatedAppointment.getService() != null
-                ? preValidatedAppointment.getService().getId()
-                : request.getServiceId();
+        String targetServiceId = resolveTargetServiceId(preValidatedAppointment, request, receptionPoint);
 
         TenantService service = validator.validateActiveService(targetServiceId);
         validator.validateTenantDailyTicketQuota(tenantCode, today);
@@ -123,15 +162,16 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
         // Acquire Valkey Distributed Mutex Lock for (tenantCode, serviceId, today) to prevent Race Condition
         String lockOwnerToken = sequenceGenerator.acquireTicketLock(tenantCode, service.getId(), today);
 
-        TenantQueueTicket savedTicket;
+        final TenantReceptionPoint resolvedReceptionPoint = receptionPoint;
+        TicketResponse response;
         try {
-            savedTicket = executeInTransaction(status -> {
+            response = executeInTransaction(status -> {
                 // Re-check idempotency / duplicate inside lock & transaction
                 if (preValidatedAppointment != null) {
                     Optional<TenantQueueTicket> existingInsideLock =
                             ticketRepository.findByAppointmentIdWithDetails(preValidatedAppointment.getId());
                     if (existingInsideLock.isPresent()) {
-                        return existingInsideLock.get();
+                        return queryService.enrichWithQueueMetrics(existingInsideLock.get());
                     }
                 } else {
                     validator.validateWalkInEligibility(service, request.getCustomerPhone(), today);
@@ -162,6 +202,7 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
                         .workDate(today)
                         .service(service)
                         .appointment(preValidatedAppointment)
+                        .receptionPoint(resolvedReceptionPoint)
                         .customerName(customerName)
                         .customerPhone(customerPhone)
                         .customerType(customerType)
@@ -193,7 +234,11 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
                     auditLogRepository.save(auditLog);
                 }
 
-                return persisted;
+                // Flush & build DTO inside active JPA session so lazy associations (service, receptionPoint) stay initialized
+                ticketRepository.flush();
+                TenantQueueTicket initialized = ticketRepository.findByIdWithDetails(persisted.getId())
+                        .orElse(persisted);
+                return queryService.enrichWithQueueMetrics(initialized);
             });
         } finally {
             sequenceGenerator.releaseTicketLock(tenantCode, service.getId(), today, lockOwnerToken);
@@ -215,10 +260,10 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
         }
 
         log.info("Issued queue ticket [{}] (seq #{}, type: {}) for service [{}] in tenant [{}]",
-                savedTicket.getTicketCode(), savedTicket.getSequenceNumber(), savedTicket.getCustomerType(),
+                response.getTicketCode(), response.getSequenceNumber(), response.getCustomerType(),
                 service.getServiceCode(), tenantCode);
 
-        return queryService.enrichWithQueueMetrics(savedTicket);
+        return response;
     }
 
     @Override
@@ -245,5 +290,36 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
     @Override
     public List<TicketResponse> getTicketsForDate(LocalDate workDate, String serviceId) {
         return queryService.getTicketsForDate(workDate, serviceId);
+    }
+
+    private String resolveTargetServiceId(
+            TenantAppointment appointment,
+            IssueTicketRequest request,
+            TenantReceptionPoint receptionPoint
+    ) {
+        String appointmentServiceId = appointment != null && appointment.getService() != null
+                ? appointment.getService().getId()
+                : null;
+        String requestedServiceId = request.getServiceId() != null && !request.getServiceId().isBlank()
+                ? request.getServiceId().trim()
+                : null;
+        String scopedServiceId = receptionPoint != null && receptionPoint.getService() != null
+                ? receptionPoint.getService().getId()
+                : null;
+
+        if (appointmentServiceId != null) {
+            if (scopedServiceId != null && !scopedServiceId.equals(appointmentServiceId)) {
+                throw new CheckInException(CheckInErrorCode.SERVICE_MISMATCH_WITH_RECEPTION);
+            }
+            return appointmentServiceId;
+        }
+
+        if (scopedServiceId != null) {
+            if (requestedServiceId != null && !scopedServiceId.equals(requestedServiceId)) {
+                throw new CheckInException(CheckInErrorCode.SERVICE_MISMATCH_WITH_RECEPTION);
+            }
+            return scopedServiceId;
+        }
+        return requestedServiceId;
     }
 }

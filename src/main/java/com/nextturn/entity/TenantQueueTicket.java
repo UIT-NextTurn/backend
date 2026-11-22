@@ -71,6 +71,10 @@ public class TenantQueueTicket {
     @JoinColumn(name = "appointment_id")
     private TenantAppointment appointment;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reception_point_id")
+    private TenantReceptionPoint receptionPoint;
+
     @Column(name = "customer_name", length = 150)
     private String customerName;
 

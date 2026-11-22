@@ -239,4 +239,18 @@ public final class ValkeyKeyConstant {
         String dateStr = workDate != null ? workDate.toString() : "";
         return TICKET_LOCK_PREFIX + cleanCode + ":" + cleanService + ":" + dateStr;
     }
+
+    /**
+     * Key prefix for 60-second rotating dynamic reception point QR tokens (REQ-CHECK-IN-03).
+     */
+    public static final String RECEPTION_QR_PREFIX = "nextturn:checkin:qr:";
+
+    /**
+     * Formats the Redis key for an active rotating reception QR window.
+     */
+    public static String receptionQrKey(String tenantCode, String receptionPointId, long timeBucket) {
+        String cleanCode = tenantCode != null ? tenantCode.trim().toLowerCase() : "";
+        String cleanPoint = receptionPointId != null ? receptionPointId.trim() : "";
+        return RECEPTION_QR_PREFIX + cleanCode + ":" + cleanPoint + ":" + timeBucket;
+    }
 }

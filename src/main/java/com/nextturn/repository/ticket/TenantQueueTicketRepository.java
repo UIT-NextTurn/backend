@@ -33,6 +33,7 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
         SELECT t FROM TenantQueueTicket t
         LEFT JOIN FETCH t.service
         LEFT JOIN FETCH t.appointment
+        LEFT JOIN FETCH t.receptionPoint
         WHERE t.id = :id
     """)
     Optional<TenantQueueTicket> findByIdWithDetails(@Param("id") String id);
@@ -41,6 +42,7 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
         SELECT t FROM TenantQueueTicket t
         LEFT JOIN FETCH t.service
         LEFT JOIN FETCH t.appointment
+        LEFT JOIN FETCH t.receptionPoint
         WHERE LOWER(t.ticketCode) = LOWER(:ticketCode)
           AND t.workDate = :workDate
     """)
@@ -53,6 +55,7 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
         SELECT t FROM TenantQueueTicket t
         LEFT JOIN FETCH t.service
         LEFT JOIN FETCH t.appointment
+        LEFT JOIN FETCH t.receptionPoint
         WHERE t.appointment.id = :appointmentId
     """)
     Optional<TenantQueueTicket> findByAppointmentIdWithDetails(@Param("appointmentId") String appointmentId);
@@ -61,6 +64,7 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
         SELECT t FROM TenantQueueTicket t
         LEFT JOIN FETCH t.service
         LEFT JOIN FETCH t.appointment
+        LEFT JOIN FETCH t.receptionPoint
         WHERE t.customerPhone = :customerPhone
           AND t.workDate = :workDate
           AND t.status IN :statuses
@@ -75,6 +79,7 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
     @Query("""
         SELECT t FROM TenantQueueTicket t
         LEFT JOIN FETCH t.service
+        LEFT JOIN FETCH t.receptionPoint
         WHERE t.workDate = :workDate
           AND (:serviceId IS NULL OR t.service.id = :serviceId)
         ORDER BY t.issuedAt ASC, t.sequenceNumber ASC
