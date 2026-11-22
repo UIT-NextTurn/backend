@@ -3,6 +3,7 @@ package com.nextturn.dto.ticket;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.nextturn.entity.TenantAppointment;
 import com.nextturn.entity.TenantQueueTicket;
+import com.nextturn.entity.TenantReceptionPoint;
 import com.nextturn.entity.TenantService;
 import com.nextturn.enums.TicketCustomerType;
 import com.nextturn.enums.TicketStatus;
@@ -39,6 +40,8 @@ public class TicketResponse {
 
     private String appointmentId;
     private String appointmentCode;
+    private String receptionPointId;
+    private String receptionPointName;
 
     private TicketCustomerType customerType;
     private String customerName;
@@ -77,6 +80,7 @@ public class TicketResponse {
         }
         TenantService service = ticket.getService();
         TenantAppointment appointment = ticket.getAppointment();
+        TenantReceptionPoint receptionPoint = ticket.getReceptionPoint();
 
         return TicketResponse.builder()
                 .id(ticket.getId())
@@ -89,6 +93,8 @@ public class TicketResponse {
                 .serviceStandardDuration(service != null ? service.getStandardDuration() : null)
                 .appointmentId(appointment != null ? appointment.getId() : null)
                 .appointmentCode(appointment != null ? appointment.getAppointmentCode() : null)
+                .receptionPointId(receptionPoint != null ? receptionPoint.getId() : null)
+                .receptionPointName(receptionPoint != null ? receptionPoint.getPointName() : null)
                 .customerType(ticket.getCustomerType())
                 .customerName(ticket.getCustomerName())
                 .customerPhone(ticket.getCustomerPhone())

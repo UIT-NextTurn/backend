@@ -32,6 +32,9 @@ public class IssueTicketRequest {
     @Schema(description = "10-digit customer phone number (required for walk-in registration & ticket recovery)", example = "0901234567")
     private String customerPhone;
 
+    @Schema(description = "Optional reception point QR token scanned at the facility lobby/desk (REQ-CHECK-IN-03)")
+    private String receptionQrToken;
+
     @Size(max = 150, message = "Họ và tên khách hàng không được vượt quá 150 ký tự")
     @Schema(description = "Optional customer full name", example = "Nguyễn Văn Khách")
     private String customerName;
