@@ -26,6 +26,7 @@ import com.nextturn.repository.service.TenantServiceRepository;
 import com.nextturn.repository.staff.TenantStaffRepository;
 import com.nextturn.repository.ticket.TenantQueueTicketRepository;
 import com.nextturn.service.BaseService;
+import com.nextturn.service.notification.TenantQueueAlertService;
 import com.nextturn.service.queue.TenantLobbySseBroadcaster;
 import com.nextturn.service.queue.TenantQueueCallingService;
 import com.nextturn.service.queue.TenantSpecialistDispatchService;
@@ -71,6 +72,12 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
     private final TenantTicketSseBroadcaster ticketSseBroadcaster;
     private final TenantLobbySseBroadcaster lobbySseBroadcaster;
     private final Clock clock;
+    private TenantQueueAlertService queueAlertService;
+
+    @Autowired(required = false)
+    public void setQueueAlertService(TenantQueueAlertService queueAlertService) {
+        this.queueAlertService = queueAlertService;
+    }
 
     @Autowired
     public TenantQueueCallingServiceImpl(
@@ -528,6 +535,20 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
     private void broadcastAll(String tenantCode, TenantQueueTicket ticket, String eventType) {
         if (ticket == null) {
             return;
+        }
+        if (queueAlertService != null) {
+            try {
+                if (TicketStatus.CALLING.equals(ticket.getStatus())
+                        && ("TICKET_CALLED".equals(eventType) || "TICKET_RECALLED".equals(eventType))) {
+                    queueAlertService.dispatchCounterCallNotification(ticket);
+                }
+                if (ticket.getService() != null) {
+                    queueAlertService.processWaitingTurnAlerts(ticket.getService().getId(), ticket.getWorkDate());
+                }
+            } catch (Exception ex) {
+                log.warn("Non-fatal error while dispatching queue notifications for ticket [{}]: {}",
+                        ticket.getTicketCode(), ex.getMessage());
+            }
         }
         if (ticketSseBroadcaster != null && ticket.getService() != null) {
             ticketSseBroadcaster.broadcastQueueUpdate(
