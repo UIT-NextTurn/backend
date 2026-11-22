@@ -47,6 +47,14 @@ public interface TenantAppointmentRepository extends JpaRepository<TenantAppoint
     @Query("""
         SELECT a FROM TenantAppointment a
         LEFT JOIN FETCH a.service
+        LEFT JOIN FETCH a.slot
+        WHERE a.qrToken = :qrToken
+    """)
+    Optional<TenantAppointment> findByQrToken(@Param("qrToken") String qrToken);
+
+    @Query("""
+        SELECT a FROM TenantAppointment a
+        LEFT JOIN FETCH a.service
         LEFT JOIN FETCH a.slot s
         WHERE a.userId = :userId
         ORDER BY s.workDate DESC, s.slotStart DESC, a.createdAt DESC
