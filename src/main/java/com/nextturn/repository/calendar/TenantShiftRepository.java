@@ -136,5 +136,32 @@ public interface TenantShiftRepository extends JpaRepository<TenantShift, String
             @Param("serviceId") String serviceId,
             @Param("status") ShiftStatus status
     );
+
+    /**
+     * Finds distinct active certified SPECIALIST staff currently within an active SCHEDULED shift
+     * for the requested service on {@code workDate} at {@code currentTime} (REQ-QC-01, REQ-QC-02).
+     */
+    @Query("""
+        SELECT DISTINCT st FROM TenantShift s
+        JOIN s.staff st
+        WHERE s.service.id = :serviceId
+          AND s.workDate = :workDate
+          AND s.status = 'SCHEDULED'
+          AND s.shiftStart <= :currentTime
+          AND s.shiftEnd > :currentTime
+          AND st.role = 'SPECIALIST'
+          AND st.status = 'ACTIVE'
+          AND st.isDeleted = false
+          AND EXISTS (
+              SELECT 1 FROM TenantStaffServiceAssignment ssa
+              WHERE ssa.staff.id = st.id AND ssa.service.id = :serviceId
+          )
+        ORDER BY st.staffCode ASC
+    """)
+    List<com.nextturn.entity.TenantStaff> findActiveSpecialistsInShiftForService(
+            @Param("serviceId") String serviceId,
+            @Param("workDate") LocalDate workDate,
+            @Param("currentTime") LocalTime currentTime
+    );
 }
 
