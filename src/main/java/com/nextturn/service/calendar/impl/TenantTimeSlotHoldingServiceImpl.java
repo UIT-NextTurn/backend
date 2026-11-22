@@ -6,6 +6,7 @@ import com.nextturn.entity.TenantTimeSlot;
 import com.nextturn.enums.TimeSlotStatus;
 import com.nextturn.exception.calendar.CalendarErrorCode;
 import com.nextturn.exception.calendar.CalendarException;
+import com.nextturn.infrastructure.valkey.ValkeyDistributedLockSupport;
 import com.nextturn.repository.calendar.TenantTimeSlotRepository;
 import com.nextturn.service.BaseService;
 import com.nextturn.service.calendar.TenantTimeSlotGeneratorService;
@@ -13,15 +14,15 @@ import com.nextturn.service.calendar.TenantTimeSlotHoldingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -34,6 +35,8 @@ import java.util.UUID;
 public class TenantTimeSlotHoldingServiceImpl extends BaseService implements TenantTimeSlotHoldingService {
 
     private static final Logger log = LoggerFactory.getLogger(TenantTimeSlotHoldingServiceImpl.class);
+    private static final int CLEANUP_BATCH_SIZE = 100;
+    private static final int MAX_CLEANUP_BATCHES_PER_RUN = 100;
 
     private final TenantTimeSlotRepository timeSlotRepository;
     private final TenantTimeSlotGeneratorService slotGeneratorService;
@@ -56,13 +59,18 @@ public class TenantTimeSlotHoldingServiceImpl extends BaseService implements Ten
         String tenantCode = resolveCurrentTenantCode();
         String lockKey = ValkeyKeyConstant.slotLockKey(tenantCode, slotId);
 
-        // Step 1: Distributed Lock on Valkey (SET NX PX 5000ms)
+        // Step 1: Distributed Lock on Valkey (SET NX PX 5000ms) with unique owner token
+        String lockOwnerToken = null;
         boolean lockAcquired = true;
         if (redisTemplate != null) {
             try {
+                String candidateToken = UUID.randomUUID().toString();
                 Boolean setSuccess = redisTemplate.opsForValue()
-                        .setIfAbsent(lockKey, "LOCKED", Duration.ofSeconds(5));
+                        .setIfAbsent(lockKey, candidateToken, Duration.ofSeconds(5));
                 lockAcquired = Boolean.TRUE.equals(setSuccess);
+                if (lockAcquired) {
+                    lockOwnerToken = candidateToken;
+                }
             } catch (Exception ex) {
                 log.warn("Valkey distributed lock acquire failed, falling back to DB lock: {}", ex.getMessage());
             }
@@ -132,10 +140,10 @@ public class TenantTimeSlotHoldingServiceImpl extends BaseService implements Ten
                         .build();
             });
         } finally {
-            // Release distributed lock
-            if (redisTemplate != null) {
+            // Release distributed lock atomically via Lua only if still owned by this request
+            if (redisTemplate != null && lockOwnerToken != null) {
                 try {
-                    redisTemplate.delete(lockKey);
+                    ValkeyDistributedLockSupport.releaseLock(redisTemplate, lockKey, lockOwnerToken);
                 } catch (Exception ex) {
                     log.warn("Failed to release Valkey distributed lock key [{}]: {}", lockKey, ex.getMessage());
                 }
@@ -215,33 +223,49 @@ public class TenantTimeSlotHoldingServiceImpl extends BaseService implements Ten
 
     @Override
     public int releaseExpiredHoldingSlots() {
+        int totalReleased = 0;
+        for (int batchIndex = 0; batchIndex < MAX_CLEANUP_BATCHES_PER_RUN; batchIndex++) {
+            int batchReleased = releaseExpiredBatch(LocalDateTime.now());
+            totalReleased += batchReleased;
+            if (batchReleased < CLEANUP_BATCH_SIZE) {
+                break;
+            }
+        }
+        return totalReleased;
+    }
+
+    private int releaseExpiredBatch(LocalDateTime now) {
         return executeInTransaction(status -> {
-            LocalDateTime now = LocalDateTime.now();
-            List<TenantTimeSlot> expired = timeSlotRepository.findExpiredHoldingSlots(now);
+            // FOR UPDATE SKIP LOCKED skips any slot currently held/confirmed by an active checkout transaction
+            List<TenantTimeSlot> expired = timeSlotRepository.findExpiredHoldingSlots(
+                    now, PageRequest.of(0, CLEANUP_BATCH_SIZE));
             if (expired.isEmpty()) {
                 return 0;
             }
 
-            Set<String> affectedServiceDates = new HashSet<>();
+            Set<ServiceDateKey> affectedServiceDates = new LinkedHashSet<>();
             for (TenantTimeSlot slot : expired) {
                 slot.setStatus(TimeSlotStatus.AVAILABLE);
                 slot.setHoldingToken(null);
                 slot.setHoldingExpiresAt(null);
-                affectedServiceDates.add(slot.getService().getId() + ":" + slot.getWorkDate());
+                affectedServiceDates.add(new ServiceDateKey(slot.getService().getId(), slot.getWorkDate()));
             }
 
             timeSlotRepository.saveAll(expired);
             timeSlotRepository.flush();
 
-            // Resync affected services/dates in Valkey
-            for (TenantTimeSlot slot : expired) {
-                slotGeneratorService.syncAvailableSlotsToValkey(slot.getService().getId(), slot.getWorkDate());
+            // Resync each affected (serviceId, workDate) pair once per batch in Valkey
+            for (ServiceDateKey key : affectedServiceDates) {
+                slotGeneratorService.syncAvailableSlotsToValkey(key.serviceId(), key.workDate());
             }
 
             log.info("Automatically released {} expired holding slots across {} service-dates",
                     expired.size(), affectedServiceDates.size());
             return expired.size();
         });
+    }
+
+    private record ServiceDateKey(String serviceId, LocalDate workDate) {
     }
 }
 
