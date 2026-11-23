@@ -15,6 +15,7 @@ public enum LogDomain {
     QUEUE,
     NOTIFICATION,
     FEEDBACK,
+    DASHBOARD,
     SCHEDULER,
     SECURITY,
     SYSTEM

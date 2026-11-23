@@ -277,4 +277,37 @@ public final class ValkeyKeyConstant {
     public static String feedbackCsatKey(String tenantCode) {
         return FEEDBACK_CSAT_PREFIX + (tenantCode != null ? tenantCode.trim().toLowerCase() : "");
     }
+
+    /**
+     * SRS-mandated Redis key storing pre-aggregated platform monitoring overview (REQ-DASHBOARD-05).
+     */
+    public static final String PLATFORM_OVERVIEW_CACHE_KEY = "cache:platform:overview";
+
+    /**
+     * Key prefix storing pre-aggregated real-time daily KPI overview per tenant (REQ-DASHBOARD-01).
+     */
+    public static final String DASHBOARD_OVERVIEW_PREFIX = "nextturn:dashboard:overview:";
+
+    /**
+     * Key prefix deduplicating critical daily ticket quota alerts sent per tenant per day (REQ-DASHBOARD-06).
+     */
+    public static final String DASHBOARD_QUOTA_ALERT_PREFIX = "nextturn:dashboard:quota-alert:";
+
+    /**
+     * Formats the Redis key for a tenant's real-time daily KPI overview snapshot.
+     */
+    public static String dashboardOverviewKey(String tenantCode, java.time.LocalDate workDate) {
+        String cleanCode = tenantCode != null ? tenantCode.trim().toLowerCase() : "";
+        String dateStr = workDate != null ? workDate.toString() : "";
+        return DASHBOARD_OVERVIEW_PREFIX + cleanCode + ":" + dateStr;
+    }
+
+    /**
+     * Formats the Redis key for deduplicating daily quota exceedance alerts per tenant.
+     */
+    public static String dashboardQuotaAlertKey(String tenantCode, java.time.LocalDate workDate) {
+        String cleanCode = tenantCode != null ? tenantCode.trim().toLowerCase() : "";
+        String dateStr = workDate != null ? workDate.toString() : "";
+        return DASHBOARD_QUOTA_ALERT_PREFIX + cleanCode + ":" + dateStr;
+    }
 }
