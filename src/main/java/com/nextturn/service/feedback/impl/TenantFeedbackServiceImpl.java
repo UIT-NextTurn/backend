@@ -98,6 +98,13 @@ public class TenantFeedbackServiceImpl extends BaseService implements TenantFeed
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final Map<String, String> htmlCache = new ConcurrentHashMap<>();
+    private com.nextturn.service.dashboard.DashboardAnalyticsSyncService dashboardAnalyticsSyncService;
+
+    @Autowired(required = false)
+    public void setDashboardAnalyticsSyncService(
+            com.nextturn.service.dashboard.DashboardAnalyticsSyncService dashboardAnalyticsSyncService) {
+        this.dashboardAnalyticsSyncService = dashboardAnalyticsSyncService;
+    }
 
     @Value("${app.frontend.base-url:http://localhost:3000}")
     private String frontendBaseUrl = "http://localhost:3000";
@@ -301,6 +308,9 @@ public class TenantFeedbackServiceImpl extends BaseService implements TenantFeed
 
         if (analyticsService != null) {
             analyticsService.recordFeedbackMetrics(tenantCode, saved);
+        }
+        if (dashboardAnalyticsSyncService != null) {
+            dashboardAnalyticsSyncService.onFeedbackSubmitted(tenantCode, saved);
         }
 
         LogContract.info(log, LogDomain.FEEDBACK, "feedback_submitted")

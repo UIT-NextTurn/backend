@@ -56,29 +56,33 @@ public class TenantLobbySseBroadcasterImpl implements TenantLobbySseBroadcaster 
         String key = normalizeTenant(tenantCode);
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
 
-        CopyOnWriteArrayList<SseEmitter> list = lobbySubscribers.computeIfAbsent(key, k -> new CopyOnWriteArrayList<>());
-        list.add(emitter);
+        lobbySubscribers.compute(key, (k, existing) -> {
+            CopyOnWriteArrayList<SseEmitter> list = existing != null ? existing : new CopyOnWriteArrayList<>();
+            list.add(emitter);
+            return list;
+        });
 
-        Runnable cleanup = () -> {
-            CopyOnWriteArrayList<SseEmitter> existing = lobbySubscribers.get(key);
-            if (existing != null) {
-                existing.remove(emitter);
-                if (existing.isEmpty()) {
-                    lobbySubscribers.remove(key, existing);
-                }
-            }
-        };
+        Runnable cleanup = () -> removeLobbyEmitter(key, emitter);
         emitter.onCompletion(cleanup);
         emitter.onTimeout(cleanup);
         emitter.onError(ex -> cleanup.run());
 
         LobbyDisplayResponse snapshot = buildLobbySnapshot(key);
-        sendEvent(emitter, LobbyEventResponse.builder()
+        if (!sendEvent(emitter, LobbyEventResponse.builder()
                 .eventType("INITIAL_DISPLAY")
                 .display(snapshot)
                 .timestamp(LocalDateTime.now())
-                .build());
+                .build())) {
+            cleanup.run();
+        }
         return emitter;
+    }
+
+    private void removeLobbyEmitter(String key, SseEmitter emitter) {
+        lobbySubscribers.computeIfPresent(key, (k, existing) -> {
+            existing.remove(emitter);
+            return existing.isEmpty() ? null : existing;
+        });
     }
 
     @Override
@@ -108,7 +112,7 @@ public class TenantLobbySseBroadcasterImpl implements TenantLobbySseBroadcaster 
 
             for (SseEmitter emitter : emitters) {
                 if (!sendEvent(emitter, payload)) {
-                    emitters.remove(emitter);
+                    removeLobbyEmitter(key, emitter);
                 }
             }
         } finally {

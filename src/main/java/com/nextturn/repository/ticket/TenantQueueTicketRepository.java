@@ -254,4 +254,21 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
         WHERE t.feedbackToken = :feedbackToken
     """)
     Optional<TenantQueueTicket> findByFeedbackTokenWithDetails(@Param("feedbackToken") String feedbackToken);
+
+    /**
+     * Fetches queue tickets across a work-date range with all display/analytics associations preloaded
+     * to avoid N+1 queries during dashboard reporting and exports (REQ-DASHBOARD-01..04).
+     */
+    @Query("""
+        SELECT t FROM TenantQueueTicket t
+        LEFT JOIN FETCH t.service
+        LEFT JOIN FETCH t.provider
+        LEFT JOIN FETCH t.counterStaff
+        WHERE t.workDate BETWEEN :fromDate AND :toDate
+        ORDER BY t.workDate ASC, t.issuedAt ASC
+    """)
+    List<TenantQueueTicket> findByWorkDateBetweenWithDetails(
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate
+    );
 }

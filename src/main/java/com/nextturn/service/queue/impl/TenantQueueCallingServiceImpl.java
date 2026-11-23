@@ -78,6 +78,13 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
     private final Clock clock;
     private TenantQueueAlertService queueAlertService;
     private TenantFeedbackService feedbackService;
+    private com.nextturn.service.dashboard.DashboardAnalyticsSyncService dashboardAnalyticsSyncService;
+
+    @Autowired(required = false)
+    public void setDashboardAnalyticsSyncService(
+            com.nextturn.service.dashboard.DashboardAnalyticsSyncService dashboardAnalyticsSyncService) {
+        this.dashboardAnalyticsSyncService = dashboardAnalyticsSyncService;
+    }
 
     @Autowired(required = false)
     public void setQueueAlertService(TenantQueueAlertService queueAlertService) {
@@ -584,6 +591,23 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
                 feedbackService.dispatchFeedbackSurvey(tenantCode, ticket);
             } catch (Exception ex) {
                 LogContract.warn(log, LogDomain.QUEUE, "feedback_survey_hook")
+                        .outcome(LogOutcome.DEGRADED)
+                        .entity("ticket", ticket.getTicketCode())
+                        .cause(ex)
+                        .emit();
+            }
+        }
+        if (dashboardAnalyticsSyncService != null) {
+            try {
+                if ("TICKET_SERVING".equals(eventType)) {
+                    dashboardAnalyticsSyncService.onTicketServing(tenantCode, ticket);
+                } else if ("TICKET_COMPLETED".equals(eventType) || "TICKET_AUTO_COMPLETED".equals(eventType)) {
+                    dashboardAnalyticsSyncService.onTicketCompleted(tenantCode, ticket);
+                } else if ("TICKET_NO_SHOW".equals(eventType)) {
+                    dashboardAnalyticsSyncService.onTicketNoShow(tenantCode, ticket);
+                }
+            } catch (Exception ex) {
+                LogContract.warn(log, LogDomain.QUEUE, "dashboard_analytics_hook")
                         .outcome(LogOutcome.DEGRADED)
                         .entity("ticket", ticket.getTicketCode())
                         .cause(ex)

@@ -77,6 +77,7 @@ public class SecurityConfig implements WebMvcConfigurer {
                         .requestMatchers("/api/v1/queue", "/api/v1/queue/**").hasAnyRole("TENANT_ADMIN", "COUNTER_STAFF")
                         .requestMatchers("/api/v1/notifications", "/api/v1/notifications/**").hasRole("TENANT_ADMIN")
                         .requestMatchers("/api/v1/feedbacks", "/api/v1/feedbacks/**").hasRole("TENANT_ADMIN")
+                        .requestMatchers("/api/v1/dashboard", "/api/v1/dashboard/**").hasRole("TENANT_ADMIN")
                         // 2. Public endpoints
                         .requestMatchers(
                                 "/api/v1/public",

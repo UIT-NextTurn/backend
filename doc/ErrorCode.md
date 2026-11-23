@@ -134,3 +134,12 @@
 | BRANCH_NOT_FOUND | ADMIN_003 | Tenant branch not found |
 | STAFF_USER_NOT_FOUND | ADMIN_004 | Staff user not found in tenant organization |
 | ROLE_ASSIGNMENT_INVALID | ADMIN_005 | Invalid staff role assignment for tenant context |
+
+## Dashboard (`DashboardErrorCode`)
+
+| Enum Name | Code | Message |
+|---|---|---|
+| INVALID_DATE_RANGE | DASH_001 | Khoảng ngày thống kê không hợp lệ (ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc). |
+| UNSUPPORTED_EXPORT_FORMAT | DASH_002 | Định dạng xuất báo cáo không hợp lệ. Chỉ hỗ trợ CSV hoặc XLSX. |
+| EXPORT_GENERATION_FAILED | DASH_003 | Không thể khởi tạo tệp báo cáo thống kê. Vui lòng thử lại sau. |
+| INVALID_FILTER_PARAMETER | DASH_004 | Tham số lọc bảng điều khiển không hợp lệ. |
