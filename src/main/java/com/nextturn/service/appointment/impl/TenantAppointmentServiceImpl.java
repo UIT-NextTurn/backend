@@ -68,6 +68,13 @@ public class TenantAppointmentServiceImpl extends BaseService implements TenantA
     private final TenantAppointmentValidator validator;
     private final TenantAppointmentNotificationService notificationService;
     private final TenantAppointmentQueryService queryService;
+    private com.nextturn.service.dashboard.DashboardAnalyticsSyncService dashboardAnalyticsSyncService;
+
+    @Autowired(required = false)
+    public void setDashboardAnalyticsSyncService(
+            com.nextturn.service.dashboard.DashboardAnalyticsSyncService dashboardAnalyticsSyncService) {
+        this.dashboardAnalyticsSyncService = dashboardAnalyticsSyncService;
+    }
 
     @Autowired
     public TenantAppointmentServiceImpl(
@@ -314,6 +321,9 @@ public class TenantAppointmentServiceImpl extends BaseService implements TenantA
 
         resyncValkeySlotCache(cancelled.getService(), cancelled.getSlot());
         notificationService.sendCancellationEmailAsync(cancelled, tenantName);
+        if (dashboardAnalyticsSyncService != null) {
+            dashboardAnalyticsSyncService.onAppointmentCancelled(tenantCode, cancelled);
+        }
 
         LogContract.info(log, LogDomain.APPOINTMENT, "appointment_cancelled")
                 .outcome(LogOutcome.SUCCESS)

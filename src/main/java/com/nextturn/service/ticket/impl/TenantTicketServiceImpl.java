@@ -68,6 +68,13 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
     private final TenantTicketSseBroadcaster sseBroadcaster;
     private final TenantCacheService cacheService;
     private final TenantReceptionQrTokenService receptionQrTokenService;
+    private com.nextturn.service.dashboard.DashboardAnalyticsSyncService dashboardAnalyticsSyncService;
+
+    @Autowired(required = false)
+    public void setDashboardAnalyticsSyncService(
+            com.nextturn.service.dashboard.DashboardAnalyticsSyncService dashboardAnalyticsSyncService) {
+        this.dashboardAnalyticsSyncService = dashboardAnalyticsSyncService;
+    }
 
     @Autowired
     public TenantTicketServiceImpl(
@@ -169,6 +176,8 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
         String lockOwnerToken = sequenceGenerator.acquireTicketLock(tenantCode, service.getId(), today);
 
         final TenantReceptionPoint resolvedReceptionPoint = receptionPoint;
+        final java.util.concurrent.atomic.AtomicReference<TenantQueueTicket> issuedEntityRef =
+                new java.util.concurrent.atomic.AtomicReference<>();
         TicketResponse response;
         try {
             response = executeInTransaction(status -> {
@@ -244,10 +253,16 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
                 ticketRepository.flush();
                 TenantQueueTicket initialized = ticketRepository.findByIdWithDetails(persisted.getId())
                         .orElse(persisted);
+                issuedEntityRef.set(initialized);
                 return queryService.enrichWithQueueMetrics(initialized);
             });
         } finally {
             sequenceGenerator.releaseTicketLock(tenantCode, service.getId(), today, lockOwnerToken);
+        }
+
+        // Sync operational/platform analytics & quota alerts AFTER tenant transaction commits
+        if (dashboardAnalyticsSyncService != null && issuedEntityRef.get() != null) {
+            dashboardAnalyticsSyncService.onTicketIssued(tenantCode, issuedEntityRef.get());
         }
 
         // Update daily ticket telemetry cache for tenant monitoring
