@@ -119,6 +119,12 @@ public class TenantQueueTicket {
     @Builder.Default
     private Boolean approachingAlertSent = false;
 
+    @Column(name = "feedback_token", length = 64, unique = true)
+    private String feedbackToken;
+
+    @Column(name = "feedback_token_expires_at")
+    private LocalDateTime feedbackTokenExpiresAt;
+
     @Column(name = "issued_at", nullable = false)
     private LocalDateTime issuedAt;
 

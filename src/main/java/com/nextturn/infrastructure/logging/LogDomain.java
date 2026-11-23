@@ -14,6 +14,7 @@ public enum LogDomain {
     TICKET,
     QUEUE,
     NOTIFICATION,
+    FEEDBACK,
     SCHEDULER,
     SECURITY,
     SYSTEM
