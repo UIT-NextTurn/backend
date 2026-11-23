@@ -26,6 +26,7 @@ import com.nextturn.repository.service.TenantServiceRepository;
 import com.nextturn.repository.staff.TenantStaffRepository;
 import com.nextturn.repository.ticket.TenantQueueTicketRepository;
 import com.nextturn.service.BaseService;
+import com.nextturn.service.feedback.TenantFeedbackService;
 import com.nextturn.service.notification.TenantQueueAlertService;
 import com.nextturn.service.queue.TenantLobbySseBroadcaster;
 import com.nextturn.service.queue.TenantQueueCallingService;
@@ -76,10 +77,16 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
     private final TenantLobbySseBroadcaster lobbySseBroadcaster;
     private final Clock clock;
     private TenantQueueAlertService queueAlertService;
+    private TenantFeedbackService feedbackService;
 
     @Autowired(required = false)
     public void setQueueAlertService(TenantQueueAlertService queueAlertService) {
         this.queueAlertService = queueAlertService;
+    }
+
+    @Autowired(required = false)
+    public void setFeedbackService(TenantFeedbackService feedbackService) {
+        this.feedbackService = feedbackService;
     }
 
     @Autowired
@@ -263,6 +270,9 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
             if (ticket.getServedAt() != null && !now.isBefore(ticket.getServedAt())) {
                 ticket.setActualDuration((int) Duration.between(ticket.getServedAt(), now).getSeconds());
             }
+            if (feedbackService != null) {
+                feedbackService.prepareFeedbackToken(ticket, now);
+            }
 
             TenantQueueTicket saved = saveAndFlushSafe(ticket);
             TenantStaff actorStaff = resolveCounterStaff(null, caller);
@@ -346,6 +356,9 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
                 ticket.setCompletedAt(now);
                 ticket.setAutoCompleted(true);
                 ticket.setActualDuration((int) Duration.between(ticket.getServedAt(), now).getSeconds());
+                if (feedbackService != null) {
+                    feedbackService.prepareFeedbackToken(ticket, now);
+                }
             }
 
             List<TenantQueueTicket> savedList = ticketRepository.saveAll(overdue);
@@ -558,6 +571,19 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
                 }
             } catch (Exception ex) {
                 LogContract.warn(log, LogDomain.QUEUE, "notification_hook")
+                        .outcome(LogOutcome.DEGRADED)
+                        .entity("ticket", ticket.getTicketCode())
+                        .cause(ex)
+                        .emit();
+            }
+        }
+        if (feedbackService != null
+                && TicketStatus.COMPLETED.equals(ticket.getStatus())
+                && ("TICKET_COMPLETED".equals(eventType) || "TICKET_AUTO_COMPLETED".equals(eventType))) {
+            try {
+                feedbackService.dispatchFeedbackSurvey(tenantCode, ticket);
+            } catch (Exception ex) {
+                LogContract.warn(log, LogDomain.QUEUE, "feedback_survey_hook")
                         .outcome(LogOutcome.DEGRADED)
                         .entity("ticket", ticket.getTicketCode())
                         .cause(ex)

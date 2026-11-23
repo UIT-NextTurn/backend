@@ -160,6 +160,8 @@ public class TenantTicketSseBroadcasterImpl implements TenantTicketSseBroadcaste
                 .highlightColor(highlightColor)
                 .counterLabel(counterDesk)
                 .alertMessage(alertMessage)
+                .feedbackToken(snapshot.getFeedbackToken())
+                .feedbackExpiresAt(snapshot.getFeedbackExpiresAt())
                 .timestamp(LocalDateTime.now())
                 .build();
     }

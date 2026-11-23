@@ -253,4 +253,28 @@ public final class ValkeyKeyConstant {
         String cleanPoint = receptionPointId != null ? receptionPointId.trim() : "";
         return RECEPTION_QR_PREFIX + cleanCode + ":" + cleanPoint + ":" + timeBucket;
     }
+
+    /**
+     * Key prefix mapping a completed ticket's feedback token to {@code tenantCode:ticketId} (24h TTL) (REQ-FEEDBACK-01).
+     */
+    public static final String FEEDBACK_TOKEN_PREFIX = "nextturn:feedback:token:";
+
+    /**
+     * Key prefix storing pre-aggregated real-time CSAT summary statistics per tenant (REQ-FEEDBACK-03).
+     */
+    public static final String FEEDBACK_CSAT_PREFIX = "nextturn:feedback:csat:";
+
+    /**
+     * Formats the Redis key for validating a pending feedback token within its 24-hour window.
+     */
+    public static String feedbackTokenKey(String feedbackToken) {
+        return FEEDBACK_TOKEN_PREFIX + (feedbackToken != null ? feedbackToken.trim() : "");
+    }
+
+    /**
+     * Formats the Redis key for a tenant's cached CSAT summary rollup.
+     */
+    public static String feedbackCsatKey(String tenantCode) {
+        return FEEDBACK_CSAT_PREFIX + (tenantCode != null ? tenantCode.trim().toLowerCase() : "");
+    }
 }
