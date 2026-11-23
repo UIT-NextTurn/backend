@@ -4,6 +4,9 @@ import com.nextturn.exception.staff.StaffErrorCode;
 import com.nextturn.exception.staff.StaffException;
 import com.nextturn.repository.staff.TenantStaffRepository;
 import com.nextturn.service.staff.TenantStaffGuardService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -31,8 +34,13 @@ public class TenantStaffGuardServiceImpl implements TenantStaffGuardService {
         long upcomingShifts = staffRepository.countUpcomingShiftsByStaffId(staffId);
 
         if (affectedAppointments != null && !affectedAppointments.isEmpty()) {
-            log.warn("Rejected {} of staff [{}] ({}) in tenant [{}]. Found {} affected upcoming appointments: {}",
-                    action, staffCode, fullName, tenantCode, affectedAppointments.size(), affectedAppointments);
+            LogContract.warn(log, LogDomain.STAFF, "staff_mutation_rejected")
+                    .outcome(LogOutcome.REJECTED)
+                    .tenant(tenantCode)
+                    .entity("staff", staffCode)
+                    .field("action", action)
+                    .field("upcomingAppointments", affectedAppointments.size())
+                    .emit();
             String warningMessage = String.format(
                     "Nhân viên hiện đang có %d cuộc hẹn trong tương lai chưa hoàn tất (%s). Vui lòng chuyển giao các cuộc hẹn này sang nhân viên khác trước khi %s.",
                     affectedAppointments.size(),
@@ -43,8 +51,13 @@ public class TenantStaffGuardServiceImpl implements TenantStaffGuardService {
         }
 
         if (upcomingShifts > 0) {
-            log.warn("Rejected {} of staff [{}] ({}) in tenant [{}]. Found {} scheduled future shifts.",
-                    action, staffCode, fullName, tenantCode, upcomingShifts);
+            LogContract.warn(log, LogDomain.STAFF, "staff_mutation_rejected")
+                    .outcome(LogOutcome.REJECTED)
+                    .tenant(tenantCode)
+                    .entity("staff", staffCode)
+                    .field("action", action)
+                    .field("upcomingShifts", upcomingShifts)
+                    .emit();
             String warningMessage = String.format(
                     "Nhân viên hiện đang có %d ca trực trong tương lai chưa hoàn tất. Vui lòng chuyển giao hoặc hủy ca trực trước khi %s.",
                     upcomingShifts,
@@ -61,8 +74,14 @@ public class TenantStaffGuardServiceImpl implements TenantStaffGuardService {
         long shiftHistory = staffRepository.countHistoricalShiftsByStaffId(staffId);
 
         if (ticketHistory > 0 || feedbackHistory > 0 || shiftHistory > 0) {
-            log.warn("Rejected hard delete of staff [{}] ({}) in tenant [{}]. Found {} ticket interactions, {} feedbacks, and {} completed shifts.",
-                    staffCode, fullName, tenantCode, ticketHistory, feedbackHistory, shiftHistory);
+            LogContract.warn(log, LogDomain.STAFF, "staff_hard_delete_rejected")
+                    .outcome(LogOutcome.REJECTED)
+                    .tenant(tenantCode)
+                    .entity("staff", staffCode)
+                    .field("tickets", ticketHistory)
+                    .field("feedbacks", feedbackHistory)
+                    .field("shifts", shiftHistory)
+                    .emit();
             throw new StaffException(
                     StaffErrorCode.STAFF_CANNOT_HARD_DELETE_HISTORICAL_DATA,
                     "Hệ thống tuyệt đối từ chối thao tác Xóa vật lý (Hard delete) bản ghi nhân sự nếu nhân viên đó đã từng có lịch sử gọi vé, tiếp nhận phục vụ hoặc phản hồi đánh giá trong cơ sở dữ liệu."

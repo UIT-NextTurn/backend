@@ -9,6 +9,9 @@ import com.nextturn.service.BaseService;
 import com.nextturn.service.calendar.TenantCalendarSettingsService;
 import com.nextturn.service.calendar.TenantTimeSlotQueryService;
 import com.nextturn.service.tenant.TenantCacheService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,11 +66,21 @@ public class TenantTimeSlotQueryServiceImpl extends BaseService implements Tenan
         // Check Valkey cache first
         List<TimeSlotResponse> responses = tenantCacheService.getCachedTenantSlots(tenantCode, serviceId, workDate);
         if (responses != null) {
-            log.debug("Cache hit: retrieved {} available slots from Valkey for tenant [{}] service [{}] on [{}]",
-                    responses.size(), tenantCode, serviceId, workDate);
+            LogContract.debug(log, LogDomain.CALENDAR, "slots_cache_hit")
+                    .outcome(LogOutcome.SUCCESS)
+                    .tenant(tenantCode)
+                    .field("count", responses.size())
+                    .field("serviceId", serviceId)
+                    .field("workDate", workDate)
+                    .emit();
         } else {
             // Cache miss: query database
-            log.debug("Cache miss: querying database for available slots for service [{}] on [{}]", serviceId, workDate);
+            LogContract.debug(log, LogDomain.CALENDAR, "slots_cache_miss")
+                    .outcome(LogOutcome.SUCCESS)
+                    .tenant(tenantCode)
+                    .field("serviceId", serviceId)
+                    .field("workDate", workDate)
+                    .emit();
             List<TenantTimeSlot> slots = timeSlotRepository
                     .findByServiceIdAndWorkDateAndStatusOrderBySlotStartAsc(serviceId, workDate, TimeSlotStatus.AVAILABLE);
 

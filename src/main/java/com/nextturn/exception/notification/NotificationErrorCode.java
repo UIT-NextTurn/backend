@@ -18,7 +18,8 @@ public enum NotificationErrorCode implements BaseErrorCode {
     EMAIL_GATEWAY_ERROR("NOTIF_002", "Email delivery service failed", HttpStatus.BAD_GATEWAY),
     WEBSOCKET_BROADCAST_ERROR("NOTIF_003", "WebSocket message broadcast failed", HttpStatus.INTERNAL_SERVER_ERROR),
     TELEGRAM_BOT_ERROR("NOTIF_004", "Telegram alert delivery failed", HttpStatus.BAD_GATEWAY),
-    NOTIFICATION_TEMPLATE_NOT_FOUND("NOTIF_005", "Notification template not configured for tenant", HttpStatus.NOT_FOUND);
+    NOTIFICATION_TEMPLATE_NOT_FOUND("NOTIF_005", "Notification template not configured for tenant", HttpStatus.NOT_FOUND),
+    NOTIFICATION_TEMPLATE_INVALID("NOTIF_006", "Thông tin mẫu thông báo không hợp lệ.", HttpStatus.BAD_REQUEST);
 
     private final String code;
     private final String message;

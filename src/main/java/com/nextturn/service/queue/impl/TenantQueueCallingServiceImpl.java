@@ -26,12 +26,16 @@ import com.nextturn.repository.service.TenantServiceRepository;
 import com.nextturn.repository.staff.TenantStaffRepository;
 import com.nextturn.repository.ticket.TenantQueueTicketRepository;
 import com.nextturn.service.BaseService;
+import com.nextturn.service.notification.TenantQueueAlertService;
 import com.nextturn.service.queue.TenantLobbySseBroadcaster;
 import com.nextturn.service.queue.TenantQueueCallingService;
 import com.nextturn.service.queue.TenantSpecialistDispatchService;
 import com.nextturn.service.queue.TenantTicketStateMachine;
 import com.nextturn.service.ticket.TenantTicketQueryService;
 import com.nextturn.service.ticket.TenantTicketSseBroadcaster;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -71,6 +75,12 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
     private final TenantTicketSseBroadcaster ticketSseBroadcaster;
     private final TenantLobbySseBroadcaster lobbySseBroadcaster;
     private final Clock clock;
+    private TenantQueueAlertService queueAlertService;
+
+    @Autowired(required = false)
+    public void setQueueAlertService(TenantQueueAlertService queueAlertService) {
+        this.queueAlertService = queueAlertService;
+    }
 
     @Autowired
     public TenantQueueCallingServiceImpl(
@@ -159,9 +169,13 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
         });
 
         broadcastAll(tenantCode, outcome.ticket(), "TICKET_CALLED");
-        log.info("Called next priority ticket [{}] ({}) for service [{}] in tenant [{}]",
-                outcome.response().getTicketCode(), outcome.response().getCustomerType(),
-                outcome.response().getServiceCode(), tenantCode);
+        LogContract.info(log, LogDomain.QUEUE, "ticket_called")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("ticket", outcome.response().getTicketCode())
+                .field("customerType", outcome.response().getCustomerType())
+                .field("serviceCode", outcome.response().getServiceCode())
+                .emit();
         return outcome.response();
     }
 
@@ -223,8 +237,12 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
         });
 
         broadcastAll(tenantCode, outcome.ticket(), "TICKET_SERVING");
-        log.info("Transferred ticket [{}] to specialist [{}] (status: SERVING) in tenant [{}]",
-                outcome.response().getTicketCode(), outcome.response().getProviderName(), tenantCode);
+        LogContract.info(log, LogDomain.QUEUE, "ticket_serving")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("ticket", outcome.response().getTicketCode())
+                .field("provider", outcome.response().getProviderName())
+                .emit();
         return outcome.response();
     }
 
@@ -528,6 +546,23 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
     private void broadcastAll(String tenantCode, TenantQueueTicket ticket, String eventType) {
         if (ticket == null) {
             return;
+        }
+        if (queueAlertService != null) {
+            try {
+                if (TicketStatus.CALLING.equals(ticket.getStatus())
+                        && ("TICKET_CALLED".equals(eventType) || "TICKET_RECALLED".equals(eventType))) {
+                    queueAlertService.dispatchCounterCallNotification(ticket);
+                }
+                if (ticket.getService() != null) {
+                    queueAlertService.processWaitingTurnAlerts(ticket.getService().getId(), ticket.getWorkDate());
+                }
+            } catch (Exception ex) {
+                LogContract.warn(log, LogDomain.QUEUE, "notification_hook")
+                        .outcome(LogOutcome.DEGRADED)
+                        .entity("ticket", ticket.getTicketCode())
+                        .cause(ex)
+                        .emit();
+            }
         }
         if (ticketSseBroadcaster != null && ticket.getService() != null) {
             ticketSseBroadcaster.broadcastQueueUpdate(

@@ -13,6 +13,9 @@ import com.nextturn.repository.service.TenantServiceRepository;
 import com.nextturn.repository.staff.TenantStaffRepository;
 import com.nextturn.repository.staff.TenantStaffServiceRepository;
 import com.nextturn.service.calendar.TenantCalendarValidator;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -53,13 +56,22 @@ public class TenantCalendarValidatorImpl implements TenantCalendarValidator {
                 .orElseThrow(() -> new CalendarException(CalendarErrorCode.STAFF_NOT_FOUND));
 
         if (staff.getStatus() != StaffStatus.ACTIVE) {
-            log.warn("Shift validation rejected: staff [{}] is in status [{}]", staff.getStaffCode(), staff.getStatus());
+            LogContract.warn(log, LogDomain.CALENDAR, "shift_validation")
+                    .outcome(LogOutcome.REJECTED)
+                    .entity("staff", staff.getStaffCode())
+                    .field("status", staff.getStatus())
+                    .reason("Staff not active")
+                    .emit();
             throw new CalendarException(CalendarErrorCode.STAFF_NOT_ACTIVE);
         }
 
         if (staff.getRole() != StaffRole.SPECIALIST) {
-            log.warn("Shift validation rejected: staff [{}] has role [{}] (only SPECIALIST can be assigned shifts)",
-                    staff.getStaffCode(), staff.getRole());
+            LogContract.warn(log, LogDomain.CALENDAR, "shift_validation")
+                    .outcome(LogOutcome.REJECTED)
+                    .entity("staff", staff.getStaffCode())
+                    .field("role", staff.getRole())
+                    .reason("Only SPECIALIST can be assigned shifts")
+                    .emit();
             throw new CalendarException(CalendarErrorCode.STAFF_NOT_SPECIALIST);
         }
         return staff;
@@ -73,7 +85,12 @@ public class TenantCalendarValidatorImpl implements TenantCalendarValidator {
 
             boolean assigned = staffServiceRepository.existsByStaffIdAndServiceId(staff.getId(), service.getId());
             if (!assigned) {
-                log.warn("Shift validation rejected: staff [{}] is not assigned to service [{}]", staff.getStaffCode(), service.getServiceCode());
+                LogContract.warn(log, LogDomain.CALENDAR, "shift_validation")
+                        .outcome(LogOutcome.REJECTED)
+                        .entity("staff", staff.getStaffCode())
+                        .field("serviceCode", service.getServiceCode())
+                        .reason("Service not assigned to staff")
+                        .emit();
                 throw new CalendarException(CalendarErrorCode.SERVICE_NOT_ASSIGNED);
             }
             return service;
@@ -81,13 +98,21 @@ public class TenantCalendarValidatorImpl implements TenantCalendarValidator {
 
         List<TenantStaffServiceAssignment> assignments = staffServiceRepository.findByStaffIdWithService(staff.getId());
         if (assignments.isEmpty()) {
-            log.warn("Shift validation rejected: staff [{}] has no assigned services", staff.getStaffCode());
+            LogContract.warn(log, LogDomain.CALENDAR, "shift_validation")
+                    .outcome(LogOutcome.REJECTED)
+                    .entity("staff", staff.getStaffCode())
+                    .reason("Staff has no assigned services")
+                    .emit();
             throw new CalendarException(CalendarErrorCode.STAFF_NO_SERVICE);
         }
 
         if (assignments.size() > 1) {
-            log.warn("Shift validation rejected: staff [{}] has {} assigned services, specific serviceId is required",
-                    staff.getStaffCode(), assignments.size());
+            LogContract.warn(log, LogDomain.CALENDAR, "shift_validation")
+                    .outcome(LogOutcome.REJECTED)
+                    .entity("staff", staff.getStaffCode())
+                    .field("assignedCount", assignments.size())
+                    .reason("Specific serviceId required")
+                    .emit();
             throw new CalendarException(CalendarErrorCode.SERVICE_REQUIRED_FOR_MULTI_SERVICE_STAFF);
         }
 
@@ -97,7 +122,11 @@ public class TenantCalendarValidatorImpl implements TenantCalendarValidator {
     @Override
     public void validateWorkDate(LocalDate workDate) {
         if (workDate == null || workDate.isBefore(LocalDate.now())) {
-            log.warn("Shift validation rejected: workDate [{}] is in the past", workDate);
+            LogContract.warn(log, LogDomain.CALENDAR, "shift_validation")
+                    .outcome(LogOutcome.REJECTED)
+                    .field("workDate", workDate)
+                    .reason("Work date in the past")
+                    .emit();
             throw new CalendarException(CalendarErrorCode.DATE_IN_PAST);
         }
     }
@@ -105,7 +134,12 @@ public class TenantCalendarValidatorImpl implements TenantCalendarValidator {
     @Override
     public void validateTimeWindow(LocalTime shiftStart, LocalTime shiftEnd) {
         if (shiftStart == null || shiftEnd == null || !shiftStart.isBefore(shiftEnd)) {
-            log.warn("Shift validation rejected: invalid time window [{} to {}]", shiftStart, shiftEnd);
+            LogContract.warn(log, LogDomain.CALENDAR, "shift_validation")
+                    .outcome(LogOutcome.REJECTED)
+                    .field("shiftStart", shiftStart)
+                    .field("shiftEnd", shiftEnd)
+                    .reason("Invalid shift time window")
+                    .emit();
             throw new CalendarException(CalendarErrorCode.TIME_WINDOW_INVALID);
         }
     }
@@ -116,8 +150,13 @@ public class TenantCalendarValidatorImpl implements TenantCalendarValidator {
         int standardDuration = service.getStandardDuration() != null ? service.getStandardDuration() : 15;
 
         if (shiftMinutes < standardDuration) {
-            log.warn("Shift validation rejected: duration ({} mins) < service [{}] standard duration ({} mins)",
-                    shiftMinutes, service.getServiceCode(), standardDuration);
+            LogContract.warn(log, LogDomain.CALENDAR, "shift_validation")
+                    .outcome(LogOutcome.REJECTED)
+                    .field("shiftMinutes", shiftMinutes)
+                    .field("serviceCode", service.getServiceCode())
+                    .field("standardDuration", standardDuration)
+                    .reason("Duration shorter than service standard")
+                    .emit();
             String customMessage = String.format(
                     "Tổng thời lượng của ca (%d phút) tối thiểu phải lớn hơn hoặc bằng thời lượng phục vụ chuẩn (%d phút) của dịch vụ mà nhân viên đó đảm nhiệm.",
                     shiftMinutes,
@@ -132,8 +171,13 @@ public class TenantCalendarValidatorImpl implements TenantCalendarValidator {
         List<TenantShift> overlapping = shiftRepository.findOverlappingShifts(staffId, workDate, shiftStart, shiftEnd);
         if (!overlapping.isEmpty()) {
             TenantShift existing = overlapping.get(0);
-            log.warn("Shift overlap detected for staff [{}]: requested [{} - {}], overlaps with existing [{} - {}] on [{}]",
-                    staffId, shiftStart, shiftEnd, existing.getShiftStart(), existing.getShiftEnd(), workDate);
+            LogContract.warn(log, LogDomain.CALENDAR, "shift_overlap")
+                    .outcome(LogOutcome.REJECTED)
+                    .entity("staff", staffId)
+                    .field("workDate", workDate)
+                    .field("requested", shiftStart + "-" + shiftEnd)
+                    .field("existing", existing.getShiftStart() + "-" + existing.getShiftEnd())
+                    .emit();
 
             String message = String.format(
                     "Nhân viên đã được phân công ca trực khác từ %s đến %s trong ngày này. Vui lòng kiểm tra lại.",
@@ -156,8 +200,14 @@ public class TenantCalendarValidatorImpl implements TenantCalendarValidator {
                 staffId, workDate, shiftStart, shiftEnd, excludedShiftId);
         if (!overlapping.isEmpty()) {
             TenantShift existing = overlapping.get(0);
-            log.warn("Shift overlap detected for staff [{}]: requested [{} - {}], overlaps with existing [{} - {}] on [{}] (excluding shift [{}])",
-                    staffId, shiftStart, shiftEnd, existing.getShiftStart(), existing.getShiftEnd(), workDate, excludedShiftId);
+            LogContract.warn(log, LogDomain.CALENDAR, "shift_overlap")
+                    .outcome(LogOutcome.REJECTED)
+                    .entity("staff", staffId)
+                    .field("excludedShiftId", excludedShiftId)
+                    .field("workDate", workDate)
+                    .field("requested", shiftStart + "-" + shiftEnd)
+                    .field("existing", existing.getShiftStart() + "-" + existing.getShiftEnd())
+                    .emit();
 
             String message = String.format(
                     "Nhân viên đã được phân công ca trực khác từ %s đến %s trong ngày này. Vui lòng kiểm tra lại.",

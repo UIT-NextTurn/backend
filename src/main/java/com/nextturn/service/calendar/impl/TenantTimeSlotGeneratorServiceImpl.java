@@ -10,6 +10,9 @@ import com.nextturn.repository.calendar.TenantTimeSlotRepository;
 import com.nextturn.service.BaseService;
 import com.nextturn.service.calendar.TenantTimeSlotGeneratorService;
 import com.nextturn.service.tenant.TenantCacheService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -53,7 +56,10 @@ public class TenantTimeSlotGeneratorServiceImpl extends BaseService implements T
     @Transactional
     public List<TimeSlotResponse> generateTimeSlotsForShift(TenantShift shift) {
         if (shift == null || shift.getService() == null) {
-            log.debug("Skipping slot generation: shift or service is null");
+            LogContract.debug(log, LogDomain.CALENDAR, "slot_generation")
+                    .outcome(LogOutcome.SKIPPED)
+                    .reason("Shift or service is null")
+                    .emit();
             return List.of();
         }
 
@@ -66,7 +72,11 @@ public class TenantTimeSlotGeneratorServiceImpl extends BaseService implements T
         // Step 1: Compute candidate slot windows: [Shift_start + (k-1)*T, Shift_start + k*T] <= Shift_end
         List<TimeWindow> windows = calculateSlotWindows(shiftStart, shiftEnd, standardDuration);
         if (windows.isEmpty()) {
-            log.warn("No valid slot windows generated for shift [{}] (duration < standardDuration)", shift.getId());
+            LogContract.warn(log, LogDomain.CALENDAR, "slot_generation")
+                    .outcome(LogOutcome.SKIPPED)
+                    .entity("shift", shift.getId())
+                    .reason("Duration < standardDuration")
+                    .emit();
             return List.of();
         }
 
@@ -111,8 +121,12 @@ public class TenantTimeSlotGeneratorServiceImpl extends BaseService implements T
         // Step 3: Batch insert / update into MySQL
         List<TenantTimeSlot> savedSlots = timeSlotRepository.saveAll(slotsToSave);
         timeSlotRepository.flush();
-        log.info("Batch inserted/updated {} time slots for service [{}] on [{}]",
-                savedSlots.size(), service.getServiceCode(), workDate);
+        LogContract.info(log, LogDomain.CALENDAR, "slots_upserted")
+                .outcome(LogOutcome.SUCCESS)
+                .field("count", savedSlots.size())
+                .field("serviceCode", service.getServiceCode())
+                .field("workDate", workDate)
+                .emit();
 
         // Step 4: Synchronize available slots into Valkey cache
         syncAvailableSlotsToValkey(service.getId(), workDate);
@@ -237,8 +251,9 @@ public class TenantTimeSlotGeneratorServiceImpl extends BaseService implements T
 
     @Override
     public void syncAvailableSlotsToValkey(String serviceId, LocalDate workDate) {
+        String tenantCode = null;
         try {
-            String tenantCode = resolveCurrentTenantCode();
+            tenantCode = resolveCurrentTenantCode();
             List<TenantTimeSlot> availableSlots = timeSlotRepository
                     .findByServiceIdAndWorkDateAndStatusOrderBySlotStartAsc(serviceId, workDate, TimeSlotStatus.AVAILABLE);
 
@@ -247,10 +262,20 @@ public class TenantTimeSlotGeneratorServiceImpl extends BaseService implements T
                     .collect(Collectors.toList());
 
             tenantCacheService.cacheTenantSlots(tenantCode, serviceId, workDate, responses);
-            log.debug("Synchronized {} available slots to Valkey for tenant [{}], service [{}], date [{}]",
-                    responses.size(), tenantCode, serviceId, workDate);
+            LogContract.debug(log, LogDomain.CALENDAR, "slots_valkey_sync")
+                    .outcome(LogOutcome.SUCCESS)
+                    .tenant(tenantCode)
+                    .field("count", responses.size())
+                    .field("serviceId", serviceId)
+                    .field("workDate", workDate)
+                    .emit();
         } catch (Exception ex) {
-            log.warn("Valkey slot sync failed: {}", ex.getMessage());
+            LogContract.warn(log, LogDomain.CALENDAR, "slots_valkey_sync")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantCode)
+                    .field("serviceId", serviceId)
+                    .cause(ex)
+                    .emit();
         }
     }
 

@@ -3,6 +3,9 @@ package com.nextturn.controller;
 import com.nextturn.constant.TenantHeaderConstant;
 import com.nextturn.exception.auth.AuthErrorCode;
 import com.nextturn.exception.auth.AuthException;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.infrastructure.security.principal.AuthenticatedUser;
 import jakarta.servlet.http.HttpServletRequest;
@@ -66,7 +69,11 @@ public abstract class BaseController {
         if (headerTenant != null && !headerTenant.isBlank()) {
             String cleanHeader = headerTenant.trim();
             if (!cleanHeader.equalsIgnoreCase(targetTenantCode.trim())) {
-                log.warn("Tenant code mismatch: Header [{}] does not match requested tenantCode [{}]", cleanHeader, targetTenantCode);
+                LogContract.warn(log, LogDomain.SECURITY, "tenant_header_mismatch")
+                        .outcome(LogOutcome.REJECTED)
+                        .field("headerTenant", cleanHeader)
+                        .field("targetTenant", targetTenantCode.trim())
+                        .emit();
                 throw new AuthException(
                         AuthErrorCode.TENANT_MISMATCH,
                         "Header " + TenantHeaderConstant.X_TENANT_CODE_HEADER + " [" + cleanHeader + "] does not match requested tenantCode [" + targetTenantCode.trim() + "]"

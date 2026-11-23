@@ -17,6 +17,9 @@ import com.nextturn.repository.service.TenantServiceRepository;
 import com.nextturn.service.BaseService;
 import com.nextturn.service.checkin.TenantReceptionPointService;
 import com.nextturn.service.checkin.TenantReceptionQrTokenService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -88,8 +91,13 @@ public class TenantReceptionPointServiceImpl extends BaseService implements Tena
                 .build();
 
         TenantReceptionPoint saved = receptionPointRepository.save(point);
-        log.info("Created reception point [{}] (mode: {}, rotation: {}s) for tenant [{}]",
-                saved.getPointCode(), saved.getQrMode(), saved.getRotationSeconds(), tenantCode);
+        LogContract.info(log, LogDomain.CHECKIN, "reception_point_created")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("receptionPoint", saved.getPointCode())
+                .field("qrMode", saved.getQrMode())
+                .field("rotationSeconds", saved.getRotationSeconds())
+                .emit();
         return ReceptionPointResponse.fromEntity(saved);
     }
 
@@ -121,8 +129,11 @@ public class TenantReceptionPointServiceImpl extends BaseService implements Tena
         point.setStaticToken(qrTokenService.buildStaticToken(tenantCode));
         point.setQrSecret(qrTokenService.generateQrSecret());
         TenantReceptionPoint saved = receptionPointRepository.save(point);
-        log.info("Rotated QR secret/static token for reception point [{}] in tenant [{}]",
-                saved.getPointCode(), tenantCode);
+        LogContract.info(log, LogDomain.CHECKIN, "reception_qr_rotated")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("receptionPoint", saved.getPointCode())
+                .emit();
         return qrTokenService.generateQrPayload(saved, tenantCode);
     }
 
@@ -132,7 +143,11 @@ public class TenantReceptionPointServiceImpl extends BaseService implements Tena
         TenantReceptionPoint point = findActivePoint(receptionPointId);
         point.setStatus(request.getStatus());
         TenantReceptionPoint saved = receptionPointRepository.save(point);
-        log.info("Updated reception point [{}] status to [{}]", saved.getPointCode(), saved.getStatus());
+        LogContract.info(log, LogDomain.CHECKIN, "reception_point_status_updated")
+                .outcome(LogOutcome.SUCCESS)
+                .entity("receptionPoint", saved.getPointCode())
+                .field("status", saved.getStatus())
+                .emit();
         return ReceptionPointResponse.fromEntity(saved);
     }
 

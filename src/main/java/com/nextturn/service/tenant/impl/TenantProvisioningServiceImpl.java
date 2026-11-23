@@ -21,6 +21,9 @@ import com.nextturn.service.tenant.TenantDatabaseProvisioningService;
 import com.nextturn.service.tenant.TenantProvisioningService;
 import com.nextturn.util.EmailValidationUtil;
 import com.nextturn.service.BaseService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -217,7 +220,11 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
             savedTenant = saved.tenant();
             savedQuota = saved.quota();
         } catch (Exception dbEx) {
-            log.error("Database save failed during tenant creation for [{}]: {}", normalizedCode, dbEx.getMessage(), dbEx);
+            LogContract.error(log, LogDomain.TENANT, "tenant_create_db")
+                    .outcome(LogOutcome.FAILED)
+                    .tenant(normalizedCode)
+                    .causeWithStack(dbEx)
+                    .emit();
             throw dbEx;
         }
 
@@ -246,8 +253,11 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
                 keycloakTokenService.addMemberToOrganization(orgId, keycloakAdminId);
             }
         } catch (Exception kcEx) {
-            log.error("Keycloak synchronization failed for tenant [{}]. Initiating compensating rollback: {}",
-                    normalizedCode, kcEx.getMessage(), kcEx);
+            LogContract.error(log, LogDomain.TENANT, "tenant_create_keycloak")
+                    .outcome(LogOutcome.FAILED)
+                    .tenant(normalizedCode)
+                    .causeWithStack(kcEx)
+                    .emit();
 
             // Rollback database changes (compensation)
             try {
@@ -257,9 +267,16 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
                     centralTenantRepository.deleteById(targetTenantId);
                     return null;
                 });
-                log.info("Compensated database records for rolled-back tenant [{}]", normalizedCode);
+                LogContract.info(log, LogDomain.TENANT, "tenant_rollback_db")
+                        .outcome(LogOutcome.SUCCESS)
+                        .tenant(normalizedCode)
+                        .emit();
             } catch (Exception rollbackEx) {
-                log.error("Failed to compensate database records for tenant [{}]: {}", normalizedCode, rollbackEx.getMessage());
+                LogContract.error(log, LogDomain.TENANT, "tenant_rollback_db")
+                        .outcome(LogOutcome.FAILED)
+                        .tenant(normalizedCode)
+                        .causeWithStack(rollbackEx)
+                        .emit();
             }
 
             // Cleanup Keycloak user and organization if partially provisioned
@@ -268,13 +285,21 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
                     try {
                         keycloakTokenService.deleteStaffUserInKeycloak(orgId, keycloakAdminId);
                     } catch (Exception kcCleanEx) {
-                        log.warn("Failed to delete orphaned Keycloak user [{}] during rollback: {}", keycloakAdminId, kcCleanEx.getMessage());
+                        LogContract.warn(log, LogDomain.TENANT, "tenant_rollback_keycloak_user")
+                                .outcome(LogOutcome.DEGRADED)
+                                .field("keycloakAdminId", keycloakAdminId)
+                                .cause(kcCleanEx)
+                                .emit();
                     }
                 }
                 try {
                     keycloakTokenService.deleteOrganizationInKeycloak(orgId);
                 } catch (Exception orgCleanEx) {
-                    log.warn("Failed to delete orphaned Keycloak organization [{}] during rollback: {}", orgId, orgCleanEx.getMessage());
+                    LogContract.warn(log, LogDomain.TENANT, "tenant_rollback_keycloak_org")
+                            .outcome(LogOutcome.DEGRADED)
+                            .entity("org", orgId)
+                            .cause(orgCleanEx)
+                            .emit();
                 }
             }
 
@@ -298,14 +323,21 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
                         keycloakAdminId
                 );
             } catch (Exception dbSchemaEx) {
-                log.error("Tenant database schema provisioning failed for [{}]. Initiating compensating rollback: {}",
-                        normalizedCode, dbSchemaEx.getMessage(), dbSchemaEx);
+                LogContract.error(log, LogDomain.TENANT, "tenant_create_schema")
+                        .outcome(LogOutcome.FAILED)
+                        .tenant(normalizedCode)
+                        .causeWithStack(dbSchemaEx)
+                        .emit();
 
                 // Compensation: drop tenant schema, cleanup Keycloak, rollback central records
                 try {
                     databaseProvisioningService.dropTenantDatabase(normalizedCode);
                 } catch (Exception cleanDbEx) {
-                    log.warn("Failed to drop partially created tenant database [{}]: {}", normalizedCode, cleanDbEx.getMessage());
+                    LogContract.warn(log, LogDomain.TENANT, "tenant_rollback_schema")
+                            .outcome(LogOutcome.DEGRADED)
+                            .tenant(normalizedCode)
+                            .cause(cleanDbEx)
+                            .emit();
                 }
 
                 if (orgId != null) {
@@ -313,13 +345,21 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
                         try {
                             keycloakTokenService.deleteStaffUserInKeycloak(orgId, keycloakAdminId);
                         } catch (Exception kcCleanEx) {
-                            log.warn("Failed to delete orphaned Keycloak user [{}] during rollback: {}", keycloakAdminId, kcCleanEx.getMessage());
+                            LogContract.warn(log, LogDomain.TENANT, "tenant_rollback_keycloak_user")
+                                    .outcome(LogOutcome.DEGRADED)
+                                    .field("keycloakAdminId", keycloakAdminId)
+                                    .cause(kcCleanEx)
+                                    .emit();
                         }
                     }
                     try {
                         keycloakTokenService.deleteOrganizationInKeycloak(orgId);
                     } catch (Exception orgCleanEx) {
-                        log.warn("Failed to delete orphaned Keycloak organization [{}] during rollback: {}", orgId, orgCleanEx.getMessage());
+                        LogContract.warn(log, LogDomain.TENANT, "tenant_rollback_keycloak_org")
+                                .outcome(LogOutcome.DEGRADED)
+                                .entity("org", orgId)
+                                .cause(orgCleanEx)
+                                .emit();
                     }
                 }
 
@@ -345,11 +385,21 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
         try {
             emailService.sendTenantAdminActivationEmail(normalizedEmail, tenantName, activationLink);
         } catch (Exception emailEx) {
-            log.warn("Non-fatal: Failed to dispatch tenant activation email to [{}]: {}", normalizedEmail, emailEx.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "tenant_activation_email")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(normalizedCode)
+                    .email(normalizedEmail)
+                    .cause(emailEx)
+                    .emit();
         }
 
-        log.info("Successfully provisioned tenant [{}] (ID: [{}]) with admin [{}] and Keycloak Org [{}]",
-                normalizedCode, tenantId, normalizedEmail, orgId);
+        LogContract.info(log, LogDomain.TENANT, "tenant_provisioned")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(normalizedCode)
+                .entity("tenant", tenantId)
+                .email(normalizedEmail)
+                .field("orgId", orgId)
+                .emit();
 
         TenantQuotaResponse quotaResponse = TenantQuotaResponse.fromEntity(savedQuota, 1L);
         TenantResponse response = TenantResponse.fromEntity(savedTenant, quotaResponse);
@@ -455,7 +505,11 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
             savedTenant = saved.tenant();
             savedQuota = saved.quota();
         } catch (Exception dbEx) {
-            log.error("Database save failed during tenant registration for [{}]: {}", normalizedCode, dbEx.getMessage(), dbEx);
+            LogContract.error(log, LogDomain.TENANT, "tenant_register_db")
+                    .outcome(LogOutcome.FAILED)
+                    .tenant(normalizedCode)
+                    .causeWithStack(dbEx)
+                    .emit();
             throw dbEx;
         }
 
@@ -485,8 +539,11 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
                 keycloakTokenService.addMemberToOrganization(orgId, keycloakAdminId);
             }
         } catch (Exception kcEx) {
-            log.error("Keycloak staging failed for tenant registration [{}]. Initiating compensating rollback: {}",
-                    normalizedCode, kcEx.getMessage(), kcEx);
+            LogContract.error(log, LogDomain.TENANT, "tenant_register_keycloak")
+                    .outcome(LogOutcome.FAILED)
+                    .tenant(normalizedCode)
+                    .causeWithStack(kcEx)
+                    .emit();
 
             // Rollback database changes (compensation)
             try {
@@ -496,9 +553,16 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
                     centralTenantRepository.deleteById(targetTenantId);
                     return null;
                 });
-                log.info("Compensated database records for rolled-back tenant [{}]", normalizedCode);
+                LogContract.info(log, LogDomain.TENANT, "tenant_rollback_db")
+                        .outcome(LogOutcome.SUCCESS)
+                        .tenant(normalizedCode)
+                        .emit();
             } catch (Exception rollbackEx) {
-                log.error("Failed to compensate database records for tenant [{}]: {}", normalizedCode, rollbackEx.getMessage());
+                LogContract.error(log, LogDomain.TENANT, "tenant_rollback_db")
+                        .outcome(LogOutcome.FAILED)
+                        .tenant(normalizedCode)
+                        .causeWithStack(rollbackEx)
+                        .emit();
             }
 
             // Cleanup Keycloak partial staging
@@ -507,13 +571,21 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
                     try {
                         keycloakTokenService.deleteStaffUserInKeycloak(orgId, keycloakAdminId);
                     } catch (Exception cleanUserEx) {
-                        log.warn("Failed to delete staged Keycloak user [{}] during rollback: {}", keycloakAdminId, cleanUserEx.getMessage());
+                        LogContract.warn(log, LogDomain.TENANT, "tenant_rollback_keycloak_user")
+                                .outcome(LogOutcome.DEGRADED)
+                                .field("keycloakAdminId", keycloakAdminId)
+                                .cause(cleanUserEx)
+                                .emit();
                     }
                 }
                 try {
                     keycloakTokenService.deleteOrganizationInKeycloak(orgId);
                 } catch (Exception cleanOrgEx) {
-                    log.warn("Failed to delete staged Keycloak organization [{}] during rollback: {}", orgId, cleanOrgEx.getMessage());
+                    LogContract.warn(log, LogDomain.TENANT, "tenant_rollback_keycloak_org")
+                            .outcome(LogOutcome.DEGRADED)
+                            .entity("org", orgId)
+                            .cause(cleanOrgEx)
+                            .emit();
                 }
             }
 
@@ -527,7 +599,12 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
         try {
             emailService.sendTenantRegistrationReceivedEmail(normalizedEmail, tenantName, normalizedCode);
         } catch (Exception emailEx) {
-            log.warn("Non-fatal: Failed to send registration received email to [{}]: {}", normalizedEmail, emailEx.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "tenant_registration_email")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(normalizedCode)
+                    .email(normalizedEmail)
+                    .cause(emailEx)
+                    .emit();
         }
 
         // 7. Send internal alert to Superadministrator (REQ-TNT-05 Step 7)
@@ -539,10 +616,18 @@ public class TenantProvisioningServiceImpl extends BaseService implements Tenant
                     normalizedEmail
             );
         } catch (Exception saEmailEx) {
-            log.warn("Non-fatal: Failed to send internal registration notification email to SA: {}", saEmailEx.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "tenant_registration_sa_alert")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(normalizedCode)
+                    .cause(saEmailEx)
+                    .emit();
         }
 
-        log.info("Successfully registered tenant [{}] in PENDING_APPROVAL status (ID: [{}])", normalizedCode, tenantId);
+        LogContract.info(log, LogDomain.TENANT, "tenant_registered_pending")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(normalizedCode)
+                .entity("tenant", tenantId)
+                .emit();
 
         TenantQuotaResponse quotaResponse = TenantQuotaResponse.fromEntity(savedQuota, 0L);
         TenantResponse response = TenantResponse.fromEntity(savedTenant, quotaResponse);

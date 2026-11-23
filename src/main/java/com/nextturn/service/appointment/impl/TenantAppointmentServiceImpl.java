@@ -33,6 +33,9 @@ import com.nextturn.service.calendar.TenantTimeSlotGeneratorService;
 import com.nextturn.service.calendar.TenantTimeSlotHoldingService;
 import com.nextturn.service.calendar.TenantTimeSlotQueryService;
 import com.nextturn.service.notification.EmailService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -262,8 +265,12 @@ public class TenantAppointmentServiceImpl extends BaseService implements TenantA
         notificationService.sendConfirmationEmailAsync(savedAppointment, tenantName);
 
         boolean canModify = validator.canCustomerModifyAppointment(savedAppointment, cancelDeadlineHours);
-        log.info("Created confirmed appointment [{}] for customer [{}] ({}) in tenant [{}]",
-                savedAppointment.getAppointmentCode(), cleanName, cleanPhone, tenantCode);
+        LogContract.info(log, LogDomain.APPOINTMENT, "appointment_created")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("appointment", savedAppointment.getAppointmentCode())
+                .phone(cleanPhone)
+                .emit();
         return AppointmentResponse.fromEntity(savedAppointment, tenantCode, tenantName, canModify);
     }
 
@@ -308,8 +315,12 @@ public class TenantAppointmentServiceImpl extends BaseService implements TenantA
         resyncValkeySlotCache(cancelled.getService(), cancelled.getSlot());
         notificationService.sendCancellationEmailAsync(cancelled, tenantName);
 
-        log.info("Cancelled appointment [{}] in tenant [{}] (reason: {})",
-                cancelled.getAppointmentCode(), tenantCode, cancelled.getCancellationReason());
+        LogContract.info(log, LogDomain.APPOINTMENT, "appointment_cancelled")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("appointment", cancelled.getAppointmentCode())
+                .reason(cancelled.getCancellationReason())
+                .emit();
         return AppointmentResponse.fromEntity(cancelled, tenantCode, tenantName, false);
     }
 
@@ -383,8 +394,13 @@ public class TenantAppointmentServiceImpl extends BaseService implements TenantA
         }
 
         boolean canModify = validator.canCustomerModifyAppointment(result.appointment(), cancelDeadlineHours);
-        log.info("Rescheduled appointment [{}] to slot [{}] on [{}] in tenant [{}]",
-                result.appointment().getAppointmentCode(), cleanNewSlotId, result.newDate(), tenantCode);
+        LogContract.info(log, LogDomain.APPOINTMENT, "appointment_rescheduled")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("appointment", result.appointment().getAppointmentCode())
+                .field("newSlotId", cleanNewSlotId)
+                .field("newDate", result.newDate())
+                .emit();
         return AppointmentResponse.fromEntity(result.appointment(), tenantCode, tenantName, canModify);
     }
 
@@ -463,8 +479,12 @@ public class TenantAppointmentServiceImpl extends BaseService implements TenantA
                     .build();
             globalUserAppointmentRepository.save(globalIndex);
         } catch (Exception ex) {
-            log.warn("Non-fatal: Failed to save global user appointment index for user [{}] appointment [{}]: {}",
-                    authenticatedUserId, savedAppointment.getAppointmentCode(), ex.getMessage());
+            LogContract.warn(log, LogDomain.APPOINTMENT, "global_index_sync")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("appointment", savedAppointment.getAppointmentCode())
+                    .field("userId", authenticatedUserId)
+                    .cause(ex)
+                    .emit();
         }
     }
 

@@ -7,6 +7,9 @@ import com.nextturn.exception.ticket.TicketException;
 import com.nextturn.infrastructure.valkey.ValkeyDistributedLockSupport;
 import com.nextturn.repository.ticket.TenantQueueTicketRepository;
 import com.nextturn.service.ticket.TenantTicketSequenceGenerator;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -89,7 +92,11 @@ public class TenantTicketSequenceGeneratorImpl implements TenantTicketSequenceGe
                     return ownerToken;
                 }
             } catch (Exception ex) {
-                log.warn("Valkey ticket distributed lock failed, falling back to DB serialization: {}", ex.getMessage());
+                LogContract.warn(log, LogDomain.TICKET, "sequence_lock_acquire")
+                        .outcome(LogOutcome.DEGRADED)
+                        .field("lockKey", lockKey)
+                        .cause(ex)
+                        .emit();
                 return null;
             }
             try {
@@ -100,7 +107,10 @@ public class TenantTicketSequenceGeneratorImpl implements TenantTicketSequenceGe
             }
         }
 
-        log.warn("Timed out waiting for ticket distributed lock [{}]", lockKey);
+        LogContract.warn(log, LogDomain.TICKET, "sequence_lock_timeout")
+                .outcome(LogOutcome.REJECTED)
+                .field("lockKey", lockKey)
+                .emit();
         throw new TicketException(TicketErrorCode.TICKET_LOCK_CONFLICT);
     }
 
@@ -113,7 +123,11 @@ public class TenantTicketSequenceGeneratorImpl implements TenantTicketSequenceGe
         try {
             ValkeyDistributedLockSupport.releaseLock(redisTemplate, lockKey, ownerToken);
         } catch (Exception ex) {
-            log.warn("Failed to release Valkey ticket lock [{}]: {}", lockKey, ex.getMessage());
+            LogContract.warn(log, LogDomain.TICKET, "sequence_lock_release")
+                    .outcome(LogOutcome.DEGRADED)
+                    .field("lockKey", lockKey)
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -137,8 +151,11 @@ public class TenantTicketSequenceGeneratorImpl implements TenantTicketSequenceGe
                 );
                 nextSeq = (luaResult != null && luaResult > 0) ? luaResult.intValue() : (dbMax + 1);
             } catch (Exception ex) {
-                log.warn("Valkey Lua sequence execution failed for key [{}], falling back to DB max+1: {}",
-                        seqKey, ex.getMessage());
+                LogContract.warn(log, LogDomain.TICKET, "sequence_lua_next")
+                        .outcome(LogOutcome.DEGRADED)
+                        .field("seqKey", seqKey)
+                        .cause(ex)
+                        .emit();
                 nextSeq = dbMax + 1;
             }
         } else {

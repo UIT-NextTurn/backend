@@ -28,6 +28,9 @@ import com.nextturn.service.ticket.TenantTicketService;
 import com.nextturn.service.ticket.TenantTicketSseBroadcaster;
 import com.nextturn.service.ticket.TenantTicketValidator;
 import com.nextturn.service.ticket.TenantTicketSequenceGenerator.GeneratedTicketNumber;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -144,8 +147,11 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
         if (preValidatedAppointment != null && preValidatedAppointment.getStatus() == AppointmentStatus.CHECKED_IN) {
             Optional<TenantQueueTicket> existingTicket = ticketRepository.findByAppointmentIdWithDetails(preValidatedAppointment.getId());
             if (existingTicket.isPresent()) {
-                log.info("Idempotent check-in: returning existing ticket [{}] for appointment [{}]",
-                        existingTicket.get().getTicketCode(), preValidatedAppointment.getAppointmentCode());
+                LogContract.info(log, LogDomain.TICKET, "checkin_idempotent")
+                        .outcome(LogOutcome.SUCCESS)
+                        .entity("ticket", existingTicket.get().getTicketCode())
+                        .field("appointmentCode", preValidatedAppointment.getAppointmentCode())
+                        .emit();
                 return queryService.enrichWithQueueMetrics(existingTicket.get());
             }
         }
@@ -250,7 +256,11 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
                 long todayTotal = ticketRepository.countByWorkDate(today);
                 cacheService.setCachedCount(ValkeyKeyConstant.tenantTodayTicketsKey(tenantCode), todayTotal, Duration.ofSeconds(60));
             } catch (Exception ex) {
-                log.trace("Non-fatal: Failed to refresh daily ticket telemetry cache: {}", ex.getMessage());
+                LogContract.warn(log, LogDomain.TICKET, "telemetry_cache_refresh")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(tenantCode)
+                        .cause(ex)
+                        .emit();
             }
         }
 
@@ -259,9 +269,14 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
             sseBroadcaster.broadcastQueueUpdate(tenantCode, service.getId(), today, "TICKET_ISSUED");
         }
 
-        log.info("Issued queue ticket [{}] (seq #{}, type: {}) for service [{}] in tenant [{}]",
-                response.getTicketCode(), response.getSequenceNumber(), response.getCustomerType(),
-                service.getServiceCode(), tenantCode);
+        LogContract.info(log, LogDomain.TICKET, "ticket_issued")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("ticket", response.getTicketCode())
+                .field("sequence", response.getSequenceNumber())
+                .field("customerType", response.getCustomerType())
+                .field("serviceCode", service.getServiceCode())
+                .emit();
 
         return response;
     }

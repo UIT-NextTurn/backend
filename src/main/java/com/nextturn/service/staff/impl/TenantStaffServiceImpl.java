@@ -27,6 +27,9 @@ import com.nextturn.service.staff.TenantStaffQueryService;
 import com.nextturn.service.staff.TenantStaffService;
 import com.nextturn.service.staff.TenantStaffSyncService;
 import com.nextturn.service.tenant.TenantCacheService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -170,11 +173,21 @@ public class TenantStaffServiceImpl extends BaseService implements TenantStaffSe
                     keycloakTokenService.addMemberToOrganization(orgId, keycloakUserId);
                 }
             } catch (Exception kcEx) {
-                log.error("Failed to synchronize user [{}] with Keycloak IAM: {}", normalizedEmail, kcEx.getMessage());
+                LogContract.error(log, LogDomain.STAFF, "staff_keycloak_sync")
+                        .outcome(LogOutcome.FAILED)
+                        .tenant(tenantCode)
+                        .email(normalizedEmail)
+                        .causeWithStack(kcEx)
+                        .emit();
                 throw new StaffException(StaffErrorCode.STAFF_KEYCLOAK_SYNC_FAILED, "Lỗi đồng bộ tài khoản xác thực Keycloak: " + kcEx.getMessage());
             }
         } else {
-            log.info("Staff member [{}] has role SPECIALIST; recorded in roster without separate login credentials", normalizedEmail);
+            LogContract.info(log, LogDomain.STAFF, "staff_specialist_roster_only")
+                    .outcome(LogOutcome.SKIPPED)
+                    .tenant(tenantCode)
+                    .email(normalizedEmail)
+                    .reason("SPECIALIST does not require login credentials")
+                    .emit();
         }
 
         String staffCode = codeGenerator.generateNextStaffCode();
@@ -196,12 +209,21 @@ public class TenantStaffServiceImpl extends BaseService implements TenantStaffSe
             savedStaff = executeInTransaction(status -> staffRepository.save(staff));
         } catch (Exception dbEx) {
             if (orgId != null && keycloakUserId != null) {
-                log.warn("Database save failed for staff [{}]. Triggering compensating cleanup in Keycloak for user [{}]",
-                        normalizedEmail, keycloakUserId);
+                LogContract.warn(log, LogDomain.STAFF, "staff_db_save_rollback")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(tenantCode)
+                        .email(normalizedEmail)
+                        .field("keycloakUserId", keycloakUserId)
+                        .cause(dbEx)
+                        .emit();
                 try {
                     keycloakTokenService.deleteStaffUserInKeycloak(orgId, keycloakUserId);
                 } catch (Exception cleanupEx) {
-                    log.error("Failed to execute compensating Keycloak user deletion for [{}]: {}", keycloakUserId, cleanupEx.getMessage());
+                    LogContract.error(log, LogDomain.STAFF, "staff_keycloak_compensation")
+                            .outcome(LogOutcome.FAILED)
+                            .field("keycloakUserId", keycloakUserId)
+                            .causeWithStack(cleanupEx)
+                            .emit();
                 }
             }
             throw dbEx;
@@ -210,7 +232,12 @@ public class TenantStaffServiceImpl extends BaseService implements TenantStaffSe
         String activationLink = "http://localhost:8080/set-password?email=" + normalizedEmail + "&tenant=" + tenantCode;
         emailService.sendStaffActivationEmail(normalizedEmail, request.getFullName().trim(), tenant.getTenantName(), activationLink);
 
-        log.info("Successfully registered staff [{}] with badge [{}] in tenant [{}]", normalizedEmail, staffCode, tenantCode);
+        LogContract.info(log, LogDomain.STAFF, "staff_registered")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("staff", staffCode)
+                .email(normalizedEmail)
+                .emit();
 
         return StaffResponse.fromEntity(savedStaff);
     }
@@ -302,7 +329,12 @@ public class TenantStaffServiceImpl extends BaseService implements TenantStaffSe
                 .map(assignment -> ServiceResponse.fromEntity(assignment.getService()))
                 .collect(Collectors.toList());
 
-        log.info("Updated staff [{}] ({}) status=[{}] in tenant [{}]", saved.getStaffCode(), saved.getFullName(), saved.getStatus(), tenantCode);
+        LogContract.info(log, LogDomain.STAFF, "staff_updated")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("staff", saved.getStaffCode())
+                .field("status", saved.getStatus())
+                .emit();
 
         return StaffResponse.fromEntity(saved, services);
     }
@@ -339,12 +371,20 @@ public class TenantStaffServiceImpl extends BaseService implements TenantStaffSe
                     String orgId = tenant != null ? tenant.getOrganisationId() : null;
                     keycloakTokenService.deleteStaffUserInKeycloak(orgId, staff.getKeycloakUserId());
                 } catch (Exception ex) {
-                    log.warn("Failed to delete Keycloak user [{}] during hard delete: {}", staff.getKeycloakUserId(), ex.getMessage());
+                    LogContract.warn(log, LogDomain.STAFF, "staff_keycloak_cleanup")
+                            .outcome(LogOutcome.DEGRADED)
+                            .field("keycloakUserId", staff.getKeycloakUserId())
+                            .cause(ex)
+                            .emit();
                 }
             }
 
             assignmentService.evictAssignedServicesCache(tenantCode, staffId);
-            log.info("Hard-deleted staff [{}] ({}) in tenant [{}]", staff.getStaffCode(), staff.getFullName(), tenantCode);
+            LogContract.info(log, LogDomain.STAFF, "staff_hard_deleted")
+                    .outcome(LogOutcome.SUCCESS)
+                    .tenant(tenantCode)
+                    .entity("staff", staff.getStaffCode())
+                    .emit();
         } else {
             TenantStaff staff = staffRepository.findByIdAndIsDeletedFalse(staffId)
                     .orElseThrow(() -> new StaffException(
@@ -364,7 +404,11 @@ public class TenantStaffServiceImpl extends BaseService implements TenantStaffSe
             }
 
             assignmentService.evictAssignedServicesCache(tenantCode, staffId);
-            log.info("Soft-deleted staff [{}] ({}) in tenant [{}]", staff.getStaffCode(), staff.getFullName(), tenantCode);
+            LogContract.info(log, LogDomain.STAFF, "staff_soft_deleted")
+                    .outcome(LogOutcome.SUCCESS)
+                    .tenant(tenantCode)
+                    .entity("staff", staff.getStaffCode())
+                    .emit();
         }
     }
 

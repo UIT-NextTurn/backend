@@ -11,6 +11,9 @@ import com.nextturn.repository.calendar.TenantTimeSlotRepository;
 import com.nextturn.service.BaseService;
 import com.nextturn.service.calendar.TenantTimeSlotGeneratorService;
 import com.nextturn.service.calendar.TenantTimeSlotHoldingService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -72,12 +75,21 @@ public class TenantTimeSlotHoldingServiceImpl extends BaseService implements Ten
                     lockOwnerToken = candidateToken;
                 }
             } catch (Exception ex) {
-                log.warn("Valkey distributed lock acquire failed, falling back to DB lock: {}", ex.getMessage());
+                LogContract.warn(log, LogDomain.CALENDAR, "slot_lock_acquire")
+                        .outcome(LogOutcome.DEGRADED)
+                        .entity("slot", slotId)
+                        .cause(ex)
+                        .emit();
             }
         }
 
         if (!lockAcquired) {
-            log.warn("Slot [{}] distributed lock rejected for tenant [{}] (race condition detected)", slotId, tenantCode);
+            LogContract.warn(log, LogDomain.CALENDAR, "slot_lock_rejected")
+                    .outcome(LogOutcome.REJECTED)
+                    .tenant(tenantCode)
+                    .entity("slot", slotId)
+                    .reason("Race condition detected")
+                    .emit();
             throw new CalendarException(
                     CalendarErrorCode.SLOT_ALREADY_HOLDING_OR_BOOKED,
                     "Khung giờ này vừa có người khác nhanh tay chọn trước. Vui lòng chọn một khung giờ khác."
@@ -95,19 +107,29 @@ public class TenantTimeSlotHoldingServiceImpl extends BaseService implements Ten
                 // If currently held, verify expiration
                 if (slot.getStatus() == TimeSlotStatus.HOLDING) {
                     if (slot.getHoldingExpiresAt() != null && slot.getHoldingExpiresAt().isAfter(now)) {
-                        log.warn("Slot [{}] is currently actively held by another customer (expires at {})",
-                                slotId, slot.getHoldingExpiresAt());
+                        LogContract.warn(log, LogDomain.CALENDAR, "slot_hold_conflict")
+                                .outcome(LogOutcome.REJECTED)
+                                .entity("slot", slotId)
+                                .field("expiresAt", slot.getHoldingExpiresAt())
+                                .emit();
                         throw new CalendarException(
                                 CalendarErrorCode.SLOT_ALREADY_HOLDING_OR_BOOKED,
                                 "Khung giờ này vừa có người khác nhanh tay chọn trước. Vui lòng chọn một khung giờ khác."
                         );
                     }
-                    log.info("Resetting expired holding lease on slot [{}] (expired at {})", slotId, slot.getHoldingExpiresAt());
+                    LogContract.info(log, LogDomain.CALENDAR, "slot_hold_lease_reset")
+                            .outcome(LogOutcome.SUCCESS)
+                            .entity("slot", slotId)
+                            .field("expiredAt", slot.getHoldingExpiresAt())
+                            .emit();
                 }
 
                 if (slot.getStatus() == TimeSlotStatus.BOOKED ||
                         (slot.getBookedCount() != null && slot.getBookedCount() >= slot.getCapacityPerSlot())) {
-                    log.warn("Slot [{}] is already fully booked", slotId);
+                    LogContract.warn(log, LogDomain.CALENDAR, "slot_fully_booked")
+                            .outcome(LogOutcome.REJECTED)
+                            .entity("slot", slotId)
+                            .emit();
                     throw new CalendarException(
                             CalendarErrorCode.SLOT_ALREADY_HOLDING_OR_BOOKED,
                             "Khung giờ này vừa có người khác nhanh tay chọn trước. Vui lòng chọn một khung giờ khác."
@@ -128,8 +150,11 @@ public class TenantTimeSlotHoldingServiceImpl extends BaseService implements Ten
                 // Synchronize available slots in Valkey
                 slotGeneratorService.syncAvailableSlotsToValkey(saved.getService().getId(), saved.getWorkDate());
 
-                log.info("Successfully acquired hold on slot [{}] with lease token [{}] until [{}]",
-                        slotId, token, expiresAt);
+                LogContract.info(log, LogDomain.CALENDAR, "slot_hold_acquired")
+                        .outcome(LogOutcome.SUCCESS)
+                        .entity("slot", slotId)
+                        .field("expiresAt", expiresAt)
+                        .emit();
 
                 return SlotHoldingResponse.builder()
                         .slotId(saved.getId())
@@ -145,7 +170,11 @@ public class TenantTimeSlotHoldingServiceImpl extends BaseService implements Ten
                 try {
                     ValkeyDistributedLockSupport.releaseLock(redisTemplate, lockKey, lockOwnerToken);
                 } catch (Exception ex) {
-                    log.warn("Failed to release Valkey distributed lock key [{}]: {}", lockKey, ex.getMessage());
+                    LogContract.warn(log, LogDomain.CALENDAR, "slot_lock_release")
+                            .outcome(LogOutcome.DEGRADED)
+                            .field("lockKey", lockKey)
+                            .cause(ex)
+                            .emit();
                 }
             }
         }
@@ -158,7 +187,11 @@ public class TenantTimeSlotHoldingServiceImpl extends BaseService implements Ten
                     .orElseThrow(() -> new CalendarException(CalendarErrorCode.SLOT_NOT_FOUND));
 
             if (slot.getHoldingToken() == null || !slot.getHoldingToken().equals(holdingToken)) {
-                log.warn("Rejected slot release on [{}]: token mismatch", slotId);
+                LogContract.warn(log, LogDomain.CALENDAR, "slot_release_rejected")
+                        .outcome(LogOutcome.REJECTED)
+                        .entity("slot", slotId)
+                        .reason("Token mismatch")
+                        .emit();
                 throw new CalendarException(
                         CalendarErrorCode.HOLDING_TOKEN_INVALID,
                         "Mã giữ chỗ không hợp lệ hoặc không khớp."
@@ -173,7 +206,10 @@ public class TenantTimeSlotHoldingServiceImpl extends BaseService implements Ten
                 timeSlotRepository.flush();
 
                 slotGeneratorService.syncAvailableSlotsToValkey(saved.getService().getId(), saved.getWorkDate());
-                log.info("Released held slot [{}] back to AVAILABLE", slotId);
+                LogContract.info(log, LogDomain.CALENDAR, "slot_released")
+                        .outcome(LogOutcome.SUCCESS)
+                        .entity("slot", slotId)
+                        .emit();
             }
         });
     }
@@ -185,7 +221,11 @@ public class TenantTimeSlotHoldingServiceImpl extends BaseService implements Ten
                     .orElseThrow(() -> new CalendarException(CalendarErrorCode.SLOT_NOT_FOUND));
 
             if (slot.getHoldingToken() == null || !slot.getHoldingToken().equals(holdingToken)) {
-                log.warn("Rejected slot confirmation on [{}]: token mismatch", slotId);
+                LogContract.warn(log, LogDomain.CALENDAR, "slot_confirm_rejected")
+                        .outcome(LogOutcome.REJECTED)
+                        .entity("slot", slotId)
+                        .reason("Token mismatch")
+                        .emit();
                 throw new CalendarException(
                         CalendarErrorCode.HOLDING_TOKEN_INVALID,
                         "Mã giữ chỗ không hợp lệ hoặc không khớp."
@@ -193,7 +233,11 @@ public class TenantTimeSlotHoldingServiceImpl extends BaseService implements Ten
             }
 
             if (slot.getHoldingExpiresAt() != null && slot.getHoldingExpiresAt().isBefore(LocalDateTime.now())) {
-                log.warn("Rejected slot confirmation on [{}]: holding lease expired", slotId);
+                LogContract.warn(log, LogDomain.CALENDAR, "slot_confirm_rejected")
+                        .outcome(LogOutcome.REJECTED)
+                        .entity("slot", slotId)
+                        .reason("Holding lease expired")
+                        .emit();
                 throw new CalendarException(
                         CalendarErrorCode.HOLDING_TOKEN_EXPIRED,
                         "Thời gian giữ chỗ của bạn đã hết hạn. Vui lòng chọn lại khung giờ."
@@ -216,8 +260,12 @@ public class TenantTimeSlotHoldingServiceImpl extends BaseService implements Ten
             timeSlotRepository.flush();
 
             slotGeneratorService.syncAvailableSlotsToValkey(saved.getService().getId(), saved.getWorkDate());
-            log.info("Confirmed booking on slot [{}] (booked count: {}/{}, status: {})",
-                    slotId, newBooked, slot.getCapacityPerSlot(), slot.getStatus());
+            LogContract.info(log, LogDomain.CALENDAR, "slot_confirmed")
+                    .outcome(LogOutcome.SUCCESS)
+                    .entity("slot", slotId)
+                    .field("booked", newBooked + "/" + slot.getCapacityPerSlot())
+                    .field("status", slot.getStatus())
+                    .emit();
         });
     }
 
@@ -259,8 +307,11 @@ public class TenantTimeSlotHoldingServiceImpl extends BaseService implements Ten
                 slotGeneratorService.syncAvailableSlotsToValkey(key.serviceId(), key.workDate());
             }
 
-            log.info("Automatically released {} expired holding slots across {} service-dates",
-                    expired.size(), affectedServiceDates.size());
+            LogContract.info(log, LogDomain.CALENDAR, "expired_holds_released")
+                    .outcome(LogOutcome.SUCCESS)
+                    .field("slotCount", expired.size())
+                    .field("serviceDateCount", affectedServiceDates.size())
+                    .emit();
             return expired.size();
         });
     }

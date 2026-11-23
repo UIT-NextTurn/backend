@@ -11,6 +11,9 @@ import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
 import com.nextturn.repository.auth.CentralTenantRepository;
 import com.nextturn.service.BaseService;
 import com.nextturn.service.auth.TenantIdpService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,8 +66,12 @@ public class TenantIdpServiceImpl extends BaseService implements TenantIdpServic
             });
         }
 
-        log.info("Configuring external IdP [{}] for organization [{}] of tenant [{}]",
-                request.getProviderType(), orgId, tenantCode);
+        LogContract.info(log, LogDomain.AUTH, "idp_configured")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("org", orgId)
+                .field("providerType", request.getProviderType())
+                .emit();
 
         return keycloakTokenService.configureOrganizationIdp(orgId, tenantCode, request);
     }
@@ -88,7 +95,10 @@ public class TenantIdpServiceImpl extends BaseService implements TenantIdpServic
         CentralTenant tenant = resolveCentralTenant(tenantCode);
 
         keycloakTokenService.removeOrganizationIdp(tenant.getOrganisationId(), tenantCode);
-        log.info("Successfully removed external IdP configuration for tenant [{}]", tenantCode);
+        LogContract.info(log, LogDomain.AUTH, "idp_removed")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .emit();
     }
 
     private CentralTenant resolveCentralTenant(String tenantCode) {

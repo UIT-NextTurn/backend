@@ -1,5 +1,8 @@
 package com.nextturn.infrastructure.multitenancy;
 
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.datasource.lookup.AbstractRoutingDataSource;
@@ -64,10 +67,16 @@ public class TenantRoutingDataSource extends AbstractRoutingDataSource {
         try {
             if (schema != null && !schema.isBlank()) {
                 connection.setCatalog(schema);
-                log.trace("Switched database catalog/schema to: [{}]", schema);
+                LogContract.trace(log, LogDomain.TENANT, "schema_switch")
+                        .field("schema", schema)
+                        .emit();
             }
         } catch (SQLException e) {
-            log.error("Failed to switch database catalog to [{}]: {}", schema, e.getMessage());
+            LogContract.error(log, LogDomain.TENANT, "schema_switch")
+                    .outcome(LogOutcome.FAILED)
+                    .field("schema", schema)
+                    .causeWithStack(e)
+                    .emit();
             throw new IllegalStateException("Failed to switch database catalog to [" + schema + "]", e);
         }
     }

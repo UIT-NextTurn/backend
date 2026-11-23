@@ -21,6 +21,9 @@ import com.nextturn.repository.service.TenantServiceRepository;
 import com.nextturn.repository.tenant.CentralTenantQuotaRepository;
 import com.nextturn.repository.ticket.TenantQueueTicketRepository;
 import com.nextturn.service.ticket.TenantTicketValidator;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -178,8 +181,12 @@ public class TenantTicketValidatorImpl implements TenantTicketValidator {
             boolean hasActiveShiftNow = todayShifts.stream()
                     .anyMatch(s -> !s.getShiftStart().isAfter(nowTime) && s.getShiftEnd().isAfter(nowTime));
             if (todayShifts.isEmpty() || !hasActiveShiftNow) {
-                log.warn("No active shift currently open for walk-in intake on service [{}] at [{}]",
-                        service.getServiceCode(), nowTime);
+                LogContract.warn(log, LogDomain.TICKET, "walkin_intake_rejected")
+                        .outcome(LogOutcome.REJECTED)
+                        .field("serviceCode", service.getServiceCode())
+                        .field("time", nowTime)
+                        .reason("No active shift open")
+                        .emit();
                 throw new TicketException(TicketErrorCode.WALK_IN_CAPACITY_FULL);
             }
 
@@ -193,8 +200,13 @@ public class TenantTicketValidatorImpl implements TenantTicketValidator {
             long maxShiftCapacity = Math.max(1L, totalShiftMinutes / standardDuration);
             long todayIssuedForService = ticketRepository.countByServiceIdAndWorkDate(service.getId(), today);
             if (todayIssuedForService >= maxShiftCapacity) {
-                log.warn("Walk-in capacity full for service [{}] on [{}]: issued {} >= max {}",
-                        service.getServiceCode(), today, todayIssuedForService, maxShiftCapacity);
+                LogContract.warn(log, LogDomain.TICKET, "walkin_capacity_full")
+                        .outcome(LogOutcome.REJECTED)
+                        .field("serviceCode", service.getServiceCode())
+                        .field("workDate", today)
+                        .field("issued", todayIssuedForService)
+                        .field("maxCapacity", maxShiftCapacity)
+                        .emit();
                 throw new TicketException(TicketErrorCode.WALK_IN_CAPACITY_FULL);
             }
         }
@@ -213,7 +225,12 @@ public class TenantTicketValidatorImpl implements TenantTicketValidator {
                     if (dailyLimit != null && dailyLimit > 0) {
                         long todayTotal = ticketRepository.countByWorkDate(today);
                         if (todayTotal >= dailyLimit) {
-                            log.warn("Tenant [{}] reached daily ticket quota ({}/{})", tenantCode, todayTotal, dailyLimit);
+                            LogContract.warn(log, LogDomain.TICKET, "daily_quota_exceeded")
+                                    .outcome(LogOutcome.REJECTED)
+                                    .tenant(tenantCode)
+                                    .field("issued", todayTotal)
+                                    .field("dailyLimit", dailyLimit)
+                                    .emit();
                             throw new TicketException(TicketErrorCode.DAILY_TICKET_QUOTA_EXCEEDED);
                         }
                     }

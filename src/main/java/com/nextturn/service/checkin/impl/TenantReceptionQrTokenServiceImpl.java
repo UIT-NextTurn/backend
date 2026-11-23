@@ -8,6 +8,9 @@ import com.nextturn.enums.ReceptionPointStatus;
 import com.nextturn.enums.ReceptionQrMode;
 import com.nextturn.exception.checkin.CheckInErrorCode;
 import com.nextturn.exception.checkin.CheckInException;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.repository.checkin.TenantReceptionPointRepository;
 import com.nextturn.service.checkin.TenantReceptionQrTokenService;
@@ -161,7 +164,12 @@ public class TenantReceptionQrTokenServiceImpl implements TenantReceptionQrToken
                 String valkeyKey = ValkeyKeyConstant.receptionQrKey(cleanTenant, point.getId(), bucket);
                 redisTemplate.opsForValue().set(valkeyKey, dynamicToken, Duration.ofSeconds(remainingSeconds));
             } catch (Exception ex) {
-                log.trace("Non-fatal: Failed to cache dynamic reception QR in Valkey: {}", ex.getMessage());
+                LogContract.warn(log, LogDomain.CHECKIN, "qr_cache_write")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(cleanTenant)
+                        .entity("receptionPoint", point.getId())
+                        .cause(ex)
+                        .emit();
             }
         }
 

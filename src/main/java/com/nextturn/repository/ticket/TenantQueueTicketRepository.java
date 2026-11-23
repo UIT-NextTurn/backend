@@ -226,4 +226,20 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
         ORDER BY COALESCE(t.calledAt, t.servedAt, t.issuedAt) DESC
     """)
     List<TenantQueueTicket> findActiveLobbyTicketsByWorkDate(@Param("workDate") LocalDate workDate);
+
+    /**
+     * Fetches all WAITING tickets for a service on a given date for approaching-turn alert evaluation (REQ-NOTI-02).
+     */
+    @Query("""
+        SELECT t FROM TenantQueueTicket t
+        LEFT JOIN FETCH t.service
+        WHERE t.service.id = :serviceId
+          AND t.workDate = :workDate
+          AND t.status = 'WAITING'
+        ORDER BY t.issuedAt ASC, t.sequenceNumber ASC
+    """)
+    List<TenantQueueTicket> findWaitingByServiceAndWorkDateWithService(
+            @Param("serviceId") String serviceId,
+            @Param("workDate") LocalDate workDate
+    );
 }

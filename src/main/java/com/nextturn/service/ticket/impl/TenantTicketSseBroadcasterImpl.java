@@ -2,9 +2,13 @@ package com.nextturn.service.ticket.impl;
 
 import com.nextturn.dto.ticket.TicketQueueEventResponse;
 import com.nextturn.dto.ticket.TicketResponse;
+import com.nextturn.enums.TicketStatus;
 import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.service.ticket.TenantTicketQueryService;
 import com.nextturn.service.ticket.TenantTicketSseBroadcaster;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -116,12 +120,31 @@ public class TenantTicketSseBroadcasterImpl implements TenantTicketSseBroadcaste
                     .name("queue-progress")
                     .data(payload));
         } catch (IOException ex) {
-            log.debug("Failed to push SSE event for ticket [{}]: {}", payload.getTicketCode(), ex.getMessage());
+            LogContract.warn(log, LogDomain.TICKET, "sse_push")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("ticket", payload.getTicketCode())
+                    .cause(ex)
+                    .emit();
             emitter.completeWithError(ex);
         }
     }
 
     private TicketQueueEventResponse toEvent(String eventType, TicketResponse snapshot) {
+        boolean isCalling = TicketStatus.CALLING.equals(snapshot.getStatus());
+        boolean isApproaching = !isCalling && Boolean.TRUE.equals(snapshot.getApproachingTurnAlert());
+        String highlightColor = isCalling ? "#EF4444" : (isApproaching ? "#F97316" : null);
+        String counterDesk = snapshot.getCounterLabel() != null && !snapshot.getCounterLabel().isBlank()
+                ? snapshot.getCounterLabel()
+                : snapshot.getCounterStaffName();
+        String alertMessage = null;
+        if (isCalling) {
+            alertMessage = "Số thứ tự [" + snapshot.getTicketCode() + "] xin mời đến "
+                    + (counterDesk != null && !counterDesk.isBlank() ? counterDesk : "quầy tiếp nhận");
+        } else if (isApproaching) {
+            long ahead = snapshot.getPeopleAheadCount() != null ? snapshot.getPeopleAheadCount() : 0L;
+            alertMessage = "Sắp đến lượt của bạn! Còn " + ahead + " khách phía trước.";
+        }
+
         return TicketQueueEventResponse.builder()
                 .eventType(eventType)
                 .ticketId(snapshot.getId())
@@ -132,6 +155,11 @@ public class TenantTicketSseBroadcasterImpl implements TenantTicketSseBroadcaste
                 .peopleAheadCount(snapshot.getPeopleAheadCount())
                 .estimatedWaitMinutes(snapshot.getEstimatedWaitMinutes())
                 .approachingTurnAlert(snapshot.getApproachingTurnAlert())
+                .highPriorityCall(isCalling)
+                .vibrateAlert(isCalling || isApproaching)
+                .highlightColor(highlightColor)
+                .counterLabel(counterDesk)
+                .alertMessage(alertMessage)
                 .timestamp(LocalDateTime.now())
                 .build();
     }

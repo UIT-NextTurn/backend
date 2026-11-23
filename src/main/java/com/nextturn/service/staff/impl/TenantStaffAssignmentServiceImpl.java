@@ -18,6 +18,9 @@ import com.nextturn.repository.staff.TenantStaffServiceRepository;
 import com.nextturn.service.BaseService;
 import com.nextturn.service.staff.TenantStaffAssignmentService;
 import com.nextturn.service.tenant.TenantCacheService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -130,8 +133,12 @@ public class TenantStaffAssignmentServiceImpl extends BaseService implements Ten
             tenantCacheService.evictServiceStaffCache(tenantCode, svc.getId());
         }
 
-        log.info("Assigned {} services to staff [{}] ({}) in tenant [{}]",
-                targetServices.size(), staff.getStaffCode(), staff.getFullName(), tenantCode);
+        LogContract.info(log, LogDomain.STAFF, "staff_services_assigned")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("staff", staff.getStaffCode())
+                .field("serviceCount", targetServices.size())
+                .emit();
 
         List<ServiceResponse> assignedResponses = targetServices.stream()
                 .map(ServiceResponse::fromEntity)

@@ -6,6 +6,9 @@ import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.repository.staff.TenantStaffRepository;
 import com.nextturn.service.tenant.TenantCacheService;
 import com.nextturn.service.tenant.TenantTelemetryService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,8 +67,11 @@ public class TenantTelemetryServiceImpl implements TenantTelemetryService {
             TenantContextHolder.setTenantCode(tenantCode.trim());
             count = staffRepository.countByStatusAndIsDeletedFalse(StaffStatus.ACTIVE);
         } catch (Exception ex) {
-            log.warn("Could not query staff count in tenant schema [{}] (table might not exist yet): {}",
-                    tenantCode, ex.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "staff_count_query")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantCode)
+                    .cause(ex)
+                    .emit();
         } finally {
             if (previousTenant != null) {
                 TenantContextHolder.setTenantCode(previousTenant);
@@ -108,7 +114,11 @@ public class TenantTelemetryServiceImpl implements TenantTelemetryService {
                 }
             }
         } catch (Exception ex) {
-            log.trace("Today tickets count query noted for tenant [{}]: {}", tenantCode, ex.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "today_tickets_count_query")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantCode)
+                    .cause(ex)
+                    .emit();
         } finally {
             if (previousTenant != null) {
                 TenantContextHolder.setTenantCode(previousTenant);
@@ -138,7 +148,12 @@ public class TenantTelemetryServiceImpl implements TenantTelemetryService {
                         || countTableRows(conn, "tenant__feedbacks") > 0;
             }
         } catch (Exception ex) {
-            log.debug("Historical operational data check noted for schema [tenant_{}]: {}", tenantCode, ex.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "historical_data_check")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantCode)
+                    .field("schema", "tenant_" + tenantCode)
+                    .cause(ex)
+                    .emit();
             return false;
         } finally {
             if (previousTenant != null) {
@@ -157,7 +172,11 @@ public class TenantTelemetryServiceImpl implements TenantTelemetryService {
                 return rs.getLong(1);
             }
         } catch (SQLException ex) {
-            log.trace("Table [{}] not found or query failed in tenant catalog: {}", tableName, ex.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "table_row_count")
+                    .outcome(LogOutcome.DEGRADED)
+                    .field("table", tableName)
+                    .cause(ex)
+                    .emit();
         }
         return 0L;
     }

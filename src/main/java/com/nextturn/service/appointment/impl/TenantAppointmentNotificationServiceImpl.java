@@ -5,6 +5,9 @@ import com.nextturn.entity.TenantService;
 import com.nextturn.entity.TenantTimeSlot;
 import com.nextturn.service.appointment.TenantAppointmentNotificationService;
 import com.nextturn.service.notification.EmailService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,8 +64,11 @@ public class TenantAppointmentNotificationServiceImpl implements TenantAppointme
             String html = renderTemplate(CONFIRMATION_TEMPLATE_PATH, variables);
             emailService.sendHtmlEmailAsync(appointment.getCustomerEmail(), subject, html);
         } catch (Exception ex) {
-            log.warn("Non-fatal: Failed to send appointment confirmation email for [{}]: {}",
-                    appointment.getAppointmentCode(), ex.getMessage());
+            LogContract.warn(log, LogDomain.APPOINTMENT, "confirmation_email_dispatch")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("appointment", appointment.getAppointmentCode())
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -93,8 +99,11 @@ public class TenantAppointmentNotificationServiceImpl implements TenantAppointme
             String html = renderTemplate(CANCELLATION_TEMPLATE_PATH, variables);
             emailService.sendHtmlEmailAsync(appointment.getCustomerEmail(), subject, html);
         } catch (Exception ex) {
-            log.warn("Non-fatal: Failed to send appointment cancellation email for [{}]: {}",
-                    appointment.getAppointmentCode(), ex.getMessage());
+            LogContract.warn(log, LogDomain.APPOINTMENT, "cancellation_email_dispatch")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("appointment", appointment.getAppointmentCode())
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -106,7 +115,11 @@ public class TenantAppointmentNotificationServiceImpl implements TenantAppointme
                     return new String(is.readAllBytes(), StandardCharsets.UTF_8);
                 }
             } catch (Exception ex) {
-                log.warn("Could not load email template from classpath [{}]: {}", path, ex.getMessage());
+                LogContract.warn(log, LogDomain.APPOINTMENT, "email_template_load")
+                        .outcome(LogOutcome.DEGRADED)
+                        .field("path", path)
+                        .cause(ex)
+                        .emit();
                 return "";
             }
         });

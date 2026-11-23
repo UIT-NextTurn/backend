@@ -13,6 +13,9 @@ import com.nextturn.service.service.TenantServiceCodeGenerator;
 import com.nextturn.service.service.TenantServiceQueryService;
 import com.nextturn.service.service.TenantServiceService;
 import com.nextturn.service.tenant.TenantCacheService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -112,7 +115,12 @@ public class TenantServiceServiceImpl extends BaseService implements TenantServi
 
         evictAndRefreshCache(tenantCode);
 
-        log.info("Created service [{}] ({}) in tenant [{}]", saved.getServiceCode(), saved.getServiceName(), tenantCode);
+        LogContract.info(log, LogDomain.SERVICE, "service_created")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("service", saved.getServiceCode())
+                .field("name", saved.getServiceName())
+                .emit();
         return ServiceResponse.fromEntity(saved);
     }
 
@@ -135,8 +143,13 @@ public class TenantServiceServiceImpl extends BaseService implements TenantServi
         }
 
         if (!service.getStandardDuration().equals(request.getStandardDuration())) {
-            log.info("Standard duration for service [{}] ({}) changed from {}m to {}m in tenant [{}]. Existing confirmed appointments remain strictly unaffected.",
-                    service.getServiceCode(), service.getServiceName(), service.getStandardDuration(), request.getStandardDuration(), tenantCode);
+            LogContract.info(log, LogDomain.SERVICE, "service_duration_changed")
+                    .outcome(LogOutcome.SUCCESS)
+                    .tenant(tenantCode)
+                    .entity("service", service.getServiceCode())
+                    .field("oldMinutes", service.getStandardDuration())
+                    .field("newMinutes", request.getStandardDuration())
+                    .emit();
         }
 
         service.setServiceName(trimmedName);
@@ -151,8 +164,12 @@ public class TenantServiceServiceImpl extends BaseService implements TenantServi
 
         evictAndRefreshCache(tenantCode);
 
-        log.info("Updated service [{}] ({}) with status [{}] in tenant [{}]",
-                saved.getServiceCode(), saved.getServiceName(), saved.getStatus(), tenantCode);
+        LogContract.info(log, LogDomain.SERVICE, "service_updated")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("service", saved.getServiceCode())
+                .field("status", saved.getStatus())
+                .emit();
         return ServiceResponse.fromEntity(saved);
     }
 
@@ -169,8 +186,13 @@ public class TenantServiceServiceImpl extends BaseService implements TenantServi
         long pendingAppointments = serviceRepository.countPendingAppointmentsByServiceId(serviceId);
         long pendingTickets = serviceRepository.countPendingQueueTicketsByServiceId(serviceId);
         if (pendingAppointments > 0 || pendingTickets > 0) {
-            log.warn("Cannot delete service [{}] ({}) in tenant [{}]: {} pending appointments, {} pending tickets",
-                    service.getServiceCode(), service.getServiceName(), tenantCode, pendingAppointments, pendingTickets);
+            LogContract.warn(log, LogDomain.SERVICE, "service_delete_blocked")
+                    .outcome(LogOutcome.REJECTED)
+                    .tenant(tenantCode)
+                    .entity("service", service.getServiceCode())
+                    .field("pendingAppointments", pendingAppointments)
+                    .field("pendingTickets", pendingTickets)
+                    .emit();
             throw new ServiceException(
                     ServiceErrorCode.SERVICE_CANNOT_DELETE_ACTIVE_BOOKINGS,
                     "Dịch vụ này hiện đang có lịch hẹn hoặc vé chờ chưa hoàn tất. Hệ thống không thể xóa dịch vụ. Quản trị viên vui lòng chuyển sang trạng thái “Tạm ngưng hoạt động” (Inactive) để dừng tiếp nhận lượt mới."
@@ -182,7 +204,11 @@ public class TenantServiceServiceImpl extends BaseService implements TenantServi
 
         evictAndRefreshCache(tenantCode);
 
-        log.info("Soft-deleted service [{}] ({}) in tenant [{}]", service.getServiceCode(), service.getServiceName(), tenantCode);
+        LogContract.info(log, LogDomain.SERVICE, "service_deleted")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("service", service.getServiceCode())
+                .emit();
     }
 
     @Override
