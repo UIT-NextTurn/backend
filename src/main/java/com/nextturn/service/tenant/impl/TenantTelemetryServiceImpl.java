@@ -105,7 +105,7 @@ public class TenantTelemetryServiceImpl implements TenantTelemetryService {
         try {
             TenantContextHolder.setTenantCode(tenantCode.trim());
             try (Connection conn = dataSource.getConnection()) {
-                String sql = "SELECT COUNT(*) FROM tenant__queue_tickets WHERE created_at >= CURDATE() AND is_deleted = false";
+                String sql = "SELECT COUNT(*) FROM tenant__queue_tickets WHERE work_date = CURDATE()";
                 try (PreparedStatement stmt = conn.prepareStatement(sql);
                      ResultSet rs = stmt.executeQuery()) {
                     if (rs.next()) {

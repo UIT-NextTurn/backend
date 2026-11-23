@@ -56,19 +56,13 @@ public class TenantTicketSseBroadcasterImpl implements TenantTicketSseBroadcaste
         String resolvedTicketId = snapshot.getId();
         String queueKey = buildQueueKey(tenantCode, snapshot.getServiceId(), snapshot.getWorkDate());
 
-        ConcurrentHashMap<String, SseEmitter> channel = queueSubscribers.computeIfAbsent(
-                queueKey, k -> new ConcurrentHashMap<>());
-        channel.put(resolvedTicketId, emitter);
+        queueSubscribers.compute(queueKey, (k, existing) -> {
+            ConcurrentHashMap<String, SseEmitter> channel = existing != null ? existing : new ConcurrentHashMap<>();
+            channel.put(resolvedTicketId, emitter);
+            return channel;
+        });
 
-        Runnable cleanup = () -> {
-            ConcurrentHashMap<String, SseEmitter> map = queueSubscribers.get(queueKey);
-            if (map != null) {
-                map.remove(resolvedTicketId, emitter);
-                if (map.isEmpty()) {
-                    queueSubscribers.remove(queueKey, map);
-                }
-            }
-        };
+        Runnable cleanup = () -> removeTicketEmitter(queueKey, resolvedTicketId, emitter);
         emitter.onCompletion(cleanup);
         emitter.onTimeout(cleanup);
         emitter.onError(ex -> cleanup.run());
@@ -76,6 +70,13 @@ public class TenantTicketSseBroadcasterImpl implements TenantTicketSseBroadcaste
         // Emit initial snapshot immediately upon subscription
         sendEvent(emitter, toEvent("INITIAL_SNAPSHOT", snapshot));
         return emitter;
+    }
+
+    private void removeTicketEmitter(String queueKey, String ticketId, SseEmitter emitter) {
+        queueSubscribers.computeIfPresent(queueKey, (k, existing) -> {
+            existing.remove(ticketId, emitter);
+            return existing.isEmpty() ? null : existing;
+        });
     }
 
     @Override
@@ -101,7 +102,7 @@ public class TenantTicketSseBroadcasterImpl implements TenantTicketSseBroadcaste
                     TicketResponse updated = ticketQueryService.getTicketDetails(ticketId);
                     sendEvent(emitter, toEvent(eventType, updated));
                 } catch (Exception ex) {
-                    channel.remove(ticketId, emitter);
+                    removeTicketEmitter(queueKey, ticketId, emitter);
                     emitter.complete();
                 }
             }
