@@ -76,6 +76,12 @@ public class TicketResponse {
     @Schema(description = "True when peopleAheadCount <= 2 so UI triggers approaching turn alert")
     private Boolean approachingTurnAlert;
 
+    @Schema(description = "One-time CSAT feedback token issued when ticket is COMPLETED (REQ-FEEDBACK-01)")
+    private String feedbackToken;
+
+    @Schema(description = "Expiration timestamp (24h after completion) for the feedback token")
+    private LocalDateTime feedbackExpiresAt;
+
     private LocalDateTime issuedAt;
     private LocalDateTime calledAt;
     private LocalDateTime servedAt;
@@ -128,6 +134,8 @@ public class TicketResponse {
                 .peopleAheadCount(peopleAheadCount)
                 .estimatedWaitMinutes(estimatedWaitMinutes)
                 .approachingTurnAlert(ticket.getStatus() == TicketStatus.WAITING && peopleAheadCount <= 2)
+                .feedbackToken(ticket.getFeedbackToken())
+                .feedbackExpiresAt(ticket.getFeedbackTokenExpiresAt())
                 .issuedAt(ticket.getIssuedAt())
                 .calledAt(ticket.getCalledAt())
                 .servedAt(ticket.getServedAt())

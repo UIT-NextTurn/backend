@@ -33,5 +33,7 @@ public class TicketQueueEventResponse {
     private String highlightColor;
     private String counterLabel;
     private String alertMessage;
+    private String feedbackToken;
+    private LocalDateTime feedbackExpiresAt;
     private LocalDateTime timestamp;
 }
