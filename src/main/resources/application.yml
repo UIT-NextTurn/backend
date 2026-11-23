@@ -116,4 +116,11 @@ cors:
   max-age: ${CORS_MAX_AGE_SECONDS:3600}
   allow-credentials: ${CORS_ALLOW_CREDENTIALS:true}
 
+# -------------------------------------------------------------------
+# Structured Logging Pattern (MDC traceId & tenantCode)
+# -------------------------------------------------------------------
+logging:
+  pattern:
+    level: "%5p [trace=%X{traceId:-system} tenant=%X{tenantCode:-central}]"
+
 
