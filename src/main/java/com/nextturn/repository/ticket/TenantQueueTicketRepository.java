@@ -242,4 +242,16 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
             @Param("serviceId") String serviceId,
             @Param("workDate") LocalDate workDate
     );
+
+    /**
+     * Looks up a queue ticket by its one-time post-service CSAT feedback token (REQ-FEEDBACK-01/02).
+     */
+    @Query("""
+        SELECT t FROM TenantQueueTicket t
+        LEFT JOIN FETCH t.service
+        LEFT JOIN FETCH t.appointment
+        LEFT JOIN FETCH t.provider
+        WHERE t.feedbackToken = :feedbackToken
+    """)
+    Optional<TenantQueueTicket> findByFeedbackTokenWithDetails(@Param("feedbackToken") String feedbackToken);
 }
