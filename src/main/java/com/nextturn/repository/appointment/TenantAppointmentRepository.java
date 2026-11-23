@@ -91,4 +91,18 @@ public interface TenantAppointmentRepository extends JpaRepository<TenantAppoint
         ORDER BY s.workDate ASC, s.slotStart ASC
     """)
     List<TenantAppointment> findConfirmedAppointmentsPendingReminder();
+
+    /**
+     * Fetches appointments scheduled within a date window for cancellation analytics (REQ-DASHBOARD-01/02).
+     */
+    @Query("""
+        SELECT a FROM TenantAppointment a
+        LEFT JOIN FETCH a.service
+        LEFT JOIN FETCH a.slot s
+        WHERE s.workDate BETWEEN :fromDate AND :toDate
+    """)
+    List<TenantAppointment> findBySlotWorkDateBetweenWithDetails(
+            @Param("fromDate") java.time.LocalDate fromDate,
+            @Param("toDate") java.time.LocalDate toDate
+    );
 }
