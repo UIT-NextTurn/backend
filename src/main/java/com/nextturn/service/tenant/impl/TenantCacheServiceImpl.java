@@ -8,6 +8,9 @@ import com.nextturn.dto.calendar.CalendarSettingsResponse;
 import com.nextturn.dto.calendar.TimeSlotResponse;
 import com.nextturn.dto.tenant.TenantResponse;
 import com.nextturn.service.tenant.TenantCacheService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,9 +64,16 @@ public class TenantCacheServiceImpl implements TenantCacheService {
             if (response.getTenantCode() != null) {
                 ops.set(ValkeyKeyConstant.tenantConfigKey(response.getTenantCode()), json, ttl);
             }
-            log.debug("Refreshed Valkey tenant config cache for [{}] / [{}]", response.getId(), response.getTenantCode());
+            LogContract.debug(log, LogDomain.TENANT, "cache_write_config")
+                    .entity("tenant", response.getTenantCode())
+                    .field("tenantId", response.getId())
+                    .emit();
         } catch (Exception ex) {
-            log.warn("Failed to cache tenant config in Valkey: {}", ex.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "cache_write_config")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("tenant", response.getTenantCode())
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -85,7 +95,11 @@ public class TenantCacheServiceImpl implements TenantCacheService {
                 return objectMapper.readValue(json, TenantResponse.class);
             }
         } catch (Exception ex) {
-            log.warn("Failed to read cached tenant config from Valkey for [{}]: {}", tenantIdentifier, ex.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "cache_read_config")
+                    .outcome(LogOutcome.DEGRADED)
+                    .field("identifier", tenantIdentifier)
+                    .cause(ex)
+                    .emit();
         }
         return null;
     }
@@ -107,9 +121,16 @@ public class TenantCacheServiceImpl implements TenantCacheService {
                     keys.add(ValkeyKeyConstant.tenantServicesKey(tenantCode));
                 }
                 redisTemplate.delete(keys);
-                log.debug("Evicted Valkey cache keys: {}", keys);
+                LogContract.debug(log, LogDomain.TENANT, "cache_evict_config")
+                        .field("keyCount", keys.size())
+                        .emit();
             } catch (Exception ex) {
-                log.warn("Valkey cache eviction failed for tenant [{}] / [{}]: {}", tenantId, tenantCode, ex.getMessage());
+                LogContract.warn(log, LogDomain.TENANT, "cache_evict_config")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(tenantCode)
+                        .field("tenantId", tenantId)
+                        .cause(ex)
+                        .emit();
             }
         }
     }
@@ -122,9 +143,16 @@ public class TenantCacheServiceImpl implements TenantCacheService {
             try {
                 String key = ValkeyKeyConstant.tenantServicesKey(tenantCode);
                 redisTemplate.delete(key);
-                log.debug("Evicted Valkey service catalog cache for tenant [{}]: key [{}]", tenantCode, key);
+                LogContract.debug(log, LogDomain.SERVICE, "cache_evict_services")
+                        .tenant(tenantCode)
+                        .field("key", key)
+                        .emit();
             } catch (Exception ex) {
-                log.warn("Valkey service cache eviction failed for tenant [{}]: {}", tenantCode, ex.getMessage());
+                LogContract.warn(log, LogDomain.SERVICE, "cache_evict_services")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(tenantCode)
+                        .cause(ex)
+                        .emit();
             }
         }
     }
@@ -140,9 +168,18 @@ public class TenantCacheServiceImpl implements TenantCacheService {
             try {
                 String key = ValkeyKeyConstant.tenantServiceStaffKey(tenantCode, serviceId);
                 redisTemplate.delete(key);
-                log.debug("Evicted service staff cache for tenant [{}] service [{}]: key [{}]", tenantCode, serviceId, key);
+                LogContract.debug(log, LogDomain.STAFF, "cache_evict_service_staff")
+                        .tenant(tenantCode)
+                        .entity("service", serviceId)
+                        .field("key", key)
+                        .emit();
             } catch (Exception ex) {
-                log.warn("Valkey service staff cache eviction failed for tenant [{}] service [{}]: {}", tenantCode, serviceId, ex.getMessage());
+                LogContract.warn(log, LogDomain.STAFF, "cache_evict_service_staff")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(tenantCode)
+                        .entity("service", serviceId)
+                        .cause(ex)
+                        .emit();
             }
         }
     }
@@ -165,9 +202,17 @@ public class TenantCacheServiceImpl implements TenantCacheService {
             String key = ValkeyKeyConstant.tenantServicesKey(tenantCode);
             String json = objectMapper.writeValueAsString(services);
             ops.set(key, json, Duration.ofHours(ValkeyKeyConstant.TENANT_PROFILE_TTL_HOURS));
-            log.debug("Cached {} services in Valkey for tenant [{}]: key [{}]", services.size(), tenantCode, key);
+            LogContract.debug(log, LogDomain.SERVICE, "cache_write_services")
+                    .tenant(tenantCode)
+                    .field("count", services.size())
+                    .field("key", key)
+                    .emit();
         } catch (Exception ex) {
-            log.warn("Failed to cache services in Valkey for tenant [{}]: {}", tenantCode, ex.getMessage());
+            LogContract.warn(log, LogDomain.SERVICE, "cache_write_services")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantCode)
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -192,7 +237,11 @@ public class TenantCacheServiceImpl implements TenantCacheService {
                 return objectMapper.readValue(json, new TypeReference<List<ServiceResponse>>() {});
             }
         } catch (Exception ex) {
-            log.warn("Failed to read cached services from Valkey for tenant [{}]: {}", tenantCode, ex.getMessage());
+            LogContract.warn(log, LogDomain.SERVICE, "cache_read_services")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantCode)
+                    .cause(ex)
+                    .emit();
         }
         return null;
     }
@@ -213,7 +262,11 @@ public class TenantCacheServiceImpl implements TenantCacheService {
                 }
             }
         } catch (Exception ex) {
-            log.trace("Cache read error for count key [{}]: {}", key, ex.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "cache_read_count")
+                    .outcome(LogOutcome.DEGRADED)
+                    .field("key", key)
+                    .cause(ex)
+                    .emit();
         }
         return null;
     }
@@ -231,7 +284,11 @@ public class TenantCacheServiceImpl implements TenantCacheService {
                 ops.set(key, String.valueOf(count), ttl);
             }
         } catch (Exception ex) {
-            log.trace("Cache write error for count key [{}]: {}", key, ex.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "cache_write_count")
+                    .outcome(LogOutcome.DEGRADED)
+                    .field("key", key)
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -255,9 +312,21 @@ public class TenantCacheServiceImpl implements TenantCacheService {
             String key = ValkeyKeyConstant.tenantSlotsKey(tenantCode, serviceId, workDate);
             String json = objectMapper.writeValueAsString(slots);
             ops.set(key, json, Duration.ofHours(ValkeyKeyConstant.TENANT_PROFILE_TTL_HOURS));
-            log.debug("Cached {} time slots in Valkey for tenant [{}], service [{}], date [{}]: key [{}]", slots.size(), tenantCode, serviceId, workDate, key);
+            LogContract.debug(log, LogDomain.CALENDAR, "cache_write_slots")
+                    .tenant(tenantCode)
+                    .field("count", slots.size())
+                    .field("serviceId", serviceId)
+                    .field("workDate", workDate)
+                    .field("key", key)
+                    .emit();
         } catch (Exception ex) {
-            log.warn("Failed to cache time slots in Valkey for tenant [{}], service [{}], date [{}]: {}", tenantCode, serviceId, workDate, ex.getMessage());
+            LogContract.warn(log, LogDomain.CALENDAR, "cache_write_slots")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantCode)
+                    .field("serviceId", serviceId)
+                    .field("workDate", workDate)
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -284,7 +353,13 @@ public class TenantCacheServiceImpl implements TenantCacheService {
                 return objectMapper.readValue(json, new TypeReference<List<TimeSlotResponse>>() {});
             }
         } catch (Exception ex) {
-            log.warn("Failed to read cached time slots from Valkey for tenant [{}], service [{}], date [{}]: {}", tenantCode, serviceId, workDate, ex.getMessage());
+            LogContract.warn(log, LogDomain.CALENDAR, "cache_read_slots")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantCode)
+                    .field("serviceId", serviceId)
+                    .field("workDate", workDate)
+                    .cause(ex)
+                    .emit();
         }
         return null;
     }
@@ -301,9 +376,20 @@ public class TenantCacheServiceImpl implements TenantCacheService {
             try {
                 String key = ValkeyKeyConstant.tenantSlotsKey(tenantCode, serviceId, workDate);
                 redisTemplate.delete(key);
-                log.debug("Evicted Valkey time slots cache for tenant [{}], service [{}], date [{}]: key [{}]", tenantCode, serviceId, workDate, key);
+                LogContract.debug(log, LogDomain.CALENDAR, "cache_evict_slots")
+                        .tenant(tenantCode)
+                        .field("serviceId", serviceId)
+                        .field("workDate", workDate)
+                        .field("key", key)
+                        .emit();
             } catch (Exception ex) {
-                log.warn("Valkey time slots cache eviction failed for tenant [{}], service [{}], date [{}]: {}", tenantCode, serviceId, workDate, ex.getMessage());
+                LogContract.warn(log, LogDomain.CALENDAR, "cache_evict_slots")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(tenantCode)
+                        .field("serviceId", serviceId)
+                        .field("workDate", workDate)
+                        .cause(ex)
+                        .emit();
             }
         }
     }
@@ -326,9 +412,16 @@ public class TenantCacheServiceImpl implements TenantCacheService {
             String key = ValkeyKeyConstant.tenantSettingsKey(tenantCode);
             String json = objectMapper.writeValueAsString(settings);
             ops.set(key, json, Duration.ofHours(ValkeyKeyConstant.TENANT_PROFILE_TTL_HOURS));
-            log.debug("Cached calendar settings in Valkey for tenant [{}]: key [{}]", tenantCode, key);
+            LogContract.debug(log, LogDomain.CALENDAR, "cache_write_settings")
+                    .tenant(tenantCode)
+                    .field("key", key)
+                    .emit();
         } catch (Exception ex) {
-            log.warn("Failed to cache calendar settings in Valkey for tenant [{}]: {}", tenantCode, ex.getMessage());
+            LogContract.warn(log, LogDomain.CALENDAR, "cache_write_settings")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantCode)
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -353,7 +446,11 @@ public class TenantCacheServiceImpl implements TenantCacheService {
                 return objectMapper.readValue(json, CalendarSettingsResponse.class);
             }
         } catch (Exception ex) {
-            log.warn("Failed to read cached calendar settings from Valkey for tenant [{}]: {}", tenantCode, ex.getMessage());
+            LogContract.warn(log, LogDomain.CALENDAR, "cache_read_settings")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantCode)
+                    .cause(ex)
+                    .emit();
         }
         return null;
     }
@@ -368,9 +465,16 @@ public class TenantCacheServiceImpl implements TenantCacheService {
             try {
                 String key = ValkeyKeyConstant.tenantSettingsKey(tenantCode);
                 redisTemplate.delete(key);
-                log.debug("Evicted Valkey calendar settings cache for tenant [{}]: key [{}]", tenantCode, key);
+                LogContract.debug(log, LogDomain.CALENDAR, "cache_evict_settings")
+                        .tenant(tenantCode)
+                        .field("key", key)
+                        .emit();
             } catch (Exception ex) {
-                log.warn("Valkey calendar settings cache eviction failed for tenant [{}]: {}", tenantCode, ex.getMessage());
+                LogContract.warn(log, LogDomain.CALENDAR, "cache_evict_settings")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(tenantCode)
+                        .cause(ex)
+                        .emit();
             }
         }
     }

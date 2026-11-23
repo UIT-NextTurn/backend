@@ -6,6 +6,9 @@ import com.nextturn.enums.TicketStatus;
 import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.service.ticket.TenantTicketQueryService;
 import com.nextturn.service.ticket.TenantTicketSseBroadcaster;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -117,7 +120,11 @@ public class TenantTicketSseBroadcasterImpl implements TenantTicketSseBroadcaste
                     .name("queue-progress")
                     .data(payload));
         } catch (IOException ex) {
-            log.debug("Failed to push SSE event for ticket [{}]: {}", payload.getTicketCode(), ex.getMessage());
+            LogContract.warn(log, LogDomain.TICKET, "sse_push")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("ticket", payload.getTicketCode())
+                    .cause(ex)
+                    .emit();
             emitter.completeWithError(ex);
         }
     }

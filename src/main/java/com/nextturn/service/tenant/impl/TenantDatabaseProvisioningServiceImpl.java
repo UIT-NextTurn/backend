@@ -5,6 +5,9 @@ import com.nextturn.exception.tenant.TenantErrorCode;
 import com.nextturn.exception.tenant.TenantException;
 import com.nextturn.service.tenant.TenantDatabaseProvisioningService;
 import org.flywaydb.core.Flyway;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,7 +62,11 @@ public class TenantDatabaseProvisioningServiceImpl implements TenantDatabaseProv
         validateTenantCode(tenantCode);
         String schemaName = resolveSchemaName(tenantCode);
 
-        log.info("Provisioning tenant database [{}] for tenant [{}]", schemaName, tenantCode);
+        LogContract.info(log, LogDomain.TENANT, "schema_provisioning")
+                .outcome(LogOutcome.STARTED)
+                .tenant(tenantCode)
+                .field("schema", schemaName)
+                .emit();
 
         // 1. Create MySQL database if not exists
         createDatabaseIfNotExists(schemaName);
@@ -72,7 +79,11 @@ public class TenantDatabaseProvisioningServiceImpl implements TenantDatabaseProv
             seedInitialAdministrator(schemaName, adminEmail, adminFullName, phoneNumber, keycloakUserId);
         }
 
-        log.info("Successfully provisioned tenant database [{}]", schemaName);
+        LogContract.info(log, LogDomain.TENANT, "schema_provisioned")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .field("schema", schemaName)
+                .emit();
     }
 
     /**
@@ -84,29 +95,53 @@ public class TenantDatabaseProvisioningServiceImpl implements TenantDatabaseProv
         }
         String normalized = tenantCode.trim().toLowerCase();
         if (!TENANT_CODE_PATTERN.matcher(normalized).matches()) {
-            log.warn("Skipping drop on invalid tenant code [{}]", tenantCode);
+            LogContract.warn(log, LogDomain.TENANT, "schema_drop")
+                    .outcome(LogOutcome.SKIPPED)
+                    .tenant(tenantCode)
+                    .reason("Invalid tenant code format")
+                    .emit();
             return;
         }
         String schemaName = resolveSchemaName(normalized);
 
-        log.warn("Executing compensating rollback: dropping tenant database [{}]", schemaName);
+        LogContract.warn(log, LogDomain.TENANT, "schema_drop")
+                .outcome(LogOutcome.STARTED)
+                .tenant(normalized)
+                .field("schema", schemaName)
+                .reason("Compensating rollback")
+                .emit();
         if (masterDataSource == null) {
-            log.warn("Master dataSource is null, cannot drop database [{}]", schemaName);
+            LogContract.warn(log, LogDomain.TENANT, "schema_drop")
+                    .outcome(LogOutcome.SKIPPED)
+                    .field("schema", schemaName)
+                    .reason("Master dataSource is null")
+                    .emit();
             return;
         }
 
         String sql = "DROP DATABASE IF EXISTS `" + schemaName + "`";
         try (Connection conn = masterDataSource.getConnection()) {
             if (conn == null) {
-                log.warn("Connection is null, cannot drop database [{}]", schemaName);
+                LogContract.warn(log, LogDomain.TENANT, "schema_drop")
+                        .outcome(LogOutcome.SKIPPED)
+                        .field("schema", schemaName)
+                        .reason("Connection is null")
+                        .emit();
                 return;
             }
             try (Statement stmt = conn.createStatement()) {
                 stmt.execute(sql);
-                log.info("Successfully dropped database [{}]", schemaName);
+                LogContract.info(log, LogDomain.TENANT, "schema_dropped")
+                        .outcome(LogOutcome.SUCCESS)
+                        .field("schema", schemaName)
+                        .emit();
             }
         } catch (SQLException e) {
-            log.error("Failed to drop tenant database [{}]: {}", schemaName, e.getMessage(), e);
+            LogContract.error(log, LogDomain.TENANT, "schema_drop")
+                    .outcome(LogOutcome.FAILED)
+                    .field("schema", schemaName)
+                    .causeWithStack(e)
+                    .emit();
         }
     }
 
@@ -132,47 +167,78 @@ public class TenantDatabaseProvisioningServiceImpl implements TenantDatabaseProv
                 }
             }
         } catch (SQLException e) {
-            log.warn("Could not check schema existence for [{}]: {}", schemaName, e.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "schema_exists_check")
+                    .outcome(LogOutcome.DEGRADED)
+                    .field("schema", schemaName)
+                    .cause(e)
+                    .emit();
             return false;
         }
     }
 
     private void createDatabaseIfNotExists(String schemaName) {
         if (masterDataSource == null) {
-            log.warn("Master dataSource is not configured; skipping dynamic schema creation for [{}]", schemaName);
+            LogContract.warn(log, LogDomain.TENANT, "schema_create")
+                    .outcome(LogOutcome.SKIPPED)
+                    .field("schema", schemaName)
+                    .reason("Master dataSource not configured")
+                    .emit();
             return;
         }
 
         String sql = "CREATE DATABASE IF NOT EXISTS `" + schemaName + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci";
         try (Connection conn = masterDataSource.getConnection()) {
             if (conn == null) {
-                log.warn("Master dataSource connection is null; skipping schema creation for [{}]", schemaName);
+                LogContract.warn(log, LogDomain.TENANT, "schema_create")
+                        .outcome(LogOutcome.SKIPPED)
+                        .field("schema", schemaName)
+                        .reason("Connection is null")
+                        .emit();
                 return;
             }
             try (Statement stmt = conn.createStatement()) {
                 stmt.execute(sql);
-                log.info("Schema [{}] confirmed/created", schemaName);
+                LogContract.info(log, LogDomain.TENANT, "schema_created")
+                        .outcome(LogOutcome.SUCCESS)
+                        .field("schema", schemaName)
+                        .emit();
             }
         } catch (SQLException e) {
-            log.error("Failed to create database schema [{}]: {}", schemaName, e.getMessage(), e);
+            LogContract.error(log, LogDomain.TENANT, "schema_create")
+                    .outcome(LogOutcome.FAILED)
+                    .field("schema", schemaName)
+                    .causeWithStack(e)
+                    .emit();
             throw new TenantException(TenantErrorCode.TENANT_SCHEMA_CREATION_FAILED, "Failed to create database schema for tenant: " + e.getMessage());
         }
     }
 
     private void runFlywayMigration(String schemaName) {
         if (masterDataSource == null) {
-            log.warn("Master dataSource is not configured; skipping Flyway migration for [{}]", schemaName);
+            LogContract.warn(log, LogDomain.TENANT, "schema_flyway")
+                    .outcome(LogOutcome.SKIPPED)
+                    .field("schema", schemaName)
+                    .reason("Master dataSource not configured")
+                    .emit();
             return;
         }
 
         // Verify if a usable connection is available before loading Flyway (avoids failing on null mock connections)
         try (Connection conn = masterDataSource.getConnection()) {
             if (conn == null) {
-                log.warn("Master dataSource connection is null; skipping Flyway migration for [{}]", schemaName);
+                LogContract.warn(log, LogDomain.TENANT, "schema_flyway")
+                        .outcome(LogOutcome.SKIPPED)
+                        .field("schema", schemaName)
+                        .reason("Connection is null")
+                        .emit();
                 return;
             }
         } catch (SQLException e) {
-            log.warn("Could not obtain test connection for Flyway migration [{}]: {}", schemaName, e.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "schema_flyway")
+                    .outcome(LogOutcome.SKIPPED)
+                    .field("schema", schemaName)
+                    .cause(e)
+                    .emit();
             return;
         }
 
@@ -186,9 +252,16 @@ public class TenantDatabaseProvisioningServiceImpl implements TenantDatabaseProv
                     .load();
 
             flyway.migrate();
-            log.info("Flyway migration completed successfully for schema [{}]", schemaName);
+            LogContract.info(log, LogDomain.TENANT, "schema_flyway_completed")
+                    .outcome(LogOutcome.SUCCESS)
+                    .field("schema", schemaName)
+                    .emit();
         } catch (Exception e) {
-            log.error("Flyway migration failed for tenant schema [{}]: {}", schemaName, e.getMessage(), e);
+            LogContract.error(log, LogDomain.TENANT, "schema_flyway")
+                    .outcome(LogOutcome.FAILED)
+                    .field("schema", schemaName)
+                    .causeWithStack(e)
+                    .emit();
             throw new TenantException(TenantErrorCode.TENANT_SCHEMA_MIGRATION_FAILED, "Flyway migration failed for tenant schema [" + schemaName + "]: " + e.getMessage());
         }
     }
@@ -215,7 +288,11 @@ public class TenantDatabaseProvisioningServiceImpl implements TenantDatabaseProv
 
         try (Connection conn = masterDataSource.getConnection()) {
             if (conn == null) {
-                log.warn("Master dataSource connection is null; skipping administrator seeding in [{}]", schemaName);
+                LogContract.warn(log, LogDomain.TENANT, "seed_admin")
+                        .outcome(LogOutcome.SKIPPED)
+                        .field("schema", schemaName)
+                        .reason("Connection is null")
+                        .emit();
                 return;
             }
             try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
@@ -226,10 +303,18 @@ public class TenantDatabaseProvisioningServiceImpl implements TenantDatabaseProv
                 ps.setString(5, adminEmail.trim().toLowerCase());
                 ps.setString(6, (phoneNumber != null && !phoneNumber.isBlank()) ? phoneNumber.trim() : "0000000000");
                 ps.executeUpdate();
-                log.info("Seeded initial administrator [{}] in [{}.tenant__staffs]", adminEmail, schemaName);
+                LogContract.info(log, LogDomain.TENANT, "seed_admin")
+                        .outcome(LogOutcome.SUCCESS)
+                        .field("schema", schemaName)
+                        .email(adminEmail)
+                        .emit();
             }
         } catch (SQLException e) {
-            log.error("Failed to seed administrator in [{}.tenant__staffs]: {}", schemaName, e.getMessage(), e);
+            LogContract.error(log, LogDomain.TENANT, "seed_admin")
+                    .outcome(LogOutcome.FAILED)
+                    .field("schema", schemaName)
+                    .causeWithStack(e)
+                    .emit();
             throw new TenantException(TenantErrorCode.TENANT_SCHEMA_MIGRATION_FAILED, "Failed to seed administrator profile in tenant schema: " + e.getMessage());
         }
     }

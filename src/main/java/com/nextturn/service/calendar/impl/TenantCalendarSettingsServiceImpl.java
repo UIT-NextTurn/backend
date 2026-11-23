@@ -7,6 +7,9 @@ import com.nextturn.repository.calendar.TenantSettingsRepository;
 import com.nextturn.service.BaseService;
 import com.nextturn.service.calendar.TenantCalendarSettingsService;
 import com.nextturn.service.tenant.TenantCacheService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -92,8 +95,13 @@ public class TenantCalendarSettingsServiceImpl extends BaseService implements Te
             // Update cache in Valkey
             tenantCacheService.cacheTenantCalendarSettings(tenantCode, response);
 
-            log.info("Updated calendar booking settings for tenant [{}]: minLeadTime={}h, maxAdvanceBooking={}d, cancellationDeadline={}h",
-                    tenantCode, saved.getMinLeadTimeHours(), saved.getMaxAdvanceBookingDays(), saved.getCancellationDeadlineHours());
+            LogContract.info(log, LogDomain.CALENDAR, "calendar_settings_updated")
+                    .outcome(LogOutcome.SUCCESS)
+                    .tenant(tenantCode)
+                    .field("minLeadTimeHours", saved.getMinLeadTimeHours())
+                    .field("maxAdvanceDays", saved.getMaxAdvanceBookingDays())
+                    .field("cancelDeadlineHours", saved.getCancellationDeadlineHours())
+                    .emit();
 
             return response;
         });

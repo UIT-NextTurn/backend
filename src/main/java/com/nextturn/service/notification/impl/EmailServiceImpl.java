@@ -1,5 +1,8 @@
 package com.nextturn.service.notification.impl;
 
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import com.nextturn.service.notification.EmailService;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
@@ -66,29 +69,19 @@ public class EmailServiceImpl implements EmailService {
     public CompletableFuture<Boolean> sendOtpEmail(String toEmail, String otpCode, long ttlSeconds) {
         String subject = "[NextTurn] Your Verification Code: " + otpCode;
         long minutes = Math.max(1, ttlSeconds / 60);
-
         String htmlBody = buildOtpHtmlTemplate(toEmail, otpCode, minutes);
-
-        if (!isConfigured()) {
-            log.info("================================================================================");
-            log.info("[OTP DISPATCH (CONSOLE)] Verification code for [{}] is: [{}]", toEmail, otpCode);
-            log.info("                         Expires in {} seconds (SMTP credentials not configured)", ttlSeconds);
-            log.info("================================================================================");
-            return CompletableFuture.completedFuture(false);
-        }
-
-        try {
-            sendHtmlEmail(toEmail, subject, htmlBody);
-            log.info("Successfully sent real OTP email to [{}] via SMTP [{}]", toEmail, mailHost);
-            return CompletableFuture.completedFuture(true);
-        } catch (Exception ex) {
-            log.error("Failed to send real OTP email to [{}] via SMTP: {}. Falling back to console dispatch.", toEmail, ex.getMessage());
-            log.info("================================================================================");
-            log.info("[OTP DISPATCH (FALLBACK)] Verification code for [{}] is: [{}]", toEmail, otpCode);
-            log.info("                          Expires in {} seconds", ttlSeconds);
-            log.info("================================================================================");
-            return CompletableFuture.completedFuture(false);
-        }
+        return dispatchWithConsoleFallback(
+                "otp_email",
+                toEmail,
+                subject,
+                htmlBody,
+                () -> LogContract.info(log, LogDomain.NOTIFICATION, "otp_console_fallback")
+                        .outcome(LogOutcome.DEGRADED)
+                        .email(toEmail)
+                        .field("otpCode", otpCode)
+                        .field("ttlSeconds", ttlSeconds)
+                        .emit()
+        );
     }
 
     @Override
@@ -97,7 +90,11 @@ public class EmailServiceImpl implements EmailService {
         try {
             sendHtmlEmail(toEmail, subject, htmlContent);
         } catch (Exception ex) {
-            log.error("Async email dispatch to [{}] failed: {}", toEmail, ex.getMessage(), ex);
+            LogContract.error(log, LogDomain.NOTIFICATION, "email_async_dispatch")
+                    .outcome(LogOutcome.FAILED)
+                    .email(toEmail)
+                    .causeWithStack(ex)
+                    .emit();
         }
         return CompletableFuture.completedFuture(null);
     }
@@ -107,27 +104,18 @@ public class EmailServiceImpl implements EmailService {
     public CompletableFuture<Boolean> sendTenantAdminActivationEmail(String toEmail, String tenantName, String activationLink) {
         String subject = "[NextTurn] Kích hoạt tài khoản Quản trị viên cơ sở - " + (tenantName != null ? tenantName : "Cơ sở mới");
         String htmlBody = buildTenantAdminActivationHtmlTemplate(toEmail, tenantName, activationLink);
-
-        if (!isConfigured()) {
-            log.info("================================================================================");
-            log.info("[TENANT ACTIVATION DISPATCH (CONSOLE)] Account activation for [{}] at [{}]", toEmail, tenantName);
-            log.info("                                       Activation Link: [{}]", activationLink);
-            log.info("================================================================================");
-            return CompletableFuture.completedFuture(false);
-        }
-
-        try {
-            sendHtmlEmail(toEmail, subject, htmlBody);
-            log.info("Successfully sent tenant admin activation email to [{}] for [{}] via SMTP [{}]", toEmail, tenantName, mailHost);
-            return CompletableFuture.completedFuture(true);
-        } catch (Exception ex) {
-            log.error("Failed to send tenant admin activation email to [{}] via SMTP: {}. Falling back to console.", toEmail, ex.getMessage());
-            log.info("================================================================================");
-            log.info("[TENANT ACTIVATION DISPATCH (FALLBACK)] Account activation for [{}] at [{}]", toEmail, tenantName);
-            log.info("                                        Activation Link: [{}]", activationLink);
-            log.info("================================================================================");
-            return CompletableFuture.completedFuture(false);
-        }
+        return dispatchWithConsoleFallback(
+                "tenant_admin_activation_email",
+                toEmail,
+                subject,
+                htmlBody,
+                () -> LogContract.info(log, LogDomain.NOTIFICATION, "tenant_activation_console_fallback")
+                        .outcome(LogOutcome.DEGRADED)
+                        .email(toEmail)
+                        .field("tenantName", tenantName)
+                        .field("activationLink", activationLink)
+                        .emit()
+        );
     }
 
     @Override
@@ -135,27 +123,18 @@ public class EmailServiceImpl implements EmailService {
     public CompletableFuture<Boolean> sendStaffActivationEmail(String toEmail, String fullName, String tenantName, String activationLink) {
         String subject = "[NextTurn] Kích hoạt tài khoản nhân viên - " + (tenantName != null ? tenantName : "Cơ sở của bạn");
         String htmlBody = buildStaffActivationHtmlTemplate(toEmail, fullName, tenantName, activationLink);
-
-        if (!isConfigured()) {
-            log.info("================================================================================");
-            log.info("[STAFF ACTIVATION DISPATCH (CONSOLE)] Account activation for [{}] ({}) at [{}]", toEmail, fullName, tenantName);
-            log.info("                                      Activation Link: [{}]", activationLink);
-            log.info("================================================================================");
-            return CompletableFuture.completedFuture(false);
-        }
-
-        try {
-            sendHtmlEmail(toEmail, subject, htmlBody);
-            log.info("Successfully sent staff activation email to [{}] via SMTP [{}]", toEmail, mailHost);
-            return CompletableFuture.completedFuture(true);
-        } catch (Exception ex) {
-            log.error("Failed to send staff activation email to [{}] via SMTP: {}. Falling back to console.", toEmail, ex.getMessage());
-            log.info("================================================================================");
-            log.info("[STAFF ACTIVATION DISPATCH (FALLBACK)] Account activation for [{}] ({}) at [{}]", toEmail, fullName, tenantName);
-            log.info("                                       Activation Link: [{}]", activationLink);
-            log.info("================================================================================");
-            return CompletableFuture.completedFuture(false);
-        }
+        return dispatchWithConsoleFallback(
+                "staff_activation_email",
+                toEmail,
+                subject,
+                htmlBody,
+                () -> LogContract.info(log, LogDomain.NOTIFICATION, "staff_activation_console_fallback")
+                        .outcome(LogOutcome.DEGRADED)
+                        .email(toEmail)
+                        .field("tenantName", tenantName)
+                        .field("activationLink", activationLink)
+                        .emit()
+        );
     }
 
     @Override
@@ -163,22 +142,18 @@ public class EmailServiceImpl implements EmailService {
     public CompletableFuture<Boolean> sendTenantRegistrationReceivedEmail(String toEmail, String tenantName, String tenantCode) {
         String subject = "[NextTurn] Xác nhận tiếp nhận hồ sơ đăng ký tổ chức - " + (tenantName != null ? tenantName : tenantCode);
         String htmlBody = buildTenantRegistrationReceivedHtmlTemplate(toEmail, tenantName, tenantCode);
-
-        if (!isConfigured()) {
-            log.info("================================================================================");
-            log.info("[TENANT REGISTRATION RECEIVED (CONSOLE)] Applicant: [{}], Org: [{} ({})]", toEmail, tenantName, tenantCode);
-            log.info("================================================================================");
-            return CompletableFuture.completedFuture(false);
-        }
-
-        try {
-            sendHtmlEmail(toEmail, subject, htmlBody);
-            log.info("Successfully sent registration confirmation email to [{}] for [{}]", toEmail, tenantName);
-            return CompletableFuture.completedFuture(true);
-        } catch (Exception ex) {
-            log.error("Failed to send registration confirmation email to [{}]: {}", toEmail, ex.getMessage());
-            return CompletableFuture.completedFuture(false);
-        }
+        return dispatchWithConsoleFallback(
+                "tenant_registration_received_email",
+                toEmail,
+                subject,
+                htmlBody,
+                () -> LogContract.info(log, LogDomain.NOTIFICATION, "tenant_registration_console_fallback")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(tenantCode)
+                        .email(toEmail)
+                        .field("tenantName", tenantName)
+                        .emit()
+        );
     }
 
     @Override
@@ -192,22 +167,18 @@ public class EmailServiceImpl implements EmailService {
         String targetEmail = (superadminEmail != null && !superadminEmail.isBlank()) ? superadminEmail : "superadmin@nextturn.com";
         String subject = "[NextTurn Alert] Yêu cầu đăng ký tổ chức mới chờ phê duyệt: " + tenantName + " (" + tenantCode + ")";
         String htmlBody = buildTenantRegistrationInternalHtmlTemplate(tenantName, tenantCode, adminEmail);
-
-        if (!isConfigured()) {
-            log.info("================================================================================");
-            log.info("[INTERNAL ALERT (CONSOLE)] New tenant pending review: [{}] ([{}]) by [{}]", tenantName, tenantCode, adminEmail);
-            log.info("================================================================================");
-            return CompletableFuture.completedFuture(false);
-        }
-
-        try {
-            sendHtmlEmail(targetEmail, subject, htmlBody);
-            log.info("Successfully sent internal registration notification to [{}] for [{}]", targetEmail, tenantName);
-            return CompletableFuture.completedFuture(true);
-        } catch (Exception ex) {
-            log.error("Failed to send internal registration notification: {}", ex.getMessage());
-            return CompletableFuture.completedFuture(false);
-        }
+        return dispatchWithConsoleFallback(
+                "tenant_registration_internal_email",
+                targetEmail,
+                subject,
+                htmlBody,
+                () -> LogContract.info(log, LogDomain.NOTIFICATION, "tenant_internal_alert_console_fallback")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(tenantCode)
+                        .email(adminEmail)
+                        .field("tenantName", tenantName)
+                        .emit()
+        );
     }
 
     @Override
@@ -220,22 +191,18 @@ public class EmailServiceImpl implements EmailService {
     ) {
         String subject = "[NextTurn] Chúc mừng! Hồ sơ đăng ký tổ chức " + tenantName + " đã được phê duyệt";
         String htmlBody = buildTenantRegistrationApprovedHtmlTemplate(toEmail, tenantName, tenantCode, activationLink);
-
-        if (!isConfigured()) {
-            log.info("================================================================================");
-            log.info("[REGISTRATION APPROVED (CONSOLE)] Org [{}] approved for [{}]. Link: [{}]", tenantName, toEmail, activationLink);
-            log.info("================================================================================");
-            return CompletableFuture.completedFuture(false);
-        }
-
-        try {
-            sendHtmlEmail(toEmail, subject, htmlBody);
-            log.info("Successfully sent approval email to [{}] for [{}]", toEmail, tenantName);
-            return CompletableFuture.completedFuture(true);
-        } catch (Exception ex) {
-            log.error("Failed to send approval email to [{}]: {}", toEmail, ex.getMessage());
-            return CompletableFuture.completedFuture(false);
-        }
+        return dispatchWithConsoleFallback(
+                "tenant_registration_approved_email",
+                toEmail,
+                subject,
+                htmlBody,
+                () -> LogContract.info(log, LogDomain.NOTIFICATION, "tenant_approved_console_fallback")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(tenantCode)
+                        .email(toEmail)
+                        .field("activationLink", activationLink)
+                        .emit()
+        );
     }
 
     @Override
@@ -248,20 +215,47 @@ public class EmailServiceImpl implements EmailService {
     ) {
         String subject = "[NextTurn] Thông báo về kết quả đăng ký tổ chức - " + (tenantName != null ? tenantName : tenantCode);
         String htmlBody = buildTenantRegistrationRejectedHtmlTemplate(toEmail, tenantName, tenantCode, rejectionReason);
+        return dispatchWithConsoleFallback(
+                "tenant_registration_rejected_email",
+                toEmail,
+                subject,
+                htmlBody,
+                () -> LogContract.info(log, LogDomain.NOTIFICATION, "tenant_rejected_console_fallback")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(tenantCode)
+                        .email(toEmail)
+                        .reason(rejectionReason)
+                        .emit()
+        );
+    }
 
+    private CompletableFuture<Boolean> dispatchWithConsoleFallback(
+            String eventName,
+            String toEmail,
+            String subject,
+            String htmlBody,
+            Runnable consoleFallback
+    ) {
         if (!isConfigured()) {
-            log.info("================================================================================");
-            log.info("[REGISTRATION REJECTED (CONSOLE)] Org [{}] rejected for [{}]. Reason: [{}]", tenantName, toEmail, rejectionReason);
-            log.info("================================================================================");
+            consoleFallback.run();
             return CompletableFuture.completedFuture(false);
         }
-
         try {
             sendHtmlEmail(toEmail, subject, htmlBody);
-            log.info("Successfully sent rejection email to [{}] for [{}]", toEmail, tenantName);
+            LogContract.info(log, LogDomain.NOTIFICATION, eventName)
+                    .outcome(LogOutcome.SUCCESS)
+                    .email(toEmail)
+                    .field("smtpHost", mailHost)
+                    .emit();
             return CompletableFuture.completedFuture(true);
         } catch (Exception ex) {
-            log.error("Failed to send rejection email to [{}]: {}", toEmail, ex.getMessage());
+            LogContract.error(log, LogDomain.NOTIFICATION, eventName)
+                    .outcome(LogOutcome.FAILED)
+                    .email(toEmail)
+                    .field("smtpHost", mailHost)
+                    .causeWithStack(ex)
+                    .emit();
+            consoleFallback.run();
             return CompletableFuture.completedFuture(false);
         }
     }
@@ -317,7 +311,11 @@ public class EmailServiceImpl implements EmailService {
                         return new String(is.readAllBytes(), StandardCharsets.UTF_8);
                     }
                 } catch (Exception ex) {
-                    log.warn("Could not load email template from classpath [{}]: {}", path, ex.getMessage());
+                    LogContract.warn(log, LogDomain.NOTIFICATION, "email_template_load")
+                            .outcome(LogOutcome.DEGRADED)
+                            .field("path", path)
+                            .cause(ex)
+                            .emit();
                     return null;
                 }
             });
@@ -332,7 +330,11 @@ public class EmailServiceImpl implements EmailService {
             }
             return result;
         } catch (Exception ex) {
-            log.error("Error processing email template [{}]: {}", templatePath, ex.getMessage());
+            LogContract.error(log, LogDomain.NOTIFICATION, "email_template_render")
+                    .outcome(LogOutcome.FAILED)
+                    .field("templatePath", templatePath)
+                    .causeWithStack(ex)
+                    .emit();
             return "";
         }
     }

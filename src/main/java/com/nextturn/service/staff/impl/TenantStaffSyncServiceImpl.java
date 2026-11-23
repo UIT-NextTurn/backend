@@ -8,6 +8,9 @@ import com.nextturn.repository.staff.TenantStaffRepository;
 import com.nextturn.service.BaseService;
 import com.nextturn.service.staff.TenantStaffCodeGenerator;
 import com.nextturn.service.staff.TenantStaffSyncService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -100,7 +103,11 @@ public class TenantStaffSyncServiceImpl extends BaseService implements TenantSta
                 }
                 if (changed) {
                     executeInTransaction(status -> staffRepository.save(staff));
-                    log.info("Synchronized profile for staff [{}] in tenant [{}] upon login", staff.getEmail(), tenantCode);
+                    LogContract.info(log, LogDomain.STAFF, "staff_profile_synced")
+                            .outcome(LogOutcome.SUCCESS)
+                            .tenant(tenantCode)
+                            .email(staff.getEmail())
+                            .emit();
                 }
                 return staff;
             }
@@ -134,8 +141,13 @@ public class TenantStaffSyncServiceImpl extends BaseService implements TenantSta
                     .build();
 
             TenantStaff saved = executeInTransaction(status -> staffRepository.save(newStaff));
-            log.info("JIT provisioned new staff member [{}] (badge: [{}], role: [{}]) for tenant [{}] via SSO",
-                    cleanEmail, staffCode, assignedRole, tenantCode);
+            LogContract.info(log, LogDomain.STAFF, "staff_jit_provisioned")
+                    .outcome(LogOutcome.SUCCESS)
+                    .tenant(tenantCode)
+                    .entity("staff", staffCode)
+                    .email(cleanEmail)
+                    .field("role", assignedRole)
+                    .emit();
             return saved;
         } finally {
             if (previousTenant != null) {

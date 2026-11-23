@@ -18,6 +18,9 @@ import com.nextturn.service.tenant.TenantCacheService;
 import com.nextturn.service.tenant.TenantDatabaseProvisioningService;
 import com.nextturn.service.tenant.TenantLifecycleService;
 import com.nextturn.service.tenant.TenantTelemetryService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -118,8 +121,12 @@ public class TenantLifecycleServiceImpl extends BaseService implements TenantLif
             try {
                 keycloakTokenService.setOrganizationAndMembersActive(updatedTenant.getOrganisationId(), false);
             } catch (Exception kcEx) {
-                log.error("Failed to suspend Keycloak organization [{}] for tenant [{}]. Rolling back database: {}",
-                        updatedTenant.getOrganisationId(), updatedTenant.getTenantCode(), kcEx.getMessage());
+                LogContract.error(log, LogDomain.TENANT, "tenant_suspend_keycloak")
+                        .outcome(LogOutcome.FAILED)
+                        .tenant(updatedTenant.getTenantCode())
+                        .entity("org", updatedTenant.getOrganisationId())
+                        .causeWithStack(kcEx)
+                        .emit();
                 tenant.setStatus(previousStatus);
                 executeInTransaction(status -> centralTenantRepository.save(tenant));
                 throw new TenantException(
@@ -131,7 +138,11 @@ public class TenantLifecycleServiceImpl extends BaseService implements TenantLif
 
         cacheService.evictTenantConfigCache(updatedTenant.getId(), updatedTenant.getTenantCode());
 
-        log.info("Successfully suspended tenant [{}] (ID: [{}])", updatedTenant.getTenantCode(), updatedTenant.getId());
+        LogContract.info(log, LogDomain.TENANT, "tenant_suspended")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(updatedTenant.getTenantCode())
+                .entity("tenant", updatedTenant.getId())
+                .emit();
 
         CentralTenantQuota quota = quotaRepository.findByTenantId(updatedTenant.getId()).orElse(null);
         long activeStaff = telemetryService.countActiveStaff(updatedTenant.getTenantCode());
@@ -165,8 +176,12 @@ public class TenantLifecycleServiceImpl extends BaseService implements TenantLif
             try {
                 keycloakTokenService.setOrganizationAndMembersActive(updatedTenant.getOrganisationId(), true);
             } catch (Exception kcEx) {
-                log.error("Failed to reactivate Keycloak organization [{}] for tenant [{}]. Rolling back database: {}",
-                        updatedTenant.getOrganisationId(), updatedTenant.getTenantCode(), kcEx.getMessage());
+                LogContract.error(log, LogDomain.TENANT, "tenant_activate_keycloak")
+                        .outcome(LogOutcome.FAILED)
+                        .tenant(updatedTenant.getTenantCode())
+                        .entity("org", updatedTenant.getOrganisationId())
+                        .causeWithStack(kcEx)
+                        .emit();
                 tenant.setStatus(previousStatus);
                 executeInTransaction(status -> centralTenantRepository.save(tenant));
                 throw new TenantException(
@@ -178,7 +193,11 @@ public class TenantLifecycleServiceImpl extends BaseService implements TenantLif
 
         cacheService.evictTenantConfigCache(updatedTenant.getId(), updatedTenant.getTenantCode());
 
-        log.info("Successfully activated tenant [{}] (ID: [{}])", updatedTenant.getTenantCode(), updatedTenant.getId());
+        LogContract.info(log, LogDomain.TENANT, "tenant_activated")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(updatedTenant.getTenantCode())
+                .entity("tenant", updatedTenant.getId())
+                .emit();
 
         CentralTenantQuota quota = quotaRepository.findByTenantId(updatedTenant.getId()).orElse(null);
         long activeStaff = telemetryService.countActiveStaff(updatedTenant.getTenantCode());
@@ -226,8 +245,12 @@ public class TenantLifecycleServiceImpl extends BaseService implements TenantLif
             try {
                 keycloakTokenService.setOrganizationAndMembersActive(savedTenant.getOrganisationId(), true);
             } catch (Exception kcEx) {
-                log.error("Failed to activate Keycloak organization [{}] during approval: {}. Rolling back DB status.",
-                        savedTenant.getOrganisationId(), kcEx.getMessage());
+                LogContract.error(log, LogDomain.TENANT, "tenant_approve_keycloak")
+                        .outcome(LogOutcome.FAILED)
+                        .tenant(savedTenant.getTenantCode())
+                        .entity("org", savedTenant.getOrganisationId())
+                        .causeWithStack(kcEx)
+                        .emit();
                 tenant.setStatus(TenantStatus.PENDING_APPROVAL);
                 executeInTransaction(status -> centralTenantRepository.save(tenant));
                 throw new TenantException(
@@ -248,8 +271,11 @@ public class TenantLifecycleServiceImpl extends BaseService implements TenantLif
                         null
                 );
             } catch (Exception dbEx) {
-                log.error("Failed to provision tenant database during approval for [{}]: {}", savedTenant.getTenantCode(), dbEx.getMessage(), dbEx);
-                // Non-fatal or throw: log error but do not break if already exists
+                LogContract.error(log, LogDomain.TENANT, "tenant_approve_schema")
+                        .outcome(LogOutcome.FAILED)
+                        .tenant(savedTenant.getTenantCode())
+                        .causeWithStack(dbEx)
+                        .emit();
             }
         }
 
@@ -265,10 +291,19 @@ public class TenantLifecycleServiceImpl extends BaseService implements TenantLif
                     activationLink
             );
         } catch (Exception emailEx) {
-            log.warn("Non-fatal: Failed to send tenant approval email to [{}]: {}", savedTenant.getAdminEmail(), emailEx.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "tenant_approval_email")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(savedTenant.getTenantCode())
+                    .email(savedTenant.getAdminEmail())
+                    .cause(emailEx)
+                    .emit();
         }
 
-        log.info("Successfully approved tenant registration for [{}] (ID: [{}])", savedTenant.getTenantCode(), savedTenant.getId());
+        LogContract.info(log, LogDomain.TENANT, "tenant_approved")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(savedTenant.getTenantCode())
+                .entity("tenant", savedTenant.getId())
+                .emit();
 
         CentralTenantQuota quota = quotaRepository.findByTenantId(savedTenant.getId()).orElse(null);
         long activeStaff = telemetryService.countActiveStaff(savedTenant.getTenantCode());
@@ -304,8 +339,11 @@ public class TenantLifecycleServiceImpl extends BaseService implements TenantLif
             try {
                 keycloakTokenService.deleteOrganizationInKeycloak(savedTenant.getOrganisationId());
             } catch (Exception kcEx) {
-                log.warn("Non-fatal: Failed to delete Keycloak staging organization [{}] during rejection: {}",
-                        savedTenant.getOrganisationId(), kcEx.getMessage());
+                LogContract.warn(log, LogDomain.TENANT, "tenant_reject_keycloak_cleanup")
+                        .outcome(LogOutcome.DEGRADED)
+                        .entity("org", savedTenant.getOrganisationId())
+                        .cause(kcEx)
+                        .emit();
             }
         }
 
@@ -320,10 +358,18 @@ public class TenantLifecycleServiceImpl extends BaseService implements TenantLif
                     reason
             );
         } catch (Exception emailEx) {
-            log.warn("Non-fatal: Failed to send tenant rejection email to [{}]: {}", savedTenant.getAdminEmail(), emailEx.getMessage());
+            LogContract.warn(log, LogDomain.TENANT, "tenant_rejection_email")
+                    .outcome(LogOutcome.DEGRADED)
+                    .email(savedTenant.getAdminEmail())
+                    .cause(emailEx)
+                    .emit();
         }
 
-        log.info("Successfully rejected tenant registration for [{}] with reason: {}", savedTenant.getTenantCode(), reason);
+        LogContract.info(log, LogDomain.TENANT, "tenant_rejected")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(savedTenant.getTenantCode())
+                .reason(reason)
+                .emit();
 
         CentralTenantQuota quota = quotaRepository.findByTenantId(savedTenant.getId()).orElse(null);
         TenantQuotaResponse quotaResponse = TenantQuotaResponse.fromEntity(quota, 0L);
@@ -353,8 +399,12 @@ public class TenantLifecycleServiceImpl extends BaseService implements TenantLif
             try {
                 keycloakTokenService.setOrganizationAndMembersActive(tenant.getOrganisationId(), false);
             } catch (Exception kcEx) {
-                log.error("Failed to disable Keycloak organization [{}] during tenant soft-deletion. Compensating database record for [{}]: {}",
-                        tenant.getOrganisationId(), tenant.getTenantCode(), kcEx.getMessage());
+                LogContract.error(log, LogDomain.TENANT, "tenant_delete_keycloak")
+                        .outcome(LogOutcome.FAILED)
+                        .tenant(tenant.getTenantCode())
+                        .entity("org", tenant.getOrganisationId())
+                        .causeWithStack(kcEx)
+                        .emit();
                 executeInTransaction(status -> {
                     tenant.setIsDeleted(false);
                     tenant.setStatus(previousStatus);
@@ -368,7 +418,10 @@ public class TenantLifecycleServiceImpl extends BaseService implements TenantLif
         }
 
         cacheService.evictTenantConfigCache(tenant.getId(), tenant.getTenantCode());
-        log.info("Successfully soft-deleted tenant [{}]", tenant.getTenantCode());
+        LogContract.info(log, LogDomain.TENANT, "tenant_soft_deleted")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenant.getTenantCode())
+                .emit();
     }
 
     private String resolveActivationLink(String tenantCode, String adminEmail) {

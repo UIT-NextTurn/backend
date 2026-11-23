@@ -33,6 +33,9 @@ import com.nextturn.service.queue.TenantSpecialistDispatchService;
 import com.nextturn.service.queue.TenantTicketStateMachine;
 import com.nextturn.service.ticket.TenantTicketQueryService;
 import com.nextturn.service.ticket.TenantTicketSseBroadcaster;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -166,9 +169,13 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
         });
 
         broadcastAll(tenantCode, outcome.ticket(), "TICKET_CALLED");
-        log.info("Called next priority ticket [{}] ({}) for service [{}] in tenant [{}]",
-                outcome.response().getTicketCode(), outcome.response().getCustomerType(),
-                outcome.response().getServiceCode(), tenantCode);
+        LogContract.info(log, LogDomain.QUEUE, "ticket_called")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("ticket", outcome.response().getTicketCode())
+                .field("customerType", outcome.response().getCustomerType())
+                .field("serviceCode", outcome.response().getServiceCode())
+                .emit();
         return outcome.response();
     }
 
@@ -230,8 +237,12 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
         });
 
         broadcastAll(tenantCode, outcome.ticket(), "TICKET_SERVING");
-        log.info("Transferred ticket [{}] to specialist [{}] (status: SERVING) in tenant [{}]",
-                outcome.response().getTicketCode(), outcome.response().getProviderName(), tenantCode);
+        LogContract.info(log, LogDomain.QUEUE, "ticket_serving")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenantCode)
+                .entity("ticket", outcome.response().getTicketCode())
+                .field("provider", outcome.response().getProviderName())
+                .emit();
         return outcome.response();
     }
 
@@ -546,8 +557,11 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
                     queueAlertService.processWaitingTurnAlerts(ticket.getService().getId(), ticket.getWorkDate());
                 }
             } catch (Exception ex) {
-                log.warn("Non-fatal error while dispatching queue notifications for ticket [{}]: {}",
-                        ticket.getTicketCode(), ex.getMessage());
+                LogContract.warn(log, LogDomain.QUEUE, "notification_hook")
+                        .outcome(LogOutcome.DEGRADED)
+                        .entity("ticket", ticket.getTicketCode())
+                        .cause(ex)
+                        .emit();
             }
         }
         if (ticketSseBroadcaster != null && ticket.getService() != null) {

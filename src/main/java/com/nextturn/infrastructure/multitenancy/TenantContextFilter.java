@@ -8,6 +8,9 @@ import com.nextturn.constant.TenantHeaderConstant;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.exception.admin.AdminErrorCode;
 import com.nextturn.exception.admin.AdminException;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import com.nextturn.repository.auth.CentralTenantRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -84,19 +87,34 @@ public class TenantContextFilter extends OncePerRequestFilter {
             @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain
     ) throws ServletException, IOException {
+        String incomingTrace = request.getHeader("X-Trace-Id");
+        if (incomingTrace == null || incomingTrace.isBlank()) {
+            incomingTrace = request.getHeader("X-Request-Id");
+        }
+        LogContract.bindTraceId(incomingTrace);
         try {
             String tenantCode = resolveTenantCode(request);
             if (tenantCode != null && !tenantCode.isBlank()) {
                 TenantContextHolder.setTenantCode(tenantCode.trim());
-                log.debug("Bound tenant context: [{}] for URI: [{}]", tenantCode, request.getRequestURI());
+                LogContract.debug(log, LogDomain.TENANT, "context_bound")
+                        .tenant(tenantCode)
+                        .field("uri", request.getRequestURI())
+                        .emit();
             }
             filterChain.doFilter(request, response);
         } catch (AdminException ex) {
-            log.warn("Multi-tenant security violation for URI [{}]: {}", request.getRequestURI(), ex.getMessage());
+            LogContract.warn(log, LogDomain.SECURITY, "cross_tenant_blocked")
+                    .outcome(LogOutcome.REJECTED)
+                    .field("uri", request.getRequestURI())
+                    .cause(ex)
+                    .emit();
             handleCrossTenantException(response, ex);
         } finally {
             TenantContextHolder.clear();
-            log.trace("Cleared tenant context for URI: [{}]", request.getRequestURI());
+            LogContract.trace(log, LogDomain.TENANT, "context_cleared")
+                    .field("uri", request.getRequestURI())
+                    .emit();
+            LogContract.clearTraceId();
         }
     }
 
@@ -188,8 +206,12 @@ public class TenantContextFilter extends OncePerRequestFilter {
         if (jwtTenant != null && !jwtTenant.isBlank()) {
             String callerTenant = jwtTenant.trim();
             if (headerTenant != null && !headerTenant.equalsIgnoreCase(callerTenant)) {
-                log.warn("Cross-tenant attempt blocked: User [{}] belonging to [{}] requested [{}]",
-                        authentication != null ? authentication.getName() : "unknown", callerTenant, headerTenant);
+                LogContract.warn(log, LogDomain.SECURITY, "cross_tenant_mismatch")
+                        .outcome(LogOutcome.REJECTED)
+                        .field("caller", authentication != null ? authentication.getName() : "unknown")
+                        .field("callerTenant", callerTenant)
+                        .field("requestedTenant", headerTenant)
+                        .emit();
                 throw new AdminException(
                         AdminErrorCode.CROSS_TENANT_ACCESS_DENIED,
                         "Cross-tenant access is strictly prohibited: caller belongs to tenant [" + callerTenant + "] but requested [" + headerTenant + "]"
@@ -205,7 +227,11 @@ public class TenantContextFilter extends OncePerRequestFilter {
             String pathTenant = uri.substring(uri.lastIndexOf('/') + 1).trim();
             if (!pathTenant.isBlank() && !"verify".equalsIgnoreCase(pathTenant)) {
                 if (headerTenant != null && !headerTenant.equalsIgnoreCase(pathTenant)) {
-                    log.warn("Cross-tenant attempt blocked: Header [{}] does not match path [{}]", headerTenant, pathTenant);
+                    LogContract.warn(log, LogDomain.SECURITY, "cross_tenant_path_mismatch")
+                            .outcome(LogOutcome.REJECTED)
+                            .field("headerTenant", headerTenant)
+                            .field("pathTenant", pathTenant)
+                            .emit();
                     throw new AdminException(
                             AdminErrorCode.CROSS_TENANT_ACCESS_DENIED,
                             "Cross-tenant access is strictly prohibited: header X-Tenant-Code [" + headerTenant + "] does not match path tenantCode [" + pathTenant + "]"

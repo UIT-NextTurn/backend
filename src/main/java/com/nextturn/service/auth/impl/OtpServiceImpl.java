@@ -7,6 +7,9 @@ import com.nextturn.exception.auth.AuthException;
 import com.nextturn.service.auth.OtpService;
 import com.nextturn.service.notification.EmailService;
 import com.nextturn.service.notification.impl.EmailServiceImpl;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -129,10 +132,19 @@ public class OtpServiceImpl implements OtpService {
                     redisTemplate.expire(dailyKey, Duration.ofHours(24));
                 }
 
-                log.info("Persisted OTP for [{}] to Valkey (TTL: {}s, Cooldown: {}s, DailyCount: {})",
-                        normalizedContact, ttlSeconds, cooldownSeconds, dailyCount);
+                LogContract.info(log, LogDomain.AUTH, "otp_persisted_valkey")
+                        .outcome(LogOutcome.SUCCESS)
+                        .email(normalizedContact)
+                        .field("ttlSeconds", ttlSeconds)
+                        .field("cooldownSeconds", cooldownSeconds)
+                        .field("dailyCount", dailyCount)
+                        .emit();
             } catch (Exception ex) {
-                log.warn("Failed to store OTP in Valkey for [{}], using fallback store: {}", normalizedContact, ex.getMessage());
+                LogContract.warn(log, LogDomain.AUTH, "otp_persisted_valkey")
+                        .outcome(LogOutcome.DEGRADED)
+                        .email(normalizedContact)
+                        .cause(ex)
+                        .emit();
             }
         }
 
@@ -140,10 +152,13 @@ public class OtpServiceImpl implements OtpService {
         if (emailService != null) {
             emailService.sendOtpEmail(normalizedContact, otpCode, ttlSeconds);
         } else {
-            log.info("================================================================================");
-            log.info("[OTP DISPATCH] Verification code for [{}] is: [{}]", normalizedContact, otpCode);
-            log.info("               Expires at: {} (in {} seconds)", expiresAt, ttlSeconds);
-            log.info("================================================================================");
+            LogContract.info(log, LogDomain.AUTH, "otp_console_fallback")
+                    .outcome(LogOutcome.DEGRADED)
+                    .email(normalizedContact)
+                    .field("otpCode", otpCode)
+                    .field("expiresAt", expiresAt)
+                    .field("ttlSeconds", ttlSeconds)
+                    .emit();
         }
 
         return CustomerOtpResponse.builder()
@@ -186,7 +201,12 @@ public class OtpServiceImpl implements OtpService {
 
                     if (attempts >= maxAttempts) {
                         clearValkeyAndFallback(normalizedContact);
-                        log.warn("OTP verification blocked in Valkey: Max failed attempts reached for [{}]", normalizedContact);
+                        LogContract.warn(log, LogDomain.AUTH, "otp_verify_blocked")
+                                .outcome(LogOutcome.REJECTED)
+                                .email(normalizedContact)
+                                .field("store", "valkey")
+                                .reason("Max failed attempts reached")
+                                .emit();
                         throw new AuthException(AuthErrorCode.OTP_TOO_MANY_ATTEMPTS, "Too many failed attempts. Verification code has been invalidated. Please request a new code.");
                     }
 
@@ -197,42 +217,71 @@ public class OtpServiceImpl implements OtpService {
 
                         if (remaining <= 0) {
                             clearValkeyAndFallback(normalizedContact);
-                            log.warn("OTP verification blocked: Max failed attempts exceeded for [{}]", normalizedContact);
+                            LogContract.warn(log, LogDomain.AUTH, "otp_verify_blocked")
+                                    .outcome(LogOutcome.REJECTED)
+                                    .email(normalizedContact)
+                                    .field("store", "valkey")
+                                    .reason("Max failed attempts exceeded")
+                                    .emit();
                             throw new AuthException(AuthErrorCode.OTP_TOO_MANY_ATTEMPTS, "Too many failed attempts. Verification code has been invalidated. Please request a new code.");
                         }
 
-                        log.warn("OTP mismatch in Valkey for [{}]. Attempts remaining: {}", normalizedContact, remaining);
+                        LogContract.warn(log, LogDomain.AUTH, "otp_verify_mismatch")
+                                .outcome(LogOutcome.REJECTED)
+                                .email(normalizedContact)
+                                .field("store", "valkey")
+                                .field("remaining", remaining)
+                                .emit();
                         throw new AuthException(AuthErrorCode.INVALID_OTP, "Invalid verification code. Attempts remaining: " + remaining);
                     }
 
                     // Success: Purge OTP immediately to prevent reuse (REQ-AUTH-07)
                     clearValkeyAndFallback(normalizedContact);
-                    log.info("OTP verification succeeded via Valkey for [{}]", normalizedContact);
+                    LogContract.info(log, LogDomain.AUTH, "otp_verified")
+                            .outcome(LogOutcome.SUCCESS)
+                            .email(normalizedContact)
+                            .field("store", "valkey")
+                            .emit();
                     return;
                 }
             } catch (AuthException ex) {
                 throw ex;
             } catch (Exception ex) {
-                log.warn("Valkey lookup failed for [{}], falling back to in-memory store: {}", normalizedContact, ex.getMessage());
+                LogContract.warn(log, LogDomain.AUTH, "otp_valkey_lookup")
+                        .outcome(LogOutcome.DEGRADED)
+                        .email(normalizedContact)
+                        .cause(ex)
+                        .emit();
             }
         }
 
         // 2. Fallback in-memory verification
         OtpRecord record = otpStore.get(normalizedContact);
         if (record == null) {
-            log.warn("OTP verification failed: No active OTP record found for [{}]", normalizedContact);
+            LogContract.warn(log, LogDomain.AUTH, "otp_verify_missing")
+                    .outcome(LogOutcome.REJECTED)
+                    .email(normalizedContact)
+                    .emit();
             throw new AuthException(AuthErrorCode.INVALID_OTP, "No active verification code found for this contact");
         }
 
         if (Instant.now().isAfter(record.expiresAt())) {
             clearValkeyAndFallback(normalizedContact);
-            log.warn("OTP verification rejected: Code for [{}] has expired", normalizedContact);
+            LogContract.warn(log, LogDomain.AUTH, "otp_verify_expired")
+                    .outcome(LogOutcome.REJECTED)
+                    .email(normalizedContact)
+                    .emit();
             throw new AuthException(AuthErrorCode.OTP_EXPIRED, "Verification code has expired. Please request a new code.");
         }
 
         if (record.attempts() >= maxAttempts) {
             clearValkeyAndFallback(normalizedContact);
-            log.warn("OTP verification blocked: Max failed attempts reached for [{}]", normalizedContact);
+            LogContract.warn(log, LogDomain.AUTH, "otp_verify_blocked")
+                    .outcome(LogOutcome.REJECTED)
+                    .email(normalizedContact)
+                    .field("store", "memory")
+                    .reason("Max failed attempts reached")
+                    .emit();
             throw new AuthException(AuthErrorCode.OTP_TOO_MANY_ATTEMPTS, "Too many failed attempts. Verification code has been invalidated. Please request a new code.");
         }
 
@@ -242,18 +291,32 @@ public class OtpServiceImpl implements OtpService {
 
             if (remaining <= 0) {
                 clearValkeyAndFallback(normalizedContact);
-                log.warn("OTP verification blocked: Max failed attempts reached for [{}]", normalizedContact);
+                LogContract.warn(log, LogDomain.AUTH, "otp_verify_blocked")
+                        .outcome(LogOutcome.REJECTED)
+                        .email(normalizedContact)
+                        .field("store", "memory")
+                        .reason("Max failed attempts reached")
+                        .emit();
                 throw new AuthException(AuthErrorCode.OTP_TOO_MANY_ATTEMPTS, "Too many failed attempts. Verification code has been invalidated. Please request a new code.");
             }
 
             otpStore.put(normalizedContact, new OtpRecord(record.code(), record.expiresAt(), newAttempts));
-            log.warn("OTP verification mismatch for [{}]. Attempts remaining: {}", normalizedContact, remaining);
+            LogContract.warn(log, LogDomain.AUTH, "otp_verify_mismatch")
+                    .outcome(LogOutcome.REJECTED)
+                    .email(normalizedContact)
+                    .field("store", "memory")
+                    .field("remaining", remaining)
+                    .emit();
             throw new AuthException(AuthErrorCode.INVALID_OTP, "Invalid verification code. Attempts remaining: " + remaining);
         }
 
         // Success: Immediately purge OTP
         clearValkeyAndFallback(normalizedContact);
-        log.info("OTP verification succeeded via in-memory store for [{}]", normalizedContact);
+        LogContract.info(log, LogDomain.AUTH, "otp_verified")
+                .outcome(LogOutcome.SUCCESS)
+                .email(normalizedContact)
+                .field("store", "memory")
+                .emit();
     }
 
     /**
@@ -265,7 +328,12 @@ public class OtpServiceImpl implements OtpService {
                 String cooldownKey = ValkeyKeyConstant.otpCooldownKey(contact);
                 Long remainingTtl = redisTemplate.getExpire(cooldownKey, TimeUnit.SECONDS);
                 if (remainingTtl != null && remainingTtl > 0) {
-                    log.warn("OTP request rejected: Cooldown active for [{}]. Remaining seconds: {}", contact, remainingTtl);
+                    LogContract.warn(log, LogDomain.AUTH, "otp_cooldown_rejected")
+                            .outcome(LogOutcome.REJECTED)
+                            .email(contact)
+                            .field("store", "valkey")
+                            .field("remainingSeconds", remainingTtl)
+                            .emit();
                     throw new AuthException(
                             AuthErrorCode.OTP_COOLDOWN_ACTIVE,
                             "Please wait " + remainingTtl + " seconds before requesting a new verification code."
@@ -274,14 +342,23 @@ public class OtpServiceImpl implements OtpService {
             } catch (AuthException ex) {
                 throw ex;
             } catch (Exception ex) {
-                log.debug("Valkey cooldown check error for [{}]: {}", contact, ex.getMessage());
+                LogContract.warn(log, LogDomain.AUTH, "otp_cooldown_check")
+                        .outcome(LogOutcome.DEGRADED)
+                        .email(contact)
+                        .cause(ex)
+                        .emit();
             }
         }
 
         Instant cooldownUntil = cooldownStore.get(contact);
         if (cooldownUntil != null && Instant.now().isBefore(cooldownUntil)) {
             long remaining = Duration.between(Instant.now(), cooldownUntil).toSeconds() + 1;
-            log.warn("OTP request rejected: In-memory cooldown active for [{}]. Remaining seconds: {}", contact, remaining);
+            LogContract.warn(log, LogDomain.AUTH, "otp_cooldown_rejected")
+                    .outcome(LogOutcome.REJECTED)
+                    .email(contact)
+                    .field("store", "memory")
+                    .field("remainingSeconds", remaining)
+                    .emit();
             throw new AuthException(
                     AuthErrorCode.OTP_COOLDOWN_ACTIVE,
                     "Please wait " + remaining + " seconds before requesting a new verification code."
@@ -300,7 +377,12 @@ public class OtpServiceImpl implements OtpService {
                 if (dailyCountStr != null) {
                     int count = Integer.parseInt(dailyCountStr);
                     if (count >= maxDailyRequests) {
-                        log.warn("OTP request rejected: Daily limit of {} exceeded for [{}]", maxDailyRequests, contact);
+                        LogContract.warn(log, LogDomain.AUTH, "otp_daily_limit_rejected")
+                                .outcome(LogOutcome.REJECTED)
+                                .email(contact)
+                                .field("store", "valkey")
+                                .field("maxDaily", maxDailyRequests)
+                                .emit();
                         throw new AuthException(
                                 AuthErrorCode.OTP_DAILY_LIMIT_EXCEEDED,
                                 "Daily limit of " + maxDailyRequests + " verification codes reached for this contact. Please try again after 24 hours."
@@ -310,13 +392,22 @@ public class OtpServiceImpl implements OtpService {
             } catch (AuthException ex) {
                 throw ex;
             } catch (Exception ex) {
-                log.debug("Valkey daily limit check error for [{}]: {}", contact, ex.getMessage());
+                LogContract.warn(log, LogDomain.AUTH, "otp_daily_limit_check")
+                        .outcome(LogOutcome.DEGRADED)
+                        .email(contact)
+                        .cause(ex)
+                        .emit();
             }
         }
 
         DailyLimitRecord dailyRec = dailyStore.get(contact);
         if (dailyRec != null && Instant.now().isBefore(dailyRec.resetAt()) && dailyRec.count() >= maxDailyRequests) {
-            log.warn("OTP request rejected: In-memory daily limit of {} exceeded for [{}]", maxDailyRequests, contact);
+            LogContract.warn(log, LogDomain.AUTH, "otp_daily_limit_rejected")
+                    .outcome(LogOutcome.REJECTED)
+                    .email(contact)
+                    .field("store", "memory")
+                    .field("maxDaily", maxDailyRequests)
+                    .emit();
             throw new AuthException(
                     AuthErrorCode.OTP_DAILY_LIMIT_EXCEEDED,
                     "Daily limit of " + maxDailyRequests + " verification codes reached for this contact. Please try again after 24 hours."
@@ -390,7 +481,11 @@ public class OtpServiceImpl implements OtpService {
                         ValkeyKeyConstant.otpAttemptsKey(normalizedContact)
                 ));
             } catch (Exception ex) {
-                log.debug("Error clearing Valkey keys for [{}]: {}", normalizedContact, ex.getMessage());
+                LogContract.warn(log, LogDomain.AUTH, "otp_valkey_purge")
+                        .outcome(LogOutcome.DEGRADED)
+                        .email(normalizedContact)
+                        .cause(ex)
+                        .emit();
             }
         }
     }

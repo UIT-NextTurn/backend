@@ -12,6 +12,9 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -53,8 +56,11 @@ public class TenantPublicRegistrationController {
     public ResponseEntity<BaseResponse<TenantResponse>> registerTenant(
             @Valid @RequestBody TenantRegistrationRequest request
     ) {
-        log.info("Public tenant registration request received for code [{}] by email [{}]",
-                request.getTenantCode(), request.getAdminEmail());
+        LogContract.info(log, LogDomain.TENANT, "public_registration_received")
+                .outcome(LogOutcome.STARTED)
+                .tenant(request.getTenantCode())
+                .email(request.getAdminEmail())
+                .emit();
 
         TenantResponse response = tenantService.registerTenant(request);
 

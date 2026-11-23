@@ -15,6 +15,9 @@ import com.nextturn.service.BaseService;
 import com.nextturn.service.calendar.TenantCalendarService;
 import com.nextturn.service.calendar.TenantCalendarValidator;
 import com.nextturn.service.calendar.TenantTimeSlotGeneratorService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -102,8 +105,12 @@ public class TenantCalendarServiceImpl extends BaseService implements TenantCale
                 slotGeneratorService.generateTimeSlotsForShift(shift);
             }
 
-            log.info("Successfully created {} shifts on calendar for staff [{}] ({}) in tenant [{}]",
-                    createdShifts.size(), staff.getStaffCode(), staff.getFullName(), resolveCurrentTenantCode());
+            LogContract.info(log, LogDomain.CALENDAR, "shifts_created")
+                    .outcome(LogOutcome.SUCCESS)
+                    .tenant(resolveCurrentTenantCode())
+                    .entity("staff", staff.getStaffCode())
+                    .field("count", createdShifts.size())
+                    .emit();
 
             return createdShifts.stream()
                     .map(ShiftResponse::fromEntity)
@@ -163,8 +170,11 @@ public class TenantCalendarServiceImpl extends BaseService implements TenantCale
 
             if (bookedCount > 0 || bookedSlots > 0) {
                 long countToReport = bookedCount > 0 ? bookedCount : bookedSlots;
-                log.warn("Shift [{}] cancellation blocked: {} booked appointments exist in window [{} - {}]",
-                        shiftId, countToReport, shift.getShiftStart(), shift.getShiftEnd());
+                LogContract.warn(log, LogDomain.CALENDAR, "shift_cancel_blocked")
+                        .outcome(LogOutcome.REJECTED)
+                        .entity("shift", shiftId)
+                        .field("bookedAppointments", countToReport)
+                        .emit();
                 throw new CalendarException(
                         CalendarErrorCode.SHIFT_CANNOT_CANCEL_WITH_BOOKED_SLOTS,
                         String.format("Ca trực hiện có %d lịch hẹn của khách hàng đã được xác nhận. Vui lòng hủy lịch hẹn hoặc điều chuyển nhân viên thay thế trước khi hủy ca trực này.", countToReport)
@@ -178,8 +188,12 @@ public class TenantCalendarServiceImpl extends BaseService implements TenantCale
             // Recalculate capacity of slots covered by this shift
             slotGeneratorService.recalculateSlotsForCancelledShift(updated);
 
-            log.info("Cancelled calendar shift [{}] for staff [{}] on [{}]",
-                    shift.getId(), shift.getStaff().getStaffCode(), shift.getWorkDate());
+            LogContract.info(log, LogDomain.CALENDAR, "shift_cancelled")
+                    .outcome(LogOutcome.SUCCESS)
+                    .entity("shift", shift.getId())
+                    .field("staffCode", shift.getStaff().getStaffCode())
+                    .field("workDate", shift.getWorkDate())
+                    .emit();
 
             return ShiftResponse.fromEntity(updated);
         });
@@ -221,8 +235,11 @@ public class TenantCalendarServiceImpl extends BaseService implements TenantCale
         }
 
         if (cutBookedCount > 0) {
-            log.warn("Shift [{}] adjustment blocked: {} booked appointments exist in cut windows",
-                    shiftId, cutBookedCount);
+            LogContract.warn(log, LogDomain.CALENDAR, "shift_update_blocked")
+                    .outcome(LogOutcome.REJECTED)
+                    .entity("shift", shiftId)
+                    .field("bookedAppointments", cutBookedCount)
+                    .emit();
             throw new CalendarException(
                     CalendarErrorCode.SHIFT_CANNOT_TRUNCATE_WITH_BOOKED_SLOTS,
                     String.format("Ca trực hiện có %d lịch hẹn của khách hàng đã được xác nhận trong khoảng thời gian bị cắt giảm. Vui lòng hủy lịch hẹn hoặc điều chuyển nhân viên thay thế trước khi điều chỉnh ca trực này.", cutBookedCount)
@@ -238,8 +255,13 @@ public class TenantCalendarServiceImpl extends BaseService implements TenantCale
             // Recalculate/adjust slots for affected windows
             slotGeneratorService.recalculateSlotsForShiftAdjustment(updated, oldStart, oldEnd);
 
-            log.info("Updated calendar shift [{}] for staff [{}] on [{}] to [{} - {}]",
-                    shift.getId(), shift.getStaff().getStaffCode(), shift.getWorkDate(), newStart, newEnd);
+            LogContract.info(log, LogDomain.CALENDAR, "shift_updated")
+                    .outcome(LogOutcome.SUCCESS)
+                    .entity("shift", shift.getId())
+                    .field("staffCode", shift.getStaff().getStaffCode())
+                    .field("workDate", shift.getWorkDate())
+                    .field("window", newStart + "-" + newEnd)
+                    .emit();
 
             return ShiftResponse.fromEntity(updated);
         });
@@ -254,7 +276,12 @@ public class TenantCalendarServiceImpl extends BaseService implements TenantCale
         }
 
         if (repeatUntil.isBefore(startDate)) {
-            log.warn("Shift validation rejected: repeatUntil [{}] is before workDate [{}]", repeatUntil, startDate);
+            LogContract.warn(log, LogDomain.CALENDAR, "shift_validation")
+                    .outcome(LogOutcome.REJECTED)
+                    .field("repeatUntil", repeatUntil)
+                    .field("startDate", startDate)
+                    .reason("repeatUntil is before startDate")
+                    .emit();
             throw new CalendarException(CalendarErrorCode.TIME_WINDOW_INVALID, "Ngày kết thúc lặp lại phải lớn hơn hoặc bằng ngày bắt đầu.");
         }
 

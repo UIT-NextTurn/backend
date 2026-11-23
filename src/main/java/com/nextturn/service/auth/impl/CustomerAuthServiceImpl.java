@@ -21,6 +21,9 @@ import com.nextturn.repository.auth.CentralUserRepository;
 import com.nextturn.service.BaseService;
 import com.nextturn.service.auth.CustomerAuthService;
 import com.nextturn.service.auth.OtpService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -116,7 +119,11 @@ public class CustomerAuthServiceImpl extends BaseService implements CustomerAuth
                 .orElseThrow(() -> new AuthException(AuthErrorCode.WIDGET_KEY_INVALID, "Invalid or unrecognized widget integration key"));
 
         if (tenant.getStatus() != TenantStatus.ACTIVE) {
-            log.warn("Widget access rejected: Tenant facility [{}] is not active (status: {})", tenant.getTenantCode(), tenant.getStatus());
+            LogContract.warn(log, LogDomain.AUTH, "widget_access_rejected")
+                    .outcome(LogOutcome.REJECTED)
+                    .tenant(tenant.getTenantCode())
+                    .field("status", tenant.getStatus())
+                    .emit();
             throw new AuthException(AuthErrorCode.TENANT_INACTIVE, "Tenant facility is not active. Status: " + tenant.getStatus());
         }
 
@@ -130,14 +137,21 @@ public class CustomerAuthServiceImpl extends BaseService implements CustomerAuth
         }
 
         if (candidateDomain == null || candidateDomain.isBlank()) {
-            log.warn("Widget access rejected for tenant [{}]: Origin domain could not be determined", tenant.getTenantCode());
+            LogContract.warn(log, LogDomain.AUTH, "widget_origin_missing")
+                    .outcome(LogOutcome.REJECTED)
+                    .tenant(tenant.getTenantCode())
+                    .emit();
             throw new AuthException(AuthErrorCode.UNAUTHORIZED_ORIGIN_DOMAIN, "Origin domain is missing or unverified for widget authentication");
         }
 
         if (centralAllowedDomainRepository != null) {
             List<CentralAllowedDomain> allowedDomains = centralAllowedDomainRepository.findByTenantId(tenant.getId());
             if (allowedDomains == null || allowedDomains.isEmpty() || !isDomainWhitelisted(candidateDomain, allowedDomains)) {
-                log.warn("Widget access rejected for tenant [{}] from unauthorized origin [{}]", tenant.getTenantCode(), candidateDomain);
+                LogContract.warn(log, LogDomain.AUTH, "widget_origin_rejected")
+                        .outcome(LogOutcome.REJECTED)
+                        .tenant(tenant.getTenantCode())
+                        .field("origin", candidateDomain)
+                        .emit();
                 throw new AuthException(
                         AuthErrorCode.UNAUTHORIZED_ORIGIN_DOMAIN,
                         "Website domain [" + candidateDomain + "] is not authorized to embed the widget for facility [" + tenant.getTenantCode() + "]"
@@ -145,7 +159,11 @@ public class CustomerAuthServiceImpl extends BaseService implements CustomerAuth
             }
         }
 
-        log.info("Widget integration verified successfully for tenant [{}] from domain [{}]", tenant.getTenantCode(), candidateDomain);
+        LogContract.info(log, LogDomain.AUTH, "widget_verified")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenant.getTenantCode())
+                .field("origin", candidateDomain)
+                .emit();
     }
 
     /**
@@ -266,7 +284,11 @@ public class CustomerAuthServiceImpl extends BaseService implements CustomerAuth
         if (isExistingUser) {
             CentralUser existingUser = existingUserOpt.get();
             if (existingUser.getStatus() != UserStatus.ACTIVE) {
-                log.warn("OTP dispatch rejected for blocked user [{}] with status [{}]", contact, existingUser.getStatus());
+                LogContract.warn(log, LogDomain.AUTH, "otp_dispatch_rejected")
+                        .outcome(LogOutcome.REJECTED)
+                        .field("contact", LogContract.maskEmail(contact))
+                        .field("status", existingUser.getStatus())
+                        .emit();
                 throw new AuthException(AuthErrorCode.USER_BLOCKED, "Account is suspended. Status: " + existingUser.getStatus());
             }
         }
@@ -380,8 +402,12 @@ public class CustomerAuthServiceImpl extends BaseService implements CustomerAuth
         long requestEpochSeconds = (rawTimestamp > 100_000_000_000L) ? (rawTimestamp / 1000L) : rawTimestamp;
         long currentEpochSeconds = Instant.now().getEpochSecond();
         if (Math.abs(currentEpochSeconds - requestEpochSeconds) > 300L) {
-            log.warn("Widget SSO signature expired for tenant [{}]: timestamp [{}] vs server [{}]",
-                    tenant.getTenantCode(), requestEpochSeconds, currentEpochSeconds);
+            LogContract.warn(log, LogDomain.SECURITY, "widget_sso_expired")
+                    .outcome(LogOutcome.REJECTED)
+                    .tenant(tenant.getTenantCode())
+                    .field("requestTs", requestEpochSeconds)
+                    .field("serverTs", currentEpochSeconds)
+                    .emit();
             throw new AuthException(
                     AuthErrorCode.WIDGET_SIGNATURE_EXPIRED,
                     "Phiên làm việc đã hết hạn. Vui lòng tải lại trang hoặc xác thực bằng mã OTP."
@@ -409,7 +435,11 @@ public class CustomerAuthServiceImpl extends BaseService implements CustomerAuth
         );
 
         if (!verifyHmacSha256Signature(canonicalPayload, secretKey.trim(), request.getSignature().trim())) {
-            log.warn("Widget SSO signature mismatch for tenant [{}] and member [{}]", tenant.getTenantCode(), cleanMemberId);
+            LogContract.warn(log, LogDomain.SECURITY, "widget_sso_signature_mismatch")
+                    .outcome(LogOutcome.REJECTED)
+                    .tenant(tenant.getTenantCode())
+                    .field("memberId", cleanMemberId)
+                    .emit();
             throw new AuthException(
                     AuthErrorCode.WIDGET_SIGNATURE_INVALID,
                     "Chữ ký bảo mật không hợp lệ hoặc dữ liệu đã bị sửa đổi. Vui lòng xác thực bằng mã OTP."
@@ -480,7 +510,10 @@ public class CustomerAuthServiceImpl extends BaseService implements CustomerAuth
                     expectedBase64.getBytes(StandardCharsets.UTF_8)
             );
         } catch (Exception e) {
-            log.error("Error verifying HMAC-SHA256 signature: {}", e.getMessage());
+            LogContract.error(log, LogDomain.SECURITY, "hmac_verification_error")
+                    .outcome(LogOutcome.FAILED)
+                    .causeWithStack(e)
+                    .emit();
             return false;
         }
     }
@@ -541,7 +574,11 @@ public class CustomerAuthServiceImpl extends BaseService implements CustomerAuth
                 throw new AuthException(AuthErrorCode.USER_BLOCKED, "Account is suspended. Status: " + existing.getStatus());
             }
             existing.setUpdatedAt(LocalDateTime.now());
-            log.info("Existing END_USER recognized for contact [{}]. Reusing user ID [{}] to preserve history.", contact, existing.getId());
+            LogContract.info(log, LogDomain.AUTH, "customer_recognized")
+                    .outcome(LogOutcome.SUCCESS)
+                    .entity("user", existing.getId())
+                    .field("contact", LogContract.maskEmail(contact))
+                    .emit();
             return existing;
         }
 
@@ -561,7 +598,11 @@ public class CustomerAuthServiceImpl extends BaseService implements CustomerAuth
                 .build();
 
         CentralUser savedUser = centralUserRepository.save(newUser);
-        log.info("Auto-provisioned new central user account for [{}] with ID [{}]", contact, savedUser.getId());
+        LogContract.info(log, LogDomain.AUTH, "customer_provisioned")
+                .outcome(LogOutcome.SUCCESS)
+                .entity("user", savedUser.getId())
+                .field("contact", LogContract.maskEmail(contact))
+                .emit();
         return savedUser;
     }
 
@@ -603,6 +644,8 @@ public class CustomerAuthServiceImpl extends BaseService implements CustomerAuth
         }
         SecurityContextHolder.clearContext();
         TenantContextHolder.clear();
-        log.info("Cleared security context and processed customer logout request");
+        LogContract.info(log, LogDomain.AUTH, "customer_logout")
+                .outcome(LogOutcome.SUCCESS)
+                .emit();
     }
 }

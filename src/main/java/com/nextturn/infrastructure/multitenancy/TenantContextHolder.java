@@ -1,5 +1,7 @@
 package com.nextturn.infrastructure.multitenancy;
 
+import com.nextturn.infrastructure.logging.LogContract;
+
 /**
  * Thread-local context holder for the active tenant code in NextTurn's schema-per-tenant architecture.
  * Ensures isolation across concurrent requests and prevents memory leaks (*rò rỉ bộ nhớ luồng*)
@@ -21,8 +23,11 @@ public final class TenantContextHolder {
     public static void setTenantCode(String tenantCode) {
         if (tenantCode == null || tenantCode.isBlank()) {
             CURRENT_TENANT.remove();
+            LogContract.clearTenantCode();
         } else {
-            CURRENT_TENANT.set(tenantCode.trim());
+            String clean = tenantCode.trim();
+            CURRENT_TENANT.set(clean);
+            LogContract.bindTenantCode(clean);
         }
     }
 
@@ -63,5 +68,6 @@ public final class TenantContextHolder {
      */
     public static void clear() {
         CURRENT_TENANT.remove();
+        LogContract.clearTenantCode();
     }
 }

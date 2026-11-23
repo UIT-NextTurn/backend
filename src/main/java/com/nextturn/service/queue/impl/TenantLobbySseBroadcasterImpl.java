@@ -9,6 +9,9 @@ import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.repository.ticket.TenantQueueTicketRepository;
 import com.nextturn.service.queue.TenantLobbySseBroadcaster;
 import com.nextturn.service.queue.TenantTicketStateMachine;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -202,7 +205,10 @@ public class TenantLobbySseBroadcasterImpl implements TenantLobbySseBroadcaster 
             emitter.send(SseEmitter.event().name("lobby-update").data(payload));
             return true;
         } catch (IOException ex) {
-            log.debug("Failed to push lobby SSE event: {}", ex.getMessage());
+            LogContract.warn(log, LogDomain.QUEUE, "lobby_sse_push")
+                    .outcome(LogOutcome.DEGRADED)
+                    .cause(ex)
+                    .emit();
             emitter.completeWithError(ex);
             return false;
         }

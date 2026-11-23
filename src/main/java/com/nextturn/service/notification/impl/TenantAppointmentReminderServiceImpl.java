@@ -17,6 +17,9 @@ import com.nextturn.service.notification.EmailService;
 import com.nextturn.service.notification.TenantAppointmentReminderService;
 import com.nextturn.service.notification.TenantNotificationLogService;
 import com.nextturn.service.notification.TenantNotificationTemplateService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -191,16 +194,26 @@ public class TenantAppointmentReminderServiceImpl extends BaseService implements
                 if (emailService != null && emailService.isConfigured()) {
                     emailService.sendHtmlEmail(recipientEmail, subject, html);
                 } else {
-                    log.info("[APPOINTMENT REMINDER ({} - CONSOLE)] To: [{}] | Subject: [{}]",
-                            templateCode, recipientEmail, subject);
+                    LogContract.info(log, LogDomain.NOTIFICATION, "reminder_console_fallback")
+                            .outcome(LogOutcome.DEGRADED)
+                            .entity("appointment", apt.getAppointmentCode())
+                            .email(recipientEmail)
+                            .field("templateCode", templateCode)
+                            .emit();
                 }
                 logService.recordDeliveryLog(apt, null, recipientEmail, NotificationChannel.EMAIL,
                         templateCode, summaryBody, NotificationDeliveryStatus.SUCCESS, null);
                 return true;
             } catch (Exception ex) {
                 lastError = ex.getMessage();
-                log.warn("Reminder email attempt {}/{} failed for [{}] ({}): {}",
-                        attempt, MAX_RETRY_ATTEMPTS, apt.getAppointmentCode(), recipientEmail, lastError);
+                LogContract.warn(log, LogDomain.NOTIFICATION, "reminder_email_attempt")
+                        .outcome(LogOutcome.DEGRADED)
+                        .entity("appointment", apt.getAppointmentCode())
+                        .email(recipientEmail)
+                        .field("attempt", attempt)
+                        .field("maxAttempts", MAX_RETRY_ATTEMPTS)
+                        .cause(ex)
+                        .emit();
             }
         }
 
@@ -215,7 +228,11 @@ public class TenantAppointmentReminderServiceImpl extends BaseService implements
             try (InputStream is = new ClassPathResource(path).getInputStream()) {
                 return new String(is.readAllBytes(), StandardCharsets.UTF_8);
             } catch (Exception ex) {
-                log.warn("Could not load reminder HTML template [{}]: {}", path, ex.getMessage());
+                LogContract.warn(log, LogDomain.NOTIFICATION, "reminder_template_load")
+                        .outcome(LogOutcome.DEGRADED)
+                        .field("path", path)
+                        .cause(ex)
+                        .emit();
                 return "";
             }
         });

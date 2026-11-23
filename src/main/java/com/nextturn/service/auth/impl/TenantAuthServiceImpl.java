@@ -17,6 +17,9 @@ import com.nextturn.infrastructure.security.keycloak.KeycloakTokenService;
 import com.nextturn.repository.auth.CentralTenantRepository;
 import com.nextturn.service.auth.TenantAuthService;
 import com.nextturn.service.staff.TenantStaffService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -88,16 +91,27 @@ public class TenantAuthServiceImpl implements TenantAuthService {
         }
 
         String cleanCode = request.getTenantCode().trim();
-        log.info("Processing tenant resolution for code: [{}]", cleanCode);
+        LogContract.info(log, LogDomain.AUTH, "tenant_resolve")
+                .outcome(LogOutcome.STARTED)
+                .tenant(cleanCode)
+                .emit();
 
         CentralTenant tenant = centralTenantRepository.findByTenantCodeIgnoreCaseAndIsDeletedFalse(cleanCode)
                 .orElseThrow(() -> {
-                    log.warn("Tenant resolution failed: Tenant code [{}] not found or deleted", cleanCode);
+                    LogContract.warn(log, LogDomain.AUTH, "tenant_resolve")
+                            .outcome(LogOutcome.REJECTED)
+                            .tenant(cleanCode)
+                            .reason("Tenant not found")
+                            .emit();
                     return new AuthException(AuthErrorCode.TENANT_NOT_FOUND, "Tenant not found with code: " + cleanCode);
                 });
 
         if (tenant.getStatus() != TenantStatus.ACTIVE) {
-            log.warn("Tenant resolution rejected: Tenant [{}] has inactive status [{}]", cleanCode, tenant.getStatus());
+            LogContract.warn(log, LogDomain.AUTH, "tenant_resolve")
+                    .outcome(LogOutcome.REJECTED)
+                    .tenant(cleanCode)
+                    .field("status", tenant.getStatus())
+                    .emit();
             throw new AuthException(
                     AuthErrorCode.TENANT_INACTIVE,
                     "Tenant facility is not active. Current status: " + tenant.getStatus()
@@ -177,7 +191,11 @@ public class TenantAuthServiceImpl implements TenantAuthService {
                         response.getRoles()
                 );
             } catch (Exception ex) {
-                log.warn("Non-fatal: Failed to sync staff profile on login for [{}]: {}", response.getEmail(), ex.getMessage());
+                LogContract.warn(log, LogDomain.AUTH, "staff_profile_login_sync")
+                        .outcome(LogOutcome.DEGRADED)
+                        .email(response.getEmail())
+                        .cause(ex)
+                        .emit();
             }
         }
 
@@ -231,6 +249,8 @@ public class TenantAuthServiceImpl implements TenantAuthService {
         }
         SecurityContextHolder.clearContext();
         TenantContextHolder.clear();
-        log.info("Cleared security context and processed logout request");
+        LogContract.info(log, LogDomain.AUTH, "tenant_logout")
+                .outcome(LogOutcome.SUCCESS)
+                .emit();
     }
 }

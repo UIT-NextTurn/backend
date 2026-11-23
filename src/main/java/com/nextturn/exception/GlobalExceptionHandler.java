@@ -2,6 +2,9 @@ package com.nextturn.exception;
 
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.exception.system.SystemErrorCode;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -29,7 +32,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(BaseException.class)
     public ResponseEntity<BaseResponse<Object>> handleBaseException(BaseException ex) {
-        log.warn("Application exception: [{}] - {}", ex.getCode(), ex.getMessage());
+        LogContract.warn(log, LogDomain.SYSTEM, "domain_exception")
+                .outcome(LogOutcome.REJECTED)
+                .field("errorCode", ex.getCode())
+                .cause(ex)
+                .emit();
         BaseResponse<Object> response = BaseResponse.error(
                 ex.getStatus(),
                 ex.getMessage(),
@@ -42,7 +49,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<BaseResponse<Object>> handleAccessDeniedException(AccessDeniedException ex) {
-        log.warn("Access denied: {}", ex.getMessage());
+        LogContract.warn(log, LogDomain.SECURITY, "access_denied")
+                .outcome(LogOutcome.REJECTED)
+                .cause(ex)
+                .emit();
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
                 .body(BaseResponse.error(
@@ -54,7 +64,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<BaseResponse<Object>> handleAuthenticationException(AuthenticationException ex) {
-        log.warn("Authentication required: {}", ex.getMessage());
+        LogContract.warn(log, LogDomain.SECURITY, "authentication_required")
+                .outcome(LogOutcome.REJECTED)
+                .cause(ex)
+                .emit();
         return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
                 .body(BaseResponse.error(
@@ -111,7 +124,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<BaseResponse<Object>> handleDatabaseException(DataAccessException ex) {
-        log.error("Database operation failed: {}", ex.getMessage(), ex);
+        LogContract.error(log, LogDomain.SYSTEM, "database_error")
+                .outcome(LogOutcome.FAILED)
+                .causeWithStack(ex)
+                .emit();
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(BaseResponse.error(
@@ -123,7 +139,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<BaseResponse<Object>> handleGenericException(Exception ex) {
-        log.error("Unhandled server exception: {}", ex.getMessage(), ex);
+        LogContract.error(log, LogDomain.SYSTEM, "unhandled_exception")
+                .outcome(LogOutcome.FAILED)
+                .causeWithStack(ex)
+                .emit();
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(BaseResponse.error(

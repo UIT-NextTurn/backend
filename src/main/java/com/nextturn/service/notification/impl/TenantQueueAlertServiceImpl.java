@@ -11,6 +11,9 @@ import com.nextturn.repository.ticket.TenantQueueTicketRepository;
 import com.nextturn.service.notification.TenantNotificationLogService;
 import com.nextturn.service.notification.TenantNotificationTemplateService;
 import com.nextturn.service.notification.TenantQueueAlertService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -93,8 +96,11 @@ public class TenantQueueAlertServiceImpl implements TenantQueueAlertService {
                         NotificationDeliveryStatus.SUCCESS,
                         null
                 );
-                log.info("Triggered approaching-turn alert for ticket [{}] (peopleAhead={})",
-                        ticket.getTicketCode(), peopleAhead);
+                LogContract.info(log, LogDomain.NOTIFICATION, "approaching_turn_alert")
+                        .outcome(LogOutcome.SUCCESS)
+                        .entity("ticket", ticket.getTicketCode())
+                        .field("peopleAhead", peopleAhead)
+                        .emit();
                 triggeredCount++;
             }
         }
@@ -132,7 +138,11 @@ public class TenantQueueAlertServiceImpl implements TenantQueueAlertService {
                 NotificationDeliveryStatus.SUCCESS,
                 null
         );
-        log.debug("Logged high-priority counter call push alert for ticket [{}]", calledTicket.getTicketCode());
+        LogContract.debug(log, LogDomain.NOTIFICATION, "counter_call_alert")
+                .outcome(LogOutcome.SUCCESS)
+                .entity("ticket", calledTicket.getTicketCode())
+                .field("counter", deskLabel)
+                .emit();
     }
 
     private String renderApproachingAlertMessage(TenantQueueTicket ticket, long peopleAhead) {

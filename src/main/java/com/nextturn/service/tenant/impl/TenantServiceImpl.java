@@ -27,6 +27,9 @@ import com.nextturn.service.tenant.TenantLifecycleService;
 import com.nextturn.service.tenant.TenantProvisioningService;
 import com.nextturn.service.tenant.TenantService;
 import com.nextturn.service.tenant.TenantTelemetryService;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -228,12 +231,20 @@ public class TenantServiceImpl extends BaseService implements TenantService {
             updatedTenant = saved.tenant();
             updatedQuota = saved.quota();
         } catch (Exception dbEx) {
-            log.error("Database save failed during quota update for [{}]: {}", tenant.getTenantCode(), dbEx.getMessage(), dbEx);
+            LogContract.error(log, LogDomain.TENANT, "tenant_quota_update")
+                    .outcome(LogOutcome.FAILED)
+                    .tenant(tenant.getTenantCode())
+                    .causeWithStack(dbEx)
+                    .emit();
             throw dbEx;
         }
 
-        log.info("Successfully updated tenant [{}] profile and quotas (max_staffs: {}, daily_quota: {})",
-                tenant.getTenantCode(), updatedQuota.getMaxStaffs(), updatedQuota.getDailyTicketQuota());
+        LogContract.info(log, LogDomain.TENANT, "tenant_quota_updated")
+                .outcome(LogOutcome.SUCCESS)
+                .tenant(tenant.getTenantCode())
+                .field("maxStaffs", updatedQuota.getMaxStaffs())
+                .field("dailyQuota", updatedQuota.getDailyTicketQuota())
+                .emit();
 
         TenantQuotaResponse quotaResponse = TenantQuotaResponse.fromEntity(updatedQuota, currentActiveStaff);
         TenantResponse response = TenantResponse.fromEntity(updatedTenant, quotaResponse);
@@ -325,7 +336,9 @@ public class TenantServiceImpl extends BaseService implements TenantService {
     public TenantResponse getTenant(String tenantIdentifier) {
         TenantResponse cached = tenantCacheService.getCachedTenantConfig(tenantIdentifier);
         if (cached != null) {
-            log.debug("Valkey cache hit for tenant [{}]", tenantIdentifier);
+            LogContract.debug(log, LogDomain.TENANT, "tenant_cache_hit")
+                    .tenant(tenantIdentifier)
+                    .emit();
             return cached;
         }
 
@@ -342,7 +355,9 @@ public class TenantServiceImpl extends BaseService implements TenantService {
     public TenantQuotaResponse getTenantQuota(String tenantIdentifier) {
         TenantResponse cached = tenantCacheService.getCachedTenantConfig(tenantIdentifier);
         if (cached != null && cached.getQuotas() != null) {
-            log.debug("Valkey cache hit for tenant quota [{}]", tenantIdentifier);
+            LogContract.debug(log, LogDomain.TENANT, "tenant_quota_cache_hit")
+                    .tenant(tenantIdentifier)
+                    .emit();
             return cached.getQuotas();
         }
 

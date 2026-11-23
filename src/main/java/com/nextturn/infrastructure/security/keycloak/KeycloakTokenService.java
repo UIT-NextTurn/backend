@@ -18,6 +18,9 @@ import com.nextturn.exception.auth.AuthErrorCode;
 import com.nextturn.exception.auth.AuthException;
 import com.nextturn.exception.system.SystemErrorCode;
 import com.nextturn.exception.system.SystemException;
+import com.nextturn.infrastructure.logging.LogContract;
+import com.nextturn.infrastructure.logging.LogDomain;
+import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -140,7 +143,11 @@ public class KeycloakTokenService {
             );
         } catch (RestClientResponseException ex) {
             String errorDetails = extractErrorDescription(ex.getResponseBodyAsString());
-            log.warn("Keycloak token request failed with status [{}]: {}", ex.getStatusCode(), errorDetails != null ? errorDetails : ex.getResponseBodyAsString());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_token_request")
+                    .outcome(LogOutcome.REJECTED)
+                    .field("httpStatus", ex.getStatusCode())
+                    .reason(errorDetails != null ? errorDetails : ex.getResponseBodyAsString())
+                    .emit();
             if (ex.getStatusCode().value() == 400 || ex.getStatusCode().value() == 401) {
                 String message = errorDetails != null && !errorDetails.isBlank()
                         ? errorDetails
@@ -151,7 +158,10 @@ public class KeycloakTokenService {
         } catch (AuthException ex) {
             throw ex;
         } catch (Exception ex) {
-            log.error("Failed to process Keycloak token communication", ex);
+            LogContract.error(log, LogDomain.AUTH, "keycloak_token_communication")
+                    .outcome(LogOutcome.FAILED)
+                    .causeWithStack(ex)
+                    .emit();
             throw new AuthException(AuthErrorCode.KEYCLOAK_UNAVAILABLE, "Unable to communicate with authentication provider");
         }
     }
@@ -167,7 +177,9 @@ public class KeycloakTokenService {
         }
 
         if (refreshToken.startsWith("mock-") || refreshToken.equals("test-refresh-token")) {
-            log.debug("Mock environment: simulated Keycloak logout for token [{}]", refreshToken);
+            LogContract.debug(log, LogDomain.AUTH, "keycloak_mock_logout")
+                    .field("tokenPrefix", LogContract.maskSecret(refreshToken))
+                    .emit();
             return;
         }
 
@@ -186,11 +198,20 @@ public class KeycloakTokenService {
                     .retrieve()
                     .toBodilessEntity();
 
-            log.info("Successfully revoked refresh token and terminated Keycloak session");
+            LogContract.info(log, LogDomain.AUTH, "keycloak_logout")
+                    .outcome(LogOutcome.SUCCESS)
+                    .emit();
         } catch (RestClientResponseException ex) {
-            log.warn("Keycloak logout response [{}]: {}", ex.getStatusCode(), ex.getResponseBodyAsString());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_logout")
+                    .outcome(LogOutcome.DEGRADED)
+                    .field("httpStatus", ex.getStatusCode())
+                    .reason(ex.getResponseBodyAsString())
+                    .emit();
         } catch (Exception ex) {
-            log.warn("Keycloak logout failed or session already terminated: {}", ex.getMessage());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_logout")
+                    .outcome(LogOutcome.DEGRADED)
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -240,7 +261,11 @@ public class KeycloakTokenService {
             boolean hasCounterStaff = roles.contains(UserRole.COUNTER_STAFF_VALUE);
 
             if (!hasSuperAdmin && !hasTenantAdmin && !hasCounterStaff) {
-                log.warn("Login rejected for user [{}] with non-management roles: {}", email != null ? email : userId, roles);
+                LogContract.warn(log, LogDomain.SECURITY, "management_login_rejected")
+                        .outcome(LogOutcome.REJECTED)
+                        .field("user", email != null ? LogContract.maskEmail(email) : userId)
+                        .field("roles", roles)
+                        .emit();
                 throw new AuthException(
                         AuthErrorCode.ROLE_NOT_PERMITTED,
                         "End users (customers) are not permitted to log in via the management portal"
@@ -279,7 +304,10 @@ public class KeycloakTokenService {
         } catch (AuthException ex) {
             throw ex;
         } catch (Exception ex) {
-            log.error("Failed to decode and validate JWT payload", ex);
+            LogContract.error(log, LogDomain.SECURITY, "jwt_decode")
+                    .outcome(LogOutcome.FAILED)
+                    .causeWithStack(ex)
+                    .emit();
             throw new AuthException(AuthErrorCode.INVALID_TOKEN, "Failed to decode JWT claims");
         }
     }
@@ -310,7 +338,10 @@ public class KeycloakTokenService {
                 return tokenJson.path(OAuth2Constant.FIELD_ACCESS_TOKEN).asText(null);
             }
         } catch (Exception ex) {
-            log.debug("Unable to obtain Keycloak service account token: {}", ex.getMessage());
+            LogContract.debug(log, LogDomain.AUTH, "keycloak_service_token_unavailable")
+                    .outcome(LogOutcome.DEGRADED)
+                    .cause(ex)
+                    .emit();
         }
         return null;
     }
@@ -327,7 +358,10 @@ public class KeycloakTokenService {
     public String syncCustomerIdentity(String email, String fullName) {
         String adminToken = getServiceAccountToken();
         if (adminToken == null || adminToken.startsWith("mock-")) {
-            log.debug("Keycloak Admin API token unavailable; using local central identity for customer [{}]", email);
+            LogContract.debug(log, LogDomain.AUTH, "keycloak_admin_token_unavailable")
+                    .outcome(LogOutcome.DEGRADED)
+                    .email(email)
+                    .emit();
             return null;
         }
 
@@ -349,11 +383,18 @@ public class KeycloakTokenService {
                     JsonNode existingUser = usersList.get(0);
                     boolean enabled = existingUser.path(OAuth2Constant.FIELD_ENABLED).asBoolean(true);
                     if (!enabled) {
-                        log.warn("Customer [{}] is disabled/suspended in Keycloak IAM", normalizedEmail);
+                        LogContract.warn(log, LogDomain.AUTH, "customer_blocked_keycloak")
+                                .outcome(LogOutcome.REJECTED)
+                                .email(normalizedEmail)
+                                .emit();
                         throw new AuthException(AuthErrorCode.USER_BLOCKED, "Customer account is disabled in Keycloak");
                     }
                     String keycloakId = existingUser.path(OAuth2Constant.FIELD_ID).asText(null);
-                    log.info("Recognized Keycloak identity [{}] for customer [{}]", keycloakId, normalizedEmail);
+                    LogContract.info(log, LogDomain.AUTH, "customer_keycloak_recognized")
+                            .outcome(LogOutcome.SUCCESS)
+                            .entity("user", keycloakId)
+                            .email(normalizedEmail)
+                            .emit();
                     return keycloakId;
                 }
             }
@@ -374,7 +415,11 @@ public class KeycloakTokenService {
                     .retrieve()
                     .toBodilessEntity();
 
-            log.info("Auto-provisioned customer identity in Keycloak for [{}] (status: {})", normalizedEmail, postResponse.getStatusCode());
+            LogContract.info(log, LogDomain.AUTH, "customer_keycloak_provisioned")
+                    .outcome(LogOutcome.SUCCESS)
+                    .email(normalizedEmail)
+                    .field("httpStatus", postResponse.getStatusCode())
+                    .emit();
 
             // 3. Retrieve generated Keycloak user ID
             String verifySearchResponse = restClient.get()
@@ -392,7 +437,10 @@ public class KeycloakTokenService {
         } catch (AuthException ex) {
             throw ex;
         } catch (Exception ex) {
-            log.warn("Keycloak Admin API identity sync returned [{}]. Continuing with local central identity.", ex.getMessage());
+            LogContract.warn(log, LogDomain.AUTH, "customer_keycloak_sync_fallback")
+                    .outcome(LogOutcome.DEGRADED)
+                    .cause(ex)
+                    .emit();
         }
 
         return null;
@@ -438,7 +486,11 @@ public class KeycloakTokenService {
                 }
             }
         } catch (Exception ex) {
-            log.warn("Direct Keycloak token communication returned [{}]. Using fallback token session for customer [{}]", ex.getMessage(), email);
+            LogContract.warn(log, LogDomain.AUTH, "customer_token_fallback")
+                    .outcome(LogOutcome.DEGRADED)
+                    .email(email)
+                    .cause(ex)
+                    .emit();
         }
 
         // Safe fallback session for offline/development test environments (30 days session validity per REQ-AUTH-07)
@@ -508,7 +560,10 @@ public class KeycloakTokenService {
                     .targetDashboardUrl(DashboardRouteConstant.CUSTOMER_DASHBOARD)
                     .build();
         } catch (Exception ex) {
-            log.error("Failed to parse customer token payload", ex);
+            LogContract.error(log, LogDomain.AUTH, "customer_token_parse")
+                    .outcome(LogOutcome.FAILED)
+                    .causeWithStack(ex)
+                    .emit();
             return AuthTokenResponse.builder()
                     .accessToken(accessToken)
                     .refreshToken(refreshToken)
@@ -645,7 +700,11 @@ public class KeycloakTokenService {
                 }
             }
         } catch (Exception ex) {
-            log.warn("Keycloak organization check failed for [{}]: {}", tenantCode, ex.getMessage());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_org_check")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantCode)
+                    .cause(ex)
+                    .emit();
         }
         return false;
     }
@@ -672,7 +731,9 @@ public class KeycloakTokenService {
     public String createOrganization(String tenantCode, String tenantName, boolean enabled) {
         String adminToken = getServiceAccountToken();
         if (adminToken == null || adminToken.startsWith("mock-")) {
-            log.debug("Mock environment: returning mock organization ID for [{}]", tenantCode);
+            LogContract.debug(log, LogDomain.AUTH, "keycloak_mock_org")
+                    .tenant(tenantCode)
+                    .emit();
             return "mock-org-" + tenantCode;
         }
 
@@ -712,7 +773,11 @@ public class KeycloakTokenService {
             }
             throw new IllegalStateException("Keycloak did not return an organization ID for [" + tenantCode + "]");
         } catch (Exception ex) {
-            log.error("Failed to explicitly create Keycloak organization for tenant [{}]: {}", tenantCode, ex.getMessage());
+            LogContract.error(log, LogDomain.AUTH, "keycloak_org_create")
+                    .outcome(LogOutcome.FAILED)
+                    .tenant(tenantCode)
+                    .causeWithStack(ex)
+                    .emit();
             throw new RuntimeException("Failed to create Keycloak organization for tenant [" + tenantCode + "]: " + ex.getMessage(), ex);
         }
     }
@@ -735,9 +800,17 @@ public class KeycloakTokenService {
                     .header("Authorization", "Bearer " + adminToken)
                     .retrieve()
                     .toBodilessEntity();
-            log.info("Successfully deleted organization [{}] from Keycloak during rollback compensation", orgId);
+            LogContract.info(log, LogDomain.AUTH, "keycloak_org_deleted")
+                    .outcome(LogOutcome.SUCCESS)
+                    .entity("org", orgId)
+                    .reason("Rollback compensation")
+                    .emit();
         } catch (Exception ex) {
-            log.warn("Failed to delete organization [{}] from Keycloak: {}", orgId, ex.getMessage());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_org_delete")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("org", orgId)
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -751,7 +824,9 @@ public class KeycloakTokenService {
     public String ensureOrganizationExists(String tenantCode, String tenantName) {
         String adminToken = getServiceAccountToken();
         if (adminToken == null || adminToken.startsWith("mock-")) {
-            log.debug("Mock environment: returning mock organization ID for [{}]", tenantCode);
+            LogContract.debug(log, LogDomain.AUTH, "keycloak_mock_org")
+                    .tenant(tenantCode)
+                    .emit();
             return "mock-org-" + tenantCode;
         }
 
@@ -808,7 +883,11 @@ public class KeycloakTokenService {
                 }
             }
         } catch (Exception ex) {
-            log.warn("Keycloak organization management returned [{}]. Using fallback org for [{}]", ex.getMessage(), tenantCode);
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_org_manage_fallback")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantCode)
+                    .cause(ex)
+                    .emit();
         }
 
         return "mock-org-" + tenantCode;
@@ -844,7 +923,11 @@ public class KeycloakTokenService {
                 return usersList.isArray() && !usersList.isEmpty();
             }
         } catch (Exception ex) {
-            log.warn("Error querying Keycloak for user existence by email [{}]: {}", email, ex.getMessage());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_user_lookup")
+                    .outcome(LogOutcome.DEGRADED)
+                    .email(email)
+                    .cause(ex)
+                    .emit();
         }
         return false;
     }
@@ -879,13 +962,19 @@ public class KeycloakTokenService {
      */
     public String createStaffUser(String tenantCode, String email, String fullName, String password, StaffRole role, boolean enabled) {
         if (role == StaffRole.SPECIALIST) {
-            log.info("Role SPECIALIST is internal roster-only; skipping Keycloak user provisioning for [{}]", email);
+            LogContract.info(log, LogDomain.STAFF, "keycloak_staff_provision_skipped")
+                    .outcome(LogOutcome.SKIPPED)
+                    .email(email)
+                    .reason("SPECIALIST is internal roster-only")
+                    .emit();
             return null;
         }
 
         String adminToken = getServiceAccountToken();
         if (adminToken == null || adminToken.startsWith("mock-")) {
-            log.debug("Mock environment: returning mock staff user ID for [{}]", email);
+            LogContract.debug(log, LogDomain.AUTH, "keycloak_mock_staff_user")
+                    .email(email)
+                    .emit();
             return UUID.randomUUID().toString();
         }
 
@@ -941,8 +1030,11 @@ public class KeycloakTokenService {
                     userPayload.set("credentials", credsArray);
                 } else if (hasOrganizationIdp(null, tenantCode)) {
                     // When tenant uses an external Identity Provider (SSO), do NOT force UPDATE_PASSWORD
-                    log.info("Tenant [{}] has active external IdP; provisioning staff [{}] for SSO without forcing local password reset",
-                            tenantCode, normalizedEmail);
+                    LogContract.info(log, LogDomain.AUTH, "keycloak_staff_sso_provision")
+                            .outcome(LogOutcome.SUCCESS)
+                            .tenant(tenantCode)
+                            .email(normalizedEmail)
+                            .emit();
                 } else {
                     var credsArray = objectMapper.createArrayNode();
                     var cred = objectMapper.createObjectNode();
@@ -991,7 +1083,10 @@ public class KeycloakTokenService {
             }
 
             if (keycloakUserId == null) {
-                log.error("Failed to provision staff user in Keycloak for [{}]", normalizedEmail);
+                LogContract.error(log, LogDomain.AUTH, "keycloak_staff_provision")
+                        .outcome(LogOutcome.FAILED)
+                        .email(normalizedEmail)
+                        .emit();
                 throw new SystemException(SystemErrorCode.INTERNAL_ERROR, "Failed to provision staff member in Keycloak IAM");
             }
 
@@ -999,7 +1094,11 @@ public class KeycloakTokenService {
         } catch (BaseException ex) {
             throw ex;
         } catch (Exception ex) {
-            log.error("Keycloak staff user provisioning failed for [{}]: {}", email, ex.getMessage(), ex);
+            LogContract.error(log, LogDomain.AUTH, "keycloak_staff_provision")
+                    .outcome(LogOutcome.FAILED)
+                    .email(email)
+                    .causeWithStack(ex)
+                    .emit();
             throw new SystemException(SystemErrorCode.INTERNAL_ERROR, "Keycloak staff user provisioning failed: " + ex.getMessage());
         }
     }
@@ -1008,7 +1107,11 @@ public class KeycloakTokenService {
         try {
             String clientUuid = resolveClientUuid(adminToken, properties.clientId());
             if (clientUuid == null) {
-                log.warn("Cannot find client UUID for clientId [{}]", properties.clientId());
+                LogContract.warn(log, LogDomain.AUTH, "keycloak_client_lookup")
+                        .outcome(LogOutcome.DEGRADED)
+                        .field("clientId", properties.clientId())
+                        .reason("Client UUID not found")
+                        .emit();
                 return;
             }
 
@@ -1033,10 +1136,19 @@ public class KeycloakTokenService {
                         .retrieve()
                         .toBodilessEntity();
 
-                log.info("Assigned client role [{}] to user [{}]", roleName, userId);
+                LogContract.info(log, LogDomain.AUTH, "keycloak_role_assigned")
+                        .outcome(LogOutcome.SUCCESS)
+                        .entity("user", userId)
+                        .field("role", roleName)
+                        .emit();
             }
         } catch (Exception ex) {
-            log.warn("Failed to assign client role [{}] to user [{}]: {}", roleName, userId, ex.getMessage());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_role_assign")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("user", userId)
+                    .field("role", roleName)
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -1056,7 +1168,11 @@ public class KeycloakTokenService {
                 }
             }
         } catch (Exception ex) {
-            log.warn("Failed to resolve client UUID for [{}]: {}", clientId, ex.getMessage());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_client_uuid_resolve")
+                    .outcome(LogOutcome.DEGRADED)
+                    .field("clientId", clientId)
+                    .cause(ex)
+                    .emit();
         }
         return null;
     }
@@ -1078,9 +1194,18 @@ public class KeycloakTokenService {
                     .retrieve()
                     .toBodilessEntity();
 
-            log.info("Added user [{}] as member of organization [{}]", keycloakUserId, orgId);
+            LogContract.info(log, LogDomain.AUTH, "keycloak_org_member_added")
+                    .outcome(LogOutcome.SUCCESS)
+                    .entity("user", keycloakUserId)
+                    .field("orgId", orgId)
+                    .emit();
         } catch (Exception ex) {
-            log.warn("Could not add user [{}] to organization [{}]: {}", keycloakUserId, orgId, ex.getMessage());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_org_member_add")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("user", keycloakUserId)
+                    .field("orgId", orgId)
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -1109,9 +1234,17 @@ public class KeycloakTokenService {
                     .retrieve()
                     .toBodilessEntity();
 
-            log.info("Updated Keycloak organization [{}] enabled status to [{}]", orgId, enabled);
+            LogContract.info(log, LogDomain.AUTH, "keycloak_org_status_updated")
+                    .outcome(LogOutcome.SUCCESS)
+                    .entity("org", orgId)
+                    .field("enabled", enabled)
+                    .emit();
         } catch (Exception ex) {
-            log.warn("Failed to update organization [{}] status in Keycloak: {}", orgId, ex.getMessage());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_org_status_update")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("org", orgId)
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -1149,7 +1282,11 @@ public class KeycloakTokenService {
                 }
             }
         } catch (Exception ex) {
-            log.warn("Failed to fetch organization [{}] members from Keycloak: {}", orgId, ex.getMessage());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_org_members_fetch")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("org", orgId)
+                    .cause(ex)
+                    .emit();
         }
         return Collections.emptyList();
     }
@@ -1172,9 +1309,16 @@ public class KeycloakTokenService {
                     .header("Authorization", "Bearer " + adminToken)
                     .retrieve()
                     .toBodilessEntity();
-            log.info("Successfully revoked Keycloak active sessions for user [{}]", keycloakUserId);
+            LogContract.info(log, LogDomain.AUTH, "keycloak_user_sessions_revoked")
+                    .outcome(LogOutcome.SUCCESS)
+                    .entity("user", keycloakUserId)
+                    .emit();
         } catch (Exception ex) {
-            log.warn("Failed to revoke sessions for user [{}] in Keycloak: {}", keycloakUserId, ex.getMessage());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_user_sessions_revoke")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("user", keycloakUserId)
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -1207,8 +1351,12 @@ public class KeycloakTokenService {
                 logoutUserInKeycloak(userId);
             }
         }
-        log.info("Completed Keycloak organization [{}] status transition to active=[{}] ({} members affected)",
-                orgId, active, memberUserIds.size());
+        LogContract.info(log, LogDomain.AUTH, "keycloak_org_members_transition")
+                .outcome(LogOutcome.SUCCESS)
+                .entity("org", orgId)
+                .field("active", active)
+                .field("memberCount", memberUserIds.size())
+                .emit();
     }
 
     public void updateUserStatusInKeycloak(String keycloakUserId, boolean enabled) {
@@ -1230,9 +1378,17 @@ public class KeycloakTokenService {
                     .retrieve()
                     .toBodilessEntity();
 
-            log.info("Updated Keycloak user [{}] enabled status to [{}]", keycloakUserId, enabled);
+            LogContract.info(log, LogDomain.AUTH, "keycloak_user_status_updated")
+                    .outcome(LogOutcome.SUCCESS)
+                    .entity("user", keycloakUserId)
+                    .field("enabled", enabled)
+                    .emit();
         } catch (Exception ex) {
-            log.warn("Failed to update user [{}] status in Keycloak: {}", keycloakUserId, ex.getMessage());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_user_status_update")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("user", keycloakUserId)
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -1262,9 +1418,17 @@ public class KeycloakTokenService {
                     .retrieve()
                     .toBodilessEntity();
 
-            log.info("Removed staff user [{}] from Keycloak and organization [{}]", keycloakUserId, orgId);
+            LogContract.info(log, LogDomain.AUTH, "keycloak_user_deleted")
+                    .outcome(LogOutcome.SUCCESS)
+                    .entity("user", keycloakUserId)
+                    .field("orgId", orgId)
+                    .emit();
         } catch (Exception ex) {
-            log.warn("Failed to delete user [{}] from Keycloak: {}", keycloakUserId, ex.getMessage());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_user_delete")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("user", keycloakUserId)
+                    .cause(ex)
+                    .emit();
         }
     }
 
@@ -1273,7 +1437,10 @@ public class KeycloakTokenService {
         String alias = "idp-" + tenantCode;
 
         if (adminToken == null || adminToken.startsWith("mock-")) {
-            log.debug("Mock environment: configured mock IdP [{}] for tenant [{}]", alias, tenantCode);
+            LogContract.debug(log, LogDomain.AUTH, "keycloak_mock_idp")
+                    .tenant(tenantCode)
+                    .field("alias", alias)
+                    .emit();
             return TenantIdpResponse.builder()
                     .alias(alias)
                     .providerId(request.getProviderType().getKeycloakProviderId())
@@ -1338,7 +1505,9 @@ public class KeycloakTokenService {
                             .retrieve()
                             .toBodilessEntity();
                 } catch (Exception ex) {
-                    log.debug("Organization IdP link note: {}", ex.getMessage());
+                    LogContract.debug(log, LogDomain.AUTH, "keycloak_idp_link_note")
+                            .cause(ex)
+                            .emit();
                 }
 
                 if (request.getEmailDomain() != null && !request.getEmailDomain().isBlank()) {
@@ -1355,7 +1524,9 @@ public class KeycloakTokenService {
                                 .retrieve()
                                 .toBodilessEntity();
                     } catch (Exception ex) {
-                        log.debug("Organization domain registration note: {}", ex.getMessage());
+                        LogContract.debug(log, LogDomain.AUTH, "keycloak_org_domain_note")
+                                .cause(ex)
+                                .emit();
                     }
                 }
             }
@@ -1369,7 +1540,11 @@ public class KeycloakTokenService {
                     .enabled(true)
                     .build();
         } catch (Exception ex) {
-            log.error("Failed to configure external IdP in Keycloak for tenant [{}]: {}", tenantCode, ex.getMessage());
+            LogContract.error(log, LogDomain.AUTH, "keycloak_idp_configure")
+                    .outcome(LogOutcome.FAILED)
+                    .tenant(tenantCode)
+                    .causeWithStack(ex)
+                    .emit();
             throw new AdminException(AdminErrorCode.IDP_CONFIGURATION_FAILED, "Failed to configure Keycloak Identity Provider: " + ex.getMessage());
         }
     }
@@ -1428,7 +1603,10 @@ public class KeycloakTokenService {
                         .build();
             }
         } catch (Exception ex) {
-            log.debug("IdP [{}] not found or unavailable: {}", alias, ex.getMessage());
+            LogContract.debug(log, LogDomain.AUTH, "keycloak_idp_fetch_note")
+                    .field("alias", alias)
+                    .cause(ex)
+                    .emit();
         }
 
         return null;
@@ -1473,9 +1651,16 @@ public class KeycloakTokenService {
                     .retrieve()
                     .toBodilessEntity();
 
-            log.info("Successfully deleted Identity Provider [{}] from Keycloak", alias);
+            LogContract.info(log, LogDomain.AUTH, "keycloak_idp_deleted")
+                    .outcome(LogOutcome.SUCCESS)
+                    .field("alias", alias)
+                    .emit();
         } catch (Exception ex) {
-            log.warn("Failed to remove Identity Provider [{}]: {}", alias, ex.getMessage());
+            LogContract.warn(log, LogDomain.AUTH, "keycloak_idp_delete")
+                    .outcome(LogOutcome.FAILED)
+                    .field("alias", alias)
+                    .cause(ex)
+                    .emit();
             throw new AdminException(AdminErrorCode.IDP_CONFIGURATION_FAILED, "Failed to remove Identity Provider: " + ex.getMessage());
         }
     }
