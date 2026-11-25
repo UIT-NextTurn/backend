@@ -36,6 +36,7 @@ import com.nextturn.service.notification.EmailService;
 import com.nextturn.infrastructure.logging.LogContract;
 import com.nextturn.infrastructure.logging.LogDomain;
 import com.nextturn.infrastructure.logging.LogOutcome;
+import org.hibernate.Hibernate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -264,7 +265,9 @@ public class TenantAppointmentServiceImpl extends BaseService implements TenantA
                     .status(AppointmentStatus.CONFIRMED)
                     .build();
 
-            return appointmentRepository.save(appointment);
+            TenantAppointment saved = appointmentRepository.save(appointment);
+            initializeLazyAssociations(saved);
+            return saved;
         });
 
         indexGlobalUserAppointment(savedAppointment, authenticatedUserId, tenantCode, centralTenant);
@@ -316,7 +319,9 @@ public class TenantAppointmentServiceImpl extends BaseService implements TenantA
 
             appointment.setStatus(AppointmentStatus.CANCELLED);
             appointment.setCancellationReason(request.getCancellationReason().trim());
-            return appointmentRepository.save(appointment);
+            TenantAppointment saved = appointmentRepository.save(appointment);
+            initializeLazyAssociations(saved);
+            return saved;
         });
 
         resyncValkeySlotCache(cancelled.getService(), cancelled.getSlot());
@@ -370,6 +375,7 @@ public class TenantAppointmentServiceImpl extends BaseService implements TenantA
                     .orElseThrow(() -> new AppointmentException(AppointmentErrorCode.APPOINTMENT_NOT_FOUND));
 
             if (oldSlot.getId().equals(cleanNewSlotId)) {
+                initializeLazyAssociations(appointment);
                 return new RescheduledResult(appointment, oldSlot.getWorkDate(), oldSlot.getWorkDate(), appointment.getService().getId());
             }
 
@@ -393,6 +399,7 @@ public class TenantAppointmentServiceImpl extends BaseService implements TenantA
                 appointment.setService(newSlot.getService());
             }
             TenantAppointment saved = appointmentRepository.save(appointment);
+            initializeLazyAssociations(saved);
             return new RescheduledResult(saved, oldDate, newDate, saved.getService().getId());
         });
 
@@ -528,5 +535,18 @@ public class TenantAppointmentServiceImpl extends BaseService implements TenantA
             return null;
         }
         return centralTenantRepository.findByTenantCodeIgnoreCaseAndIsDeletedFalse(tenantCode).orElse(null);
+    }
+
+    /**
+     * Eagerly initializes lazy {@code service} and {@code slot} associations before the persistence
+     * context closes ({@code spring.jpa.open-in-view=false}) so post-commit notifications, cache
+     * sync, and response DTO mapping never trigger {@code LazyInitializationException}.
+     */
+    private void initializeLazyAssociations(TenantAppointment appointment) {
+        if (appointment == null) {
+            return;
+        }
+        Hibernate.initialize(appointment.getService());
+        Hibernate.initialize(appointment.getSlot());
     }
 }
