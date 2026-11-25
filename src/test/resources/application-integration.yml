@@ -1,0 +1,31 @@
+# ===================================================================
+# NextTurn Integration Test Profile (MySQL + Valkey Testcontainers)
+# ===================================================================
+spring:
+  application:
+    name: nextturn-backend-integration-test
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration/central
+    baseline-on-migrate: true
+  mail:
+    host: ""
+  task:
+    scheduling:
+      enabled: false
+
+nextturn:
+  scheduler:
+    slot-cleanup:
+      enabled: false
+    appointment-reminder:
+      enabled: false
+    queue-autocomplete:
+      enabled: false
+    dashboard-snapshot:
+      enabled: false
