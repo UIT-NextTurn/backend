@@ -26,6 +26,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -157,8 +158,18 @@ class AppointmentFlowIntegrationTest extends AbstractFlowIntegrationTest {
 
             List<TenantTicketAuditLog> audits = ticketAuditLogRepository.findByTicketIdOrderByCreatedAtAsc(ticketId);
             assertThat(audits)
-                    .extracting(TenantTicketAuditLog::getNewState)
-                    .containsExactly(TicketStatus.WAITING, TicketStatus.CALLING, TicketStatus.SERVING, TicketStatus.COMPLETED);
+                    .extracting(TenantTicketAuditLog::getCreatedAt)
+                    .isSorted();
+            // MySQL DATETIME stores 1-second resolution; intra-second transitions share identical createdAt values,
+            // so verify the exact FSM transition pairs and sorted timestamps deterministically.
+            assertThat(audits)
+                    .extracting(TenantTicketAuditLog::getPreviousState, TenantTicketAuditLog::getNewState)
+                    .containsExactlyInAnyOrder(
+                            tuple(TicketStatus.WAITING, TicketStatus.WAITING),
+                            tuple(TicketStatus.WAITING, TicketStatus.CALLING),
+                            tuple(TicketStatus.CALLING, TicketStatus.SERVING),
+                            tuple(TicketStatus.SERVING, TicketStatus.COMPLETED)
+                    );
             return null;
         });
     }
