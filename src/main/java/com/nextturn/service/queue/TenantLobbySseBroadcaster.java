@@ -11,4 +11,13 @@ public interface TenantLobbySseBroadcaster {
     SseEmitter subscribe(String tenantCode);
 
     void broadcastLobbyEvent(String tenantCode, String eventType, TenantQueueTicket changedTicket);
+
+    /**
+     * Sends an SSE comment heartbeat to all active lobby emitters and evicts dead connections.
+     *
+     * @return number of healthy emitters successfully pinged
+     */
+    default int sendHeartbeats() {
+        return 0;
+    }
 }

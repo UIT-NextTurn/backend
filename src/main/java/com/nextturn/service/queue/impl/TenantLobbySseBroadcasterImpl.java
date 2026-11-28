@@ -23,6 +23,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -34,7 +35,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class TenantLobbySseBroadcasterImpl implements TenantLobbySseBroadcaster {
 
     private static final Logger log = LoggerFactory.getLogger(TenantLobbySseBroadcasterImpl.class);
-    private static final long SSE_TIMEOUT_MS = 30L * 60L * 1000L;
+    /**
+     * Long-lived emitter (no artificial 30-minute cutoff); dead peers are evicted by periodic heartbeats.
+     */
+    private static final long SSE_TIMEOUT_MS = 0L;
+    private static final long SSE_RECONNECT_TIME_MS = 3000L;
 
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<SseEmitter>> lobbySubscribers =
             new ConcurrentHashMap<>();
@@ -72,7 +77,7 @@ public class TenantLobbySseBroadcasterImpl implements TenantLobbySseBroadcaster 
                 .eventType("INITIAL_DISPLAY")
                 .display(snapshot)
                 .timestamp(LocalDateTime.now())
-                .build())) {
+                .build(), true)) {
             cleanup.run();
         }
         return emitter;
@@ -111,7 +116,7 @@ public class TenantLobbySseBroadcasterImpl implements TenantLobbySseBroadcaster 
                     .build();
 
             for (SseEmitter emitter : emitters) {
-                if (!sendEvent(emitter, payload)) {
+                if (!sendEvent(emitter, payload, false)) {
                     removeLobbyEmitter(key, emitter);
                 }
             }
@@ -210,9 +215,54 @@ public class TenantLobbySseBroadcasterImpl implements TenantLobbySseBroadcaster 
         return null;
     }
 
-    private boolean sendEvent(SseEmitter emitter, LobbyEventResponse payload) {
+    @Override
+    public int sendHeartbeats() {
+        int sent = 0;
+        for (Map.Entry<String, CopyOnWriteArrayList<SseEmitter>> entry : lobbySubscribers.entrySet()) {
+            String key = entry.getKey();
+            CopyOnWriteArrayList<SseEmitter> emitters = entry.getValue();
+            if (emitters == null || emitters.isEmpty()) {
+                continue;
+            }
+            for (SseEmitter emitter : emitters) {
+                if (sendHeartbeat(emitter, key)) {
+                    sent++;
+                } else {
+                    removeLobbyEmitter(key, emitter);
+                }
+            }
+        }
+        return sent;
+    }
+
+    private boolean sendHeartbeat(SseEmitter emitter, String tenantKey) {
         try {
-            emitter.send(SseEmitter.event().name("lobby-update").data(payload));
+            synchronized (emitter) {
+                emitter.send(SseEmitter.event().comment("heartbeat"));
+            }
+            return true;
+        } catch (Exception ex) {
+            LogContract.debug(log, LogDomain.QUEUE, "lobby_sse_heartbeat_evict")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantKey)
+                    .cause(ex)
+                    .emit();
+            safeCompleteEmitter(emitter, ex);
+            return false;
+        }
+    }
+
+    private boolean sendEvent(SseEmitter emitter, LobbyEventResponse payload, boolean includeReconnectHint) {
+        try {
+            SseEmitter.SseEventBuilder eventBuilder = SseEmitter.event()
+                    .name("lobby-update")
+                    .data(payload);
+            if (includeReconnectHint) {
+                eventBuilder.reconnectTime(SSE_RECONNECT_TIME_MS);
+            }
+            synchronized (emitter) {
+                emitter.send(eventBuilder);
+            }
             return true;
         } catch (Exception ex) {
             LogContract.warn(log, LogDomain.QUEUE, "lobby_sse_push")

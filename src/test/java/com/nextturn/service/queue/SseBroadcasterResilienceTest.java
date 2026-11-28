@@ -21,6 +21,7 @@ import com.nextturn.repository.staff.TenantStaffRepository;
 import com.nextturn.repository.ticket.TenantQueueTicketRepository;
 import com.nextturn.service.dashboard.TenantDashboardService;
 import com.nextturn.service.dashboard.impl.DashboardSseBroadcasterImpl;
+import com.nextturn.scheduler.SseHeartbeatScheduler;
 import com.nextturn.service.queue.impl.TenantLobbySseBroadcasterImpl;
 import com.nextturn.service.queue.impl.TenantQueueCallingServiceImpl;
 import com.nextturn.service.ticket.TenantTicketQueryService;
@@ -468,6 +469,106 @@ class SseBroadcasterResilienceTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // #4 & #6: Heartbeat keepalives, dead-peer eviction, long-lived timeout (0L), retry: hint
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("P0 #4 & P1 #6: All broadcasters create long-lived emitters (timeout=0L), emit retry: hint, send heartbeats, and evict dead peers")
+    void allBroadcasters_LongLivedTimeoutRetryHintAndHeartbeatEviction() {
+        when(ticketRepository.findActiveLobbyTicketsByWorkDate(any())).thenReturn(List.of());
+        when(tenantDashboardService.getOverview()).thenReturn(TenantDashboardOverviewResponse.builder().build());
+
+        // Verify real SseEmitter instances created by all 3 broadcasters have no 30-min cutoff (timeout == 0L)
+        TenantLobbySseBroadcasterImpl realLobby = new TenantLobbySseBroadcasterImpl(ticketRepository, null);
+        assertThat(realLobby.subscribe(TENANT_CODE).getTimeout()).isEqualTo(0L);
+
+        DashboardSseBroadcasterImpl realDashboard = new DashboardSseBroadcasterImpl(tenantDashboardService, null);
+        assertThat(realDashboard.subscribeTenantOverview(TENANT_CODE).getTimeout()).isEqualTo(0L);
+        assertThat(realDashboard.subscribePlatformOverview().getTimeout()).isEqualTo(0L);
+
+        TenantTicketQueryServiceImpl realQuery = new TenantTicketQueryServiceImpl(ticketRepository, null);
+        TenantQueueTicket sampleTicket = TenantQueueTicket.builder()
+                .id("t-hb")
+                .ticketCode("A-099")
+                .sequenceNumber(99)
+                .workDate(WORK_DATE)
+                .service(service)
+                .status(TicketStatus.WAITING)
+                .issuedAt(LocalDateTime.of(2026, 11, 28, 9, 0))
+                .build();
+        when(ticketRepository.findByIdWithDetails("t-hb")).thenReturn(Optional.of(sampleTicket));
+        when(ticketRepository.findActiveServingOrCallingByServiceAndWorkDate(SERVICE_ID, WORK_DATE)).thenReturn(List.of());
+        when(ticketRepository.countWaitingTicketsAhead(eq(SERVICE_ID), eq(WORK_DATE), any(), eq(99))).thenReturn(0L);
+
+        TenantTicketSseBroadcasterImpl realTicket = new TenantTicketSseBroadcasterImpl(realQuery);
+        assertThat(realTicket.subscribe(TENANT_CODE, "t-hb").getTimeout()).isEqualTo(0L);
+
+        // Verify initial retry: hint and heartbeat comment + dead-peer eviction across all 3 broadcasters
+        RecordingSseEmitter healthyLobby = new RecordingSseEmitter();
+        RecordingSseEmitter deadLobby = new RecordingSseEmitter();
+        Queue<SseEmitter> lobbyQueue = new ArrayDeque<>(List.of(healthyLobby, deadLobby));
+        TenantLobbySseBroadcasterImpl lobbyBroadcaster = new TenantLobbySseBroadcasterImpl(ticketRepository, null) {
+            @Override
+            protected SseEmitter createEmitter() {
+                return lobbyQueue.remove();
+            }
+        };
+        lobbyBroadcaster.subscribe(TENANT_CODE);
+        lobbyBroadcaster.subscribe(TENANT_CODE);
+        assertThat(healthyLobby.getRawFrames().get(0)).contains("retry:3000");
+
+        RecordingSseEmitter healthyTicket = new RecordingSseEmitter();
+        RecordingSseEmitter deadTicket = new RecordingSseEmitter();
+        Queue<SseEmitter> ticketQueue = new ArrayDeque<>(List.of(healthyTicket, deadTicket));
+        TenantTicketSseBroadcasterImpl ticketBroadcaster = new TenantTicketSseBroadcasterImpl(realQuery) {
+            @Override
+            protected SseEmitter createEmitter() {
+                return ticketQueue.remove();
+            }
+        };
+        ticketBroadcaster.subscribe(TENANT_CODE, "t-hb");
+        ticketBroadcaster.subscribe(TENANT_CODE, "t-hb");
+        assertThat(healthyTicket.getRawFrames().get(0)).contains("retry:3000");
+
+        RecordingSseEmitter healthyDashboard = new RecordingSseEmitter();
+        RecordingSseEmitter deadDashboard = new RecordingSseEmitter();
+        Queue<SseEmitter> dashboardQueue = new ArrayDeque<>(List.of(healthyDashboard, deadDashboard));
+        DashboardSseBroadcasterImpl dashboardBroadcaster = new DashboardSseBroadcasterImpl(tenantDashboardService, null) {
+            @Override
+            protected SseEmitter createEmitter() {
+                return dashboardQueue.remove();
+            }
+        };
+        dashboardBroadcaster.subscribeTenantOverview(TENANT_CODE);
+        dashboardBroadcaster.subscribeTenantOverview(TENANT_CODE);
+        assertThat(healthyDashboard.getRawFrames().get(0)).contains("retry:3000");
+
+        // Kill one peer on each broadcaster
+        deadLobby.failNextSendsWith(new IOException("Connection reset by peer"));
+        deadTicket.failNextSendsWith(new IOException("Broken pipe"));
+        deadDashboard.failNextSendsWith(new IllegalStateException("Already completed"));
+
+        SseHeartbeatScheduler scheduler = new SseHeartbeatScheduler(lobbyBroadcaster, ticketBroadcaster, dashboardBroadcaster);
+        scheduler.emitHeartbeats();
+
+        // Healthy peers received SSE comment ":heartbeat", dead peers were evicted and completed
+        assertThat(healthyLobby.getRawFrames().get(1)).contains(":heartbeat");
+        assertThat(healthyTicket.getRawFrames().get(1)).contains(":heartbeat");
+        assertThat(healthyDashboard.getRawFrames().get(1)).contains(":heartbeat");
+        assertThat(deadLobby.isCompleted()).isTrue();
+        assertThat(deadTicket.isCompleted()).isTrue();
+        assertThat(deadDashboard.isCompleted()).isTrue();
+
+        // Second heartbeat tick only touches healthy peers (dead peers were removed)
+        assertThat(lobbyBroadcaster.sendHeartbeats()).isEqualTo(1);
+        assertThat(ticketBroadcaster.sendHeartbeats()).isEqualTo(1);
+        assertThat(dashboardBroadcaster.sendHeartbeats()).isEqualTo(1);
+        assertThat(deadLobby.getFailedSendAttempts()).isEqualTo(1);
+        assertThat(deadTicket.getFailedSendAttempts()).isEqualTo(1);
+        assertThat(deadDashboard.getFailedSendAttempts()).isEqualTo(1);
+    }
+
     /**
      * Test double extending {@link SseEmitter} to observe delivered events and inject transport/state errors
      * without requiring a live servlet container.
@@ -476,11 +577,12 @@ class SseBroadcasterResilienceTest {
         private final AtomicInteger sendCount = new AtomicInteger();
         private final AtomicInteger failedSendAttempts = new AtomicInteger();
         private final AtomicBoolean completed = new AtomicBoolean(false);
+        private final List<String> rawFrames = new ArrayList<>();
         private volatile Exception failureToThrow;
         private volatile boolean throwOnComplete;
 
         RecordingSseEmitter() {
-            super(30L * 60L * 1000L);
+            super(0L);
         }
 
         void failNextSendsWith(Exception ex) {
@@ -503,6 +605,10 @@ class SseBroadcasterResilienceTest {
             return completed.get();
         }
 
+        List<String> getRawFrames() {
+            return rawFrames;
+        }
+
         @Override
         public void send(SseEventBuilder builder) throws IOException {
             Exception ex = failureToThrow;
@@ -516,6 +622,11 @@ class SseBroadcasterResilienceTest {
                 }
                 throw new RuntimeException(ex);
             }
+            StringBuilder frame = new StringBuilder();
+            for (DataWithMediaType part : builder.build()) {
+                frame.append(part.getData());
+            }
+            rawFrames.add(frame.toString());
             sendCount.incrementAndGet();
         }
 

@@ -15,4 +15,14 @@ public interface DashboardSseBroadcaster {
     void broadcastTenantOverviewUpdate(String tenantCode, String eventType);
 
     void broadcastPlatformOverviewUpdate(String eventType);
+
+    /**
+     * Sends an SSE comment heartbeat to all active tenant and platform dashboard emitters
+     * and evicts dead connections.
+     *
+     * @return number of healthy emitters successfully pinged
+     */
+    default int sendHeartbeats() {
+        return 0;
+    }
 }

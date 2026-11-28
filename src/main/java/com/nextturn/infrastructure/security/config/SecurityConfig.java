@@ -1,9 +1,12 @@
 package com.nextturn.infrastructure.security.config;
 
 import com.nextturn.infrastructure.multitenancy.TenantContextFilter;
+import com.nextturn.infrastructure.security.filter.DashboardStreamTokenFilter;
 import com.nextturn.infrastructure.security.keycloak.KeycloakJwtAuthenticationConverter;
 import com.nextturn.infrastructure.security.keycloak.KeycloakProperties;
 import com.nextturn.infrastructure.security.principal.CurrentUserArgumentResolver;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -38,6 +41,7 @@ public class SecurityConfig implements WebMvcConfigurer {
     private final KeycloakJwtAuthenticationConverter keycloakJwtAuthenticationConverter;
     private final CurrentUserArgumentResolver currentUserArgumentResolver;
     private final TenantContextFilter tenantContextFilter;
+    private DashboardStreamTokenFilter dashboardStreamTokenFilter;
 
     public SecurityConfig(KeycloakJwtAuthenticationConverter keycloakJwtAuthenticationConverter,
                           CurrentUserArgumentResolver currentUserArgumentResolver,
@@ -47,6 +51,11 @@ public class SecurityConfig implements WebMvcConfigurer {
         this.tenantContextFilter = tenantContextFilter;
     }
 
+    @Autowired(required = false)
+    public void setDashboardStreamTokenFilter(DashboardStreamTokenFilter dashboardStreamTokenFilter) {
+        this.dashboardStreamTokenFilter = dashboardStreamTokenFilter;
+    }
+
     /**
      * Prevents duplicate execution by disabling registration in the standard servlet container filter chain.
      * The filter is wired specifically inside Spring Security's filter chain after BearerTokenAuthenticationFilter.
@@ -54,6 +63,16 @@ public class SecurityConfig implements WebMvcConfigurer {
     @Bean
     public FilterRegistrationBean<TenantContextFilter> tenantContextFilterRegistration(TenantContextFilter filter) {
         FilterRegistrationBean<TenantContextFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
+    @ConditionalOnBean(DashboardStreamTokenFilter.class)
+    public FilterRegistrationBean<DashboardStreamTokenFilter> dashboardStreamTokenFilterRegistration(
+            DashboardStreamTokenFilter filter
+    ) {
+        FilterRegistrationBean<DashboardStreamTokenFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setEnabled(false);
         return registration;
     }
@@ -123,6 +142,10 @@ public class SecurityConfig implements WebMvcConfigurer {
                     oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakJwtAuthenticationConverter));
                 })
                 .addFilterAfter(tenantContextFilter, BearerTokenAuthenticationFilter.class);
+
+        if (dashboardStreamTokenFilter != null) {
+            http.addFilterBefore(dashboardStreamTokenFilter, BearerTokenAuthenticationFilter.class);
+        }
 
         return http.build();
     }

@@ -16,7 +16,7 @@ public class CorsConfig {
     @Value("${cors.allowed-origin-patterns:http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173}")
     private List<String> allowedOriginPatterns;
 
-    @Value("${cors.allowed-headers:Origin,Content-Type,Accept,Authorization,X-Requested-With,X-Widget-Key}")
+    @Value("${cors.allowed-headers:Origin,Content-Type,Accept,Authorization,X-Requested-With,X-Tenant-Code,X-Tenant-Id,X-Widget-Key}")
     private List<String> allowedHeaders;
 
     @Value("${cors.allowed-methods:GET,POST,PUT,PATCH,DELETE,OPTIONS}")

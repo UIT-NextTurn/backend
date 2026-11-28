@@ -32,7 +32,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class TenantTicketSseBroadcasterImpl implements TenantTicketSseBroadcaster {
 
     private static final Logger log = LoggerFactory.getLogger(TenantTicketSseBroadcasterImpl.class);
-    private static final long SSE_TIMEOUT_MS = 30L * 60L * 1000L; // 30 minutes
+    /**
+     * Long-lived emitter (no artificial 30-minute cutoff); dead peers are evicted by periodic heartbeats.
+     */
+    private static final long SSE_TIMEOUT_MS = 0L;
+    private static final long SSE_RECONNECT_TIME_MS = 3000L;
 
     /**
      * Maps {@code queueKey (tenantCode:serviceId:workDate)} -> ({@code ticketId} -> list of active {@link SseEmitter}s).
@@ -77,8 +81,8 @@ public class TenantTicketSseBroadcasterImpl implements TenantTicketSseBroadcaste
         emitter.onTimeout(cleanup);
         emitter.onError(ex -> cleanup.run());
 
-        // Emit initial snapshot immediately upon subscription
-        if (!sendEvent(emitter, toEvent("INITIAL_SNAPSHOT", snapshot))) {
+        // Emit initial snapshot immediately upon subscription with explicit retry: hint
+        if (!sendEvent(emitter, toEvent("INITIAL_SNAPSHOT", snapshot), true)) {
             cleanup.run();
         }
         return emitter;
@@ -136,7 +140,7 @@ public class TenantTicketSseBroadcasterImpl implements TenantTicketSseBroadcaste
                 }
                 TicketQueueEventResponse payload = toEvent(eventType, updated);
                 for (SseEmitter emitter : emitters) {
-                    if (!sendEvent(emitter, payload)) {
+                    if (!sendEvent(emitter, payload, false)) {
                         removeTicketEmitter(queueKey, ticketId, emitter);
                     }
                 }
@@ -157,11 +161,61 @@ public class TenantTicketSseBroadcasterImpl implements TenantTicketSseBroadcaste
         }
     }
 
-    private boolean sendEvent(SseEmitter emitter, TicketQueueEventResponse payload) {
+    @Override
+    public int sendHeartbeats() {
+        int sent = 0;
+        for (Map.Entry<String, ConcurrentHashMap<String, CopyOnWriteArrayList<SseEmitter>>> queueEntry : queueSubscribers.entrySet()) {
+            String queueKey = queueEntry.getKey();
+            ConcurrentHashMap<String, CopyOnWriteArrayList<SseEmitter>> channel = queueEntry.getValue();
+            if (channel == null || channel.isEmpty()) {
+                continue;
+            }
+            for (Map.Entry<String, CopyOnWriteArrayList<SseEmitter>> ticketEntry : channel.entrySet()) {
+                String ticketId = ticketEntry.getKey();
+                CopyOnWriteArrayList<SseEmitter> emitters = ticketEntry.getValue();
+                if (emitters == null || emitters.isEmpty()) {
+                    continue;
+                }
+                for (SseEmitter emitter : emitters) {
+                    if (sendHeartbeat(emitter, ticketId)) {
+                        sent++;
+                    } else {
+                        removeTicketEmitter(queueKey, ticketId, emitter);
+                    }
+                }
+            }
+        }
+        return sent;
+    }
+
+    private boolean sendHeartbeat(SseEmitter emitter, String ticketId) {
         try {
-            emitter.send(SseEmitter.event()
+            synchronized (emitter) {
+                emitter.send(SseEmitter.event().comment("heartbeat"));
+            }
+            return true;
+        } catch (Exception ex) {
+            LogContract.debug(log, LogDomain.TICKET, "ticket_sse_heartbeat_evict")
+                    .outcome(LogOutcome.DEGRADED)
+                    .entity("ticket", ticketId)
+                    .cause(ex)
+                    .emit();
+            safeCompleteEmitter(emitter, ex);
+            return false;
+        }
+    }
+
+    private boolean sendEvent(SseEmitter emitter, TicketQueueEventResponse payload, boolean includeReconnectHint) {
+        try {
+            SseEmitter.SseEventBuilder eventBuilder = SseEmitter.event()
                     .name("queue-progress")
-                    .data(payload));
+                    .data(payload);
+            if (includeReconnectHint) {
+                eventBuilder.reconnectTime(SSE_RECONNECT_TIME_MS);
+            }
+            synchronized (emitter) {
+                emitter.send(eventBuilder);
+            }
             return true;
         } catch (Exception ex) {
             LogContract.warn(log, LogDomain.TICKET, "sse_push")

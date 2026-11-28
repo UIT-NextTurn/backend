@@ -18,6 +18,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -29,7 +30,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
 
     private static final Logger log = LoggerFactory.getLogger(DashboardSseBroadcasterImpl.class);
-    private static final long SSE_TIMEOUT_MS = 30L * 60L * 1000L;
+    /**
+     * Long-lived emitter (no artificial 30-minute cutoff); dead peers are evicted by periodic heartbeats.
+     */
+    private static final long SSE_TIMEOUT_MS = 0L;
+    private static final long SSE_RECONNECT_TIME_MS = 3000L;
 
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<SseEmitter>> tenantEmitters =
             new ConcurrentHashMap<>();
@@ -158,6 +163,50 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
         }
     }
 
+    @Override
+    public int sendHeartbeats() {
+        int sent = 0;
+        for (Map.Entry<String, CopyOnWriteArrayList<SseEmitter>> entry : tenantEmitters.entrySet()) {
+            String key = entry.getKey();
+            CopyOnWriteArrayList<SseEmitter> listeners = entry.getValue();
+            if (listeners == null || listeners.isEmpty()) {
+                continue;
+            }
+            for (SseEmitter emitter : listeners) {
+                if (sendHeartbeat(emitter, key)) {
+                    sent++;
+                } else {
+                    removeTenantEmitter(key, emitter);
+                }
+            }
+        }
+        for (SseEmitter emitter : platformEmitters) {
+            if (sendHeartbeat(emitter, "platform")) {
+                sent++;
+            } else {
+                platformEmitters.remove(emitter);
+            }
+        }
+        return sent;
+    }
+
+    private boolean sendHeartbeat(SseEmitter emitter, String scopeKey) {
+        try {
+            synchronized (emitter) {
+                emitter.send(SseEmitter.event().comment("heartbeat"));
+            }
+            return true;
+        } catch (Exception ex) {
+            LogContract.debug(log, LogDomain.DASHBOARD, "dashboard_sse_heartbeat_evict")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(scopeKey)
+                    .cause(ex)
+                    .emit();
+            safeCompleteEmitter(emitter);
+            return false;
+        }
+    }
+
     private void emitToList(List<SseEmitter> targets, DashboardSseEventResponse event, Runnable extraCleanup) {
         emitToList(targets, event, extraCleanup, null);
     }
@@ -168,9 +217,18 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
             Runnable extraCleanup,
             String tenantKey
     ) {
+        boolean includeReconnectHint = "INITIAL_SNAPSHOT".equals(event.getEventType());
         for (SseEmitter emitter : targets) {
             try {
-                emitter.send(SseEmitter.event().name(event.getEventType()).data(event));
+                SseEmitter.SseEventBuilder eventBuilder = SseEmitter.event()
+                        .name(event.getEventType())
+                        .data(event);
+                if (includeReconnectHint) {
+                    eventBuilder.reconnectTime(SSE_RECONNECT_TIME_MS);
+                }
+                synchronized (emitter) {
+                    emitter.send(eventBuilder);
+                }
             } catch (Exception ex) {
                 LogContract.warn(log, LogDomain.DASHBOARD, "dashboard_sse_push")
                         .outcome(LogOutcome.DEGRADED)

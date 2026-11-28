@@ -54,4 +54,15 @@ class CorsConfigTest {
         assertThat(config.getAllowedHeaders()).isEmpty();
         assertThat(config.getAllowedMethods()).isEmpty();
     }
+
+    @Test
+    void shouldIncludeTenantAndWidgetHeadersInDefaultCorsConfigAnnotation() throws Exception {
+        var field = CorsConfig.class.getDeclaredField("allowedHeaders");
+        var valueAnnotation = field.getAnnotation(org.springframework.beans.factory.annotation.Value.class);
+        assertThat(valueAnnotation).isNotNull();
+        assertThat(valueAnnotation.value())
+                .contains("X-Tenant-Code")
+                .contains("X-Tenant-Id")
+                .contains("X-Widget-Key");
+    }
 }
