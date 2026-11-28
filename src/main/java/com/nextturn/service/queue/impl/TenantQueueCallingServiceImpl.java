@@ -34,14 +34,20 @@ import com.nextturn.service.queue.TenantSpecialistDispatchService;
 import com.nextturn.service.queue.TenantTicketStateMachine;
 import com.nextturn.service.ticket.TenantTicketQueryService;
 import com.nextturn.service.ticket.TenantTicketSseBroadcaster;
+import com.nextturn.config.AsyncConfig;
 import com.nextturn.infrastructure.logging.LogContract;
 import com.nextturn.infrastructure.logging.LogDomain;
 import com.nextturn.infrastructure.logging.LogOutcome;
+import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -52,6 +58,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 /**
  * Default implementation of {@link TenantQueueCallingService} orchestrating the strict
@@ -79,6 +86,13 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
     private TenantQueueAlertService queueAlertService;
     private TenantFeedbackService feedbackService;
     private com.nextturn.service.dashboard.DashboardAnalyticsSyncService dashboardAnalyticsSyncService;
+    private Executor postCommitExecutor;
+
+    @Autowired(required = false)
+    @Qualifier(AsyncConfig.QUEUE_EVENT_EXECUTOR)
+    public void setPostCommitExecutor(Executor postCommitExecutor) {
+        this.postCommitExecutor = postCommitExecutor;
+    }
 
     @Autowired(required = false)
     public void setDashboardAnalyticsSyncService(
@@ -567,6 +581,73 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
         if (ticket == null) {
             return;
         }
+        String traceId = MDC.get(LogContract.MDC_TRACE_ID);
+        Runnable fanOutTask = () -> executeBroadcastAllWithContext(tenantCode, traceId, ticket, eventType);
+        dispatchAfterCommit(fanOutTask, tenantCode, ticket.getTicketCode());
+    }
+
+    private void dispatchAfterCommit(Runnable task, String tenantCode, String ticketCode) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    submitPostCommit(task, tenantCode, ticketCode);
+                }
+            });
+            return;
+        }
+        submitPostCommit(task, tenantCode, ticketCode);
+    }
+
+    private void submitPostCommit(Runnable task, String tenantCode, String ticketCode) {
+        if (postCommitExecutor != null) {
+            try {
+                postCommitExecutor.execute(task);
+            } catch (Exception ex) {
+                LogContract.warn(log, LogDomain.QUEUE, "post_commit_fanout_submit")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(tenantCode)
+                        .entity("ticket", ticketCode)
+                        .cause(ex)
+                        .emit();
+            }
+            return;
+        }
+        task.run();
+    }
+
+    private void executeBroadcastAllWithContext(
+            String tenantCode,
+            String traceId,
+            TenantQueueTicket ticket,
+            String eventType
+    ) {
+        String previousTenant = TenantContextHolder.getTenantCode();
+        String previousTrace = MDC.get(LogContract.MDC_TRACE_ID);
+        try {
+            if (tenantCode != null && !tenantCode.isBlank()) {
+                TenantContextHolder.setTenantCode(tenantCode);
+            }
+            if (traceId != null && !traceId.isBlank()) {
+                LogContract.bindTraceId(traceId);
+            }
+            executeBroadcastAll(tenantCode, ticket, eventType);
+        } finally {
+            if (previousTenant != null) {
+                TenantContextHolder.setTenantCode(previousTenant);
+            } else {
+                TenantContextHolder.clear();
+            }
+            if (previousTrace != null) {
+                LogContract.bindTraceId(previousTrace);
+            } else {
+                LogContract.clearTraceId();
+            }
+        }
+    }
+
+    private void executeBroadcastAll(String tenantCode, TenantQueueTicket ticket, String eventType) {
         if (queueAlertService != null) {
             try {
                 if (TicketStatus.CALLING.equals(ticket.getStatus())
@@ -615,12 +696,28 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
             }
         }
         if (ticketSseBroadcaster != null && ticket.getService() != null) {
-            ticketSseBroadcaster.broadcastQueueUpdate(
-                    tenantCode, ticket.getService().getId(), ticket.getWorkDate(), eventType
-            );
+            try {
+                ticketSseBroadcaster.broadcastQueueUpdate(
+                        tenantCode, ticket.getService().getId(), ticket.getWorkDate(), eventType
+                );
+            } catch (Exception ex) {
+                LogContract.warn(log, LogDomain.QUEUE, "ticket_sse_hook")
+                        .outcome(LogOutcome.DEGRADED)
+                        .entity("ticket", ticket.getTicketCode())
+                        .cause(ex)
+                        .emit();
+            }
         }
         if (lobbySseBroadcaster != null) {
-            lobbySseBroadcaster.broadcastLobbyEvent(tenantCode, eventType, ticket);
+            try {
+                lobbySseBroadcaster.broadcastLobbyEvent(tenantCode, eventType, ticket);
+            } catch (Exception ex) {
+                LogContract.warn(log, LogDomain.QUEUE, "lobby_sse_hook")
+                        .outcome(LogOutcome.DEGRADED)
+                        .entity("ticket", ticket.getTicketCode())
+                        .cause(ex)
+                        .emit();
+            }
         }
     }
 

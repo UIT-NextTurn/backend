@@ -50,7 +50,7 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
     @Override
     public SseEmitter subscribeTenantOverview(String tenantCode) {
         String key = tenantCode != null ? tenantCode.trim().toLowerCase() : "default";
-        SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
+        SseEmitter emitter = createEmitter();
         // Serialize add/remove per key inside ConcurrentHashMap.compute to prevent empty-list eviction races
         tenantEmitters.compute(key, (k, existing) -> {
             CopyOnWriteArrayList<SseEmitter> list = existing != null ? existing : new CopyOnWriteArrayList<>();
@@ -75,7 +75,7 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
 
     @Override
     public SseEmitter subscribePlatformOverview() {
-        SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
+        SseEmitter emitter = createEmitter();
         platformEmitters.add(emitter);
         registerCleanup(emitter, () -> platformEmitters.remove(emitter));
 
@@ -172,6 +172,11 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
             try {
                 emitter.send(SseEmitter.event().name(event.getEventType()).data(event));
             } catch (Exception ex) {
+                LogContract.warn(log, LogDomain.DASHBOARD, "dashboard_sse_push")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(tenantKey)
+                        .cause(ex)
+                        .emit();
                 if (tenantKey != null) {
                     removeTenantEmitter(tenantKey, emitter);
                 } else if (targets instanceof CopyOnWriteArrayList<SseEmitter> cow) {
@@ -180,8 +185,16 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
                 if (extraCleanup != null) {
                     extraCleanup.run();
                 }
-                emitter.complete();
+                safeCompleteEmitter(emitter);
             }
+        }
+    }
+
+    private void safeCompleteEmitter(SseEmitter emitter) {
+        try {
+            emitter.complete();
+        } catch (Exception ignored) {
+            // Emitter is already completed or response stream is already closed
         }
     }
 
@@ -190,6 +203,10 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
             existing.remove(emitter);
             return existing.isEmpty() ? null : existing;
         });
+    }
+
+    protected SseEmitter createEmitter() {
+        return new SseEmitter(SSE_TIMEOUT_MS);
     }
 
     private void registerCleanup(SseEmitter emitter, Runnable cleanup) {

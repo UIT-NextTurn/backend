@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -39,6 +40,37 @@ public interface TenantQueueTicketRepository extends JpaRepository<TenantQueueTi
         WHERE t.id = :id
     """)
     Optional<TenantQueueTicket> findByIdWithDetails(@Param("id") String id);
+
+    /**
+     * Batch-fetches subscribed queue tickets with all display associations in a single query
+     * to eliminate N+1 reads during SSE fan-out.
+     */
+    @Query("""
+        SELECT t FROM TenantQueueTicket t
+        LEFT JOIN FETCH t.service
+        LEFT JOIN FETCH t.appointment
+        LEFT JOIN FETCH t.receptionPoint
+        LEFT JOIN FETCH t.counterStaff
+        LEFT JOIN FETCH t.provider
+        WHERE t.id IN :ids
+    """)
+    List<TenantQueueTicket> findByIdInWithDetails(@Param("ids") Collection<String> ids);
+
+    /**
+     * Lightweight scalar projection of WAITING tickets ordered identically to {@link #countWaitingTicketsAhead}
+     * so queue positions for all waiting subscribers can be computed in memory in O(1) queries.
+     */
+    @Query("""
+        SELECT t.id, t.issuedAt, t.sequenceNumber FROM TenantQueueTicket t
+        WHERE t.service.id = :serviceId
+          AND t.workDate = :workDate
+          AND t.status = 'WAITING'
+        ORDER BY t.issuedAt ASC, t.sequenceNumber ASC
+    """)
+    List<Object[]> findWaitingOrderProjectionsByServiceAndWorkDate(
+            @Param("serviceId") String serviceId,
+            @Param("workDate") LocalDate workDate
+    );
 
     @Query("""
         SELECT t FROM TenantQueueTicket t

@@ -54,7 +54,7 @@ public class TenantLobbySseBroadcasterImpl implements TenantLobbySseBroadcaster 
     @Override
     public SseEmitter subscribe(String tenantCode) {
         String key = normalizeTenant(tenantCode);
-        SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
+        SseEmitter emitter = createEmitter();
 
         lobbySubscribers.compute(key, (k, existing) -> {
             CopyOnWriteArrayList<SseEmitter> list = existing != null ? existing : new CopyOnWriteArrayList<>();
@@ -115,6 +115,12 @@ public class TenantLobbySseBroadcasterImpl implements TenantLobbySseBroadcaster 
                     removeLobbyEmitter(key, emitter);
                 }
             }
+        } catch (Exception ex) {
+            LogContract.warn(log, LogDomain.QUEUE, "lobby_sse_broadcast")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(key)
+                    .cause(ex)
+                    .emit();
         } finally {
             if (previousTenant != null) {
                 TenantContextHolder.setTenantCode(previousTenant);
@@ -208,14 +214,30 @@ public class TenantLobbySseBroadcasterImpl implements TenantLobbySseBroadcaster 
         try {
             emitter.send(SseEmitter.event().name("lobby-update").data(payload));
             return true;
-        } catch (IOException ex) {
+        } catch (Exception ex) {
             LogContract.warn(log, LogDomain.QUEUE, "lobby_sse_push")
                     .outcome(LogOutcome.DEGRADED)
                     .cause(ex)
                     .emit();
-            emitter.completeWithError(ex);
+            safeCompleteEmitter(emitter, ex);
             return false;
         }
+    }
+
+    private void safeCompleteEmitter(SseEmitter emitter, Exception cause) {
+        try {
+            if (cause instanceof IOException) {
+                emitter.completeWithError(cause);
+            } else {
+                emitter.complete();
+            }
+        } catch (Exception ignored) {
+            // Emitter is already completed or response stream is already closed
+        }
+    }
+
+    protected SseEmitter createEmitter() {
+        return new SseEmitter(SSE_TIMEOUT_MS);
     }
 
     private String normalizeTenant(String tenantCode) {
