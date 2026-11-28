@@ -15,6 +15,7 @@ public final class DashboardEndpointConstant {
 
     public static final String OVERVIEW = "/overview";
     public static final String OVERVIEW_STREAM = "/overview/stream";
+    public static final String OVERVIEW_STREAM_TOKEN = "/overview/stream-token";
     public static final String CANCELLATIONS_NOSHOWS = "/analytics/cancellations-noshows";
     public static final String SERVICE_PERFORMANCE = "/analytics/service-performance";
     public static final String FEEDBACK_TRENDS = "/analytics/feedback-trends";

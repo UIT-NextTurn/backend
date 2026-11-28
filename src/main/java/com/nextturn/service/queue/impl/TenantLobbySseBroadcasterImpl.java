@@ -5,16 +5,20 @@ import com.nextturn.dto.queue.LobbyEventResponse;
 import com.nextturn.dto.queue.QueueTicketSummaryResponse;
 import com.nextturn.entity.TenantQueueTicket;
 import com.nextturn.enums.TicketStatus;
-import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
-import com.nextturn.repository.ticket.TenantQueueTicketRepository;
-import com.nextturn.service.queue.TenantLobbySseBroadcaster;
-import com.nextturn.service.queue.TenantTicketStateMachine;
 import com.nextturn.infrastructure.logging.LogContract;
 import com.nextturn.infrastructure.logging.LogDomain;
 import com.nextturn.infrastructure.logging.LogOutcome;
+import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
+import com.nextturn.infrastructure.sse.SseEventReplayBuffer;
+import com.nextturn.infrastructure.sse.SseEventReplayBuffer.BufferedEvent;
+import com.nextturn.infrastructure.sse.TenantSseConnectionLimiter;
+import com.nextturn.repository.ticket.TenantQueueTicketRepository;
+import com.nextturn.service.queue.TenantLobbySseBroadcaster;
+import com.nextturn.service.queue.TenantTicketStateMachine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -23,8 +27,10 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Thread-safe SSE broadcaster pushing live Lobby TV announcements and Counter Kanban updates
@@ -34,13 +40,20 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class TenantLobbySseBroadcasterImpl implements TenantLobbySseBroadcaster {
 
     private static final Logger log = LoggerFactory.getLogger(TenantLobbySseBroadcasterImpl.class);
-    private static final long SSE_TIMEOUT_MS = 30L * 60L * 1000L;
+    /**
+     * Long-lived emitter (no artificial 30-minute cutoff); dead peers are evicted by periodic heartbeats.
+     */
+    private static final long SSE_TIMEOUT_MS = 0L;
+    private static final long SSE_RECONNECT_TIME_MS = 3000L;
 
-    private final ConcurrentHashMap<String, CopyOnWriteArrayList<SseEmitter>> lobbySubscribers =
-            new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Set<SseEmitter>> lobbySubscribers = new ConcurrentHashMap<>();
+    private final Set<String> observedTenants = ConcurrentHashMap.newKeySet();
+    private final ConcurrentHashMap<SseEmitter, AtomicLong> lastDeliveredSeq = new ConcurrentHashMap<>();
 
     private final TenantQueueTicketRepository ticketRepository;
     private final TenantTicketStateMachine stateMachine;
+    private TenantSseConnectionLimiter connectionLimiter;
+    private SseEventReplayBuffer<LobbyEventResponse> replayBuffer = new SseEventReplayBuffer<>();
 
     @Autowired
     public TenantLobbySseBroadcasterImpl(
@@ -51,45 +64,102 @@ public class TenantLobbySseBroadcasterImpl implements TenantLobbySseBroadcaster 
         this.stateMachine = stateMachine;
     }
 
+    @Autowired(required = false)
+    public void setConnectionLimiter(TenantSseConnectionLimiter connectionLimiter) {
+        this.connectionLimiter = connectionLimiter;
+    }
+
+    @Autowired(required = false)
+    public void setReplayBufferSize(@Value("${nextturn.sse.replay.buffer-size:100}") int replayBufferSize) {
+        this.replayBuffer = new SseEventReplayBuffer<>(replayBufferSize);
+    }
+
     @Override
     public SseEmitter subscribe(String tenantCode) {
-        String key = normalizeTenant(tenantCode);
-        SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
+        return subscribe(tenantCode, null);
+    }
 
-        lobbySubscribers.compute(key, (k, existing) -> {
-            CopyOnWriteArrayList<SseEmitter> list = existing != null ? existing : new CopyOnWriteArrayList<>();
-            list.add(emitter);
-            return list;
-        });
+    @Override
+    public SseEmitter subscribe(String tenantCode, String lastEventId) {
+        String key = normalizeTenant(tenantCode);
+        if (connectionLimiter != null) {
+            connectionLimiter.acquireTenantSlot(key);
+        }
+
+        SseEmitter emitter = createEmitter();
+        observedTenants.add(key);
+
+        long seqBeforeSnapshot = replayBuffer.currentSequence(key);
+        LobbyDisplayResponse snapshot;
+        try {
+            snapshot = buildLobbySnapshot(key);
+        } catch (RuntimeException ex) {
+            if (connectionLimiter != null) {
+                connectionLimiter.releaseTenantSlot(key);
+            }
+            throw ex;
+        }
 
         Runnable cleanup = () -> removeLobbyEmitter(key, emitter);
         emitter.onCompletion(cleanup);
         emitter.onTimeout(cleanup);
         emitter.onError(ex -> cleanup.run());
 
-        LobbyDisplayResponse snapshot = buildLobbySnapshot(key);
-        if (!sendEvent(emitter, LobbyEventResponse.builder()
-                .eventType("INITIAL_DISPLAY")
-                .display(snapshot)
-                .timestamp(LocalDateTime.now())
-                .build())) {
-            cleanup.run();
+        synchronized (emitter) {
+            lobbySubscribers.compute(key, (k, existing) -> {
+                Set<SseEmitter> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                set.add(emitter);
+                return set;
+            });
+            AtomicLong deliveredTracker = new AtomicLong(0L);
+            lastDeliveredSeq.put(emitter, deliveredTracker);
+
+            long clientSeq = replayBuffer.parseSequenceIfSameEpoch(lastEventId);
+            String snapshotEventId = replayBuffer.currentEventId(key);
+
+            if (!sendEvent(emitter, LobbyEventResponse.builder()
+                    .eventType("INITIAL_DISPLAY")
+                    .display(snapshot)
+                    .timestamp(LocalDateTime.now())
+                    .build(), snapshotEventId, true)) {
+                cleanup.run();
+                return emitter;
+            }
+
+            long replayBaseline = clientSeq >= 0L
+                    ? Math.min(clientSeq, seqBeforeSnapshot)
+                    : seqBeforeSnapshot;
+            long maxSentSeq = seqBeforeSnapshot;
+            for (BufferedEvent<LobbyEventResponse> missed : replayBuffer.eventsAfter(key, replayBaseline)) {
+                if (!sendEvent(emitter, missed.payload(), missed.eventId(), false)) {
+                    cleanup.run();
+                    return emitter;
+                }
+                maxSentSeq = Math.max(maxSentSeq, missed.sequence());
+            }
+            deliveredTracker.set(maxSentSeq);
         }
         return emitter;
     }
 
     private void removeLobbyEmitter(String key, SseEmitter emitter) {
+        boolean[] removed = {false};
         lobbySubscribers.computeIfPresent(key, (k, existing) -> {
-            existing.remove(emitter);
+            removed[0] = existing.remove(emitter);
             return existing.isEmpty() ? null : existing;
         });
+        lastDeliveredSeq.remove(emitter);
+        if (removed[0] && connectionLimiter != null) {
+            connectionLimiter.releaseTenantSlot(key);
+        }
     }
 
     @Override
     public void broadcastLobbyEvent(String tenantCode, String eventType, TenantQueueTicket changedTicket) {
         String key = normalizeTenant(tenantCode);
-        CopyOnWriteArrayList<SseEmitter> emitters = lobbySubscribers.get(key);
-        if (emitters == null || emitters.isEmpty()) {
+        Set<SseEmitter> emitters = lobbySubscribers.get(key);
+        boolean hasSubscribers = emitters != null && !emitters.isEmpty();
+        if (!hasSubscribers && !observedTenants.contains(key)) {
             return;
         }
 
@@ -110,17 +180,42 @@ public class TenantLobbySseBroadcasterImpl implements TenantLobbySseBroadcaster 
                     .timestamp(LocalDateTime.now())
                     .build();
 
+            BufferedEvent<LobbyEventResponse> recorded = replayBuffer.record(key, payload);
+            if (!hasSubscribers) {
+                return;
+            }
+
             for (SseEmitter emitter : emitters) {
-                if (!sendEvent(emitter, payload)) {
+                if (!sendLiveEventIfNewer(emitter, recorded)) {
                     removeLobbyEmitter(key, emitter);
                 }
             }
+        } catch (Exception ex) {
+            LogContract.warn(log, LogDomain.QUEUE, "lobby_sse_broadcast")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(key)
+                    .cause(ex)
+                    .emit();
         } finally {
             if (previousTenant != null) {
                 TenantContextHolder.setTenantCode(previousTenant);
             } else {
                 TenantContextHolder.clear();
             }
+        }
+    }
+
+    private boolean sendLiveEventIfNewer(SseEmitter emitter, BufferedEvent<LobbyEventResponse> event) {
+        synchronized (emitter) {
+            AtomicLong tracker = lastDeliveredSeq.get(emitter);
+            if (tracker != null && tracker.get() >= event.sequence()) {
+                return true;
+            }
+            boolean ok = sendEvent(emitter, event.payload(), event.eventId(), false);
+            if (ok && tracker != null) {
+                tracker.set(event.sequence());
+            }
+            return ok;
         }
     }
 
@@ -204,18 +299,80 @@ public class TenantLobbySseBroadcasterImpl implements TenantLobbySseBroadcaster 
         return null;
     }
 
-    private boolean sendEvent(SseEmitter emitter, LobbyEventResponse payload) {
+    @Override
+    public int sendHeartbeats() {
+        int sent = 0;
+        for (Map.Entry<String, Set<SseEmitter>> entry : lobbySubscribers.entrySet()) {
+            String key = entry.getKey();
+            Set<SseEmitter> emitters = entry.getValue();
+            if (emitters == null || emitters.isEmpty()) {
+                continue;
+            }
+            for (SseEmitter emitter : emitters) {
+                if (sendHeartbeat(emitter, key)) {
+                    sent++;
+                } else {
+                    removeLobbyEmitter(key, emitter);
+                }
+            }
+        }
+        return sent;
+    }
+
+    private boolean sendHeartbeat(SseEmitter emitter, String tenantKey) {
         try {
-            emitter.send(SseEmitter.event().name("lobby-update").data(payload));
+            synchronized (emitter) {
+                emitter.send(SseEmitter.event().comment("heartbeat"));
+            }
             return true;
-        } catch (IOException ex) {
+        } catch (Exception ex) {
+            LogContract.debug(log, LogDomain.QUEUE, "lobby_sse_heartbeat_evict")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantKey)
+                    .cause(ex)
+                    .emit();
+            safeCompleteEmitter(emitter, ex);
+            return false;
+        }
+    }
+
+    private boolean sendEvent(SseEmitter emitter, LobbyEventResponse payload, String eventId, boolean includeReconnectHint) {
+        try {
+            SseEmitter.SseEventBuilder eventBuilder = SseEmitter.event()
+                    .id(eventId)
+                    .name("lobby-update")
+                    .data(payload);
+            if (includeReconnectHint) {
+                eventBuilder.reconnectTime(SSE_RECONNECT_TIME_MS);
+            }
+            synchronized (emitter) {
+                emitter.send(eventBuilder);
+            }
+            return true;
+        } catch (Exception ex) {
             LogContract.warn(log, LogDomain.QUEUE, "lobby_sse_push")
                     .outcome(LogOutcome.DEGRADED)
                     .cause(ex)
                     .emit();
-            emitter.completeWithError(ex);
+            safeCompleteEmitter(emitter, ex);
             return false;
         }
+    }
+
+    private void safeCompleteEmitter(SseEmitter emitter, Exception cause) {
+        try {
+            if (cause instanceof IOException) {
+                emitter.completeWithError(cause);
+            } else {
+                emitter.complete();
+            }
+        } catch (Exception ignored) {
+            // Emitter is already completed or response stream is already closed
+        }
+    }
+
+    protected SseEmitter createEmitter() {
+        return new SseEmitter(SSE_TIMEOUT_MS);
     }
 
     private String normalizeTenant(String tenantCode) {

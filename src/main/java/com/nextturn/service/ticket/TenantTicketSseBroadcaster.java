@@ -20,6 +20,13 @@ public interface TenantTicketSseBroadcaster {
     SseEmitter subscribe(String tenantCode, String ticketId);
 
     /**
+     * Subscribes a customer's browser to live queue updates with optional {@code Last-Event-ID} replay support.
+     */
+    default SseEmitter subscribe(String tenantCode, String ticketId, String lastEventId) {
+        return subscribe(tenantCode, ticketId);
+    }
+
+    /**
      * Broadcasts updated queue metrics to all active SSE subscribers in the given tenant/service/date queue.
      *
      * @param tenantCode tenant code
@@ -28,4 +35,13 @@ public interface TenantTicketSseBroadcaster {
      * @param eventType  event identifier (e.g. {@code TICKET_ISSUED}, {@code QUEUE_ADVANCED})
      */
     void broadcastQueueUpdate(String tenantCode, String serviceId, LocalDate workDate, String eventType);
+
+    /**
+     * Sends an SSE comment heartbeat to all active ticket emitters and evicts dead connections.
+     *
+     * @return number of healthy emitters successfully pinged
+     */
+    default int sendHeartbeats() {
+        return 0;
+    }
 }

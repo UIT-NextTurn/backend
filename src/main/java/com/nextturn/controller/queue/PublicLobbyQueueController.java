@@ -52,9 +52,12 @@ public class PublicLobbyQueueController extends BaseController {
     )
     public SseEmitter streamLobbyDisplay(
             @RequestHeader(value = TenantHeaderConstant.X_TENANT_CODE_HEADER, required = false) String headerTenantCode,
+            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId,
             @RequestParam(required = false) String tenantCode
     ) {
         ensureTenantContext(headerTenantCode, tenantCode);
-        return queueCallingService.subscribeToLobbyDisplay();
+        return (lastEventId != null && !lastEventId.isBlank())
+                ? queueCallingService.subscribeToLobbyDisplay(lastEventId)
+                : queueCallingService.subscribeToLobbyDisplay();
     }
 }

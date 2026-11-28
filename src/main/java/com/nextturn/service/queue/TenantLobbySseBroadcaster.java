@@ -10,5 +10,21 @@ public interface TenantLobbySseBroadcaster {
 
     SseEmitter subscribe(String tenantCode);
 
+    /**
+     * Subscribes to the tenant Lobby SSE stream with optional {@code Last-Event-ID} replay support.
+     */
+    default SseEmitter subscribe(String tenantCode, String lastEventId) {
+        return subscribe(tenantCode);
+    }
+
     void broadcastLobbyEvent(String tenantCode, String eventType, TenantQueueTicket changedTicket);
+
+    /**
+     * Sends an SSE comment heartbeat to all active lobby emitters and evicts dead connections.
+     *
+     * @return number of healthy emitters successfully pinged
+     */
+    default int sendHeartbeats() {
+        return 0;
+    }
 }

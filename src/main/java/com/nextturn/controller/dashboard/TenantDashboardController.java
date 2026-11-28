@@ -5,15 +5,20 @@ import com.nextturn.constant.TenantHeaderConstant;
 import com.nextturn.controller.BaseController;
 import com.nextturn.dto.BaseResponse;
 import com.nextturn.dto.dashboard.CancellationNoShowAnalyticsResponse;
+import com.nextturn.dto.dashboard.DashboardStreamTokenResponse;
 import com.nextturn.dto.dashboard.FeedbackTrendAnalyticsResponse;
 import com.nextturn.dto.dashboard.ServicePerformanceAnalyticsResponse;
 import com.nextturn.dto.dashboard.TenantDashboardOverviewResponse;
 import com.nextturn.enums.DashboardDatePreset;
 import com.nextturn.enums.DashboardExportFormat;
+import com.nextturn.infrastructure.security.annotation.CurrentUser;
 import com.nextturn.infrastructure.security.annotation.RequireTenantAdmin;
+import com.nextturn.infrastructure.security.principal.AuthenticatedUser;
 import com.nextturn.service.dashboard.DashboardExportService;
 import com.nextturn.service.dashboard.DashboardExportService.ExportedReportFile;
 import com.nextturn.service.dashboard.DashboardSseBroadcaster;
+import com.nextturn.service.dashboard.DashboardStreamTokenService;
+import com.nextturn.service.dashboard.DashboardStreamTokenService.StreamScope;
 import com.nextturn.service.dashboard.TenantDashboardService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -23,7 +28,9 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -45,6 +52,7 @@ public class TenantDashboardController extends BaseController {
     private final TenantDashboardService dashboardService;
     private final DashboardExportService exportService;
     private final DashboardSseBroadcaster sseBroadcaster;
+    private DashboardStreamTokenService streamTokenService;
 
     @Autowired
     public TenantDashboardController(
@@ -57,6 +65,11 @@ public class TenantDashboardController extends BaseController {
         this.sseBroadcaster = sseBroadcaster;
     }
 
+    @Autowired(required = false)
+    public void setStreamTokenService(DashboardStreamTokenService streamTokenService) {
+        this.streamTokenService = streamTokenService;
+    }
+
     @GetMapping(DashboardEndpointConstant.OVERVIEW)
     @Operation(summary = "Trực quan hóa chỉ số tổng quan vận hành trong ngày (REQ-DASHBOARD-01)")
     public ResponseEntity<BaseResponse<TenantDashboardOverviewResponse>> getOverview(
@@ -67,10 +80,34 @@ public class TenantDashboardController extends BaseController {
         return ResponseEntity.ok(BaseResponse.ok("Tải dữ liệu tổng quan vận hành thành công", overview));
     }
 
+    @PostMapping(DashboardEndpointConstant.OVERVIEW_STREAM_TOKEN)
+    @Operation(
+            summary = "Cấp token ngắn hạn dùng một lần để mở luồng SSE Dashboard từ trình duyệt",
+            description = "Mints a 30-second single-use opaque streamToken bound to (userId, tenantCode, TENANT_DASHBOARD) so browser EventSource can connect without sending an Authorization header."
+    )
+    public ResponseEntity<BaseResponse<DashboardStreamTokenResponse>> createOverviewStreamToken(
+            @RequestHeader(value = TenantHeaderConstant.X_TENANT_CODE_HEADER, required = false) String headerTenantCode,
+            @CurrentUser AuthenticatedUser currentUser,
+            Authentication authentication
+    ) {
+        String tenantCode = ensureTenantContext(headerTenantCode);
+        DashboardStreamTokenResponse response = streamTokenService.issueToken(
+                currentUser,
+                authentication != null ? authentication.getAuthorities() : null,
+                StreamScope.TENANT_DASHBOARD,
+                tenantCode
+        );
+        return ResponseEntity.ok(BaseResponse.ok("Cấp token kết nối SSE Dashboard thành công", response));
+    }
+
     @GetMapping(value = DashboardEndpointConstant.OVERVIEW_STREAM, produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    @Operation(summary = "Kênh SSE đồng bộ chỉ số Dashboard thời gian thực (REQ-DASHBOARD-01)")
+    @Operation(
+            summary = "Kênh SSE đồng bộ chỉ số Dashboard thời gian thực (REQ-DASHBOARD-01)",
+            description = "Supports either Authorization: Bearer <jwt> header or a short-lived single-use ?streamToken=... minted via POST /api/v1/dashboard/overview/stream-token."
+    )
     public SseEmitter streamOverview(
-            @RequestHeader(value = TenantHeaderConstant.X_TENANT_CODE_HEADER, required = false) String headerTenantCode
+            @RequestHeader(value = TenantHeaderConstant.X_TENANT_CODE_HEADER, required = false) String headerTenantCode,
+            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId
     ) {
         String tenantCode = ensureTenantContext(headerTenantCode);
         if (sseBroadcaster == null) {
@@ -78,7 +115,9 @@ public class TenantDashboardController extends BaseController {
             emitter.complete();
             return emitter;
         }
-        return sseBroadcaster.subscribeTenantOverview(tenantCode);
+        return (lastEventId != null && !lastEventId.isBlank())
+                ? sseBroadcaster.subscribeTenantOverview(tenantCode, lastEventId)
+                : sseBroadcaster.subscribeTenantOverview(tenantCode);
     }
 
     @GetMapping(DashboardEndpointConstant.CANCELLATIONS_NOSHOWS)

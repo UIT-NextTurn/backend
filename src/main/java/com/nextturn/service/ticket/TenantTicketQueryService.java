@@ -4,7 +4,10 @@ import com.nextturn.dto.ticket.TicketResponse;
 import com.nextturn.entity.TenantQueueTicket;
 
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Read-only query contract for virtual queue ticket status, live waiting metrics
@@ -17,6 +20,27 @@ public interface TenantTicketQueryService {
      * Retrieves live virtual queue ticket details by ticket UUID or ticket code for today (REQ-TICKET-02).
      */
     TicketResponse getTicketDetails(String ticketIdOrCode);
+
+    /**
+     * Batch-retrieves live queue ticket details for multiple subscribed ticket IDs in the same
+     * service queue using a bounded number of queries (eliminating N+1 reads during SSE fan-out).
+     */
+    default Map<String, TicketResponse> getTicketDetailsBatch(
+            String serviceId,
+            LocalDate workDate,
+            Collection<String> ticketIds
+    ) {
+        if (ticketIds == null || ticketIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, TicketResponse> result = new LinkedHashMap<>();
+        for (String ticketId : ticketIds) {
+            if (ticketId != null && !ticketId.isBlank()) {
+                result.put(ticketId, getTicketDetails(ticketId));
+            }
+        }
+        return result;
+    }
 
     /**
      * Enriches a ticket entity with real-time queue metrics (position, people ahead, current serving number, estimated wait).

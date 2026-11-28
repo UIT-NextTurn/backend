@@ -28,13 +28,18 @@ import com.nextturn.service.ticket.TenantTicketService;
 import com.nextturn.service.ticket.TenantTicketSseBroadcaster;
 import com.nextturn.service.ticket.TenantTicketValidator;
 import com.nextturn.service.ticket.TenantTicketSequenceGenerator.GeneratedTicketNumber;
+import com.nextturn.config.AsyncConfig;
 import com.nextturn.infrastructure.logging.LogContract;
 import com.nextturn.infrastructure.logging.LogDomain;
 import com.nextturn.infrastructure.logging.LogOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -44,6 +49,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 
 /**
  * Default orchestrator implementation of {@link TenantTicketService} coordinating:
@@ -69,6 +75,13 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
     private final TenantCacheService cacheService;
     private final TenantReceptionQrTokenService receptionQrTokenService;
     private com.nextturn.service.dashboard.DashboardAnalyticsSyncService dashboardAnalyticsSyncService;
+    private Executor postCommitExecutor;
+
+    @Autowired(required = false)
+    @Qualifier(AsyncConfig.QUEUE_EVENT_EXECUTOR)
+    public void setPostCommitExecutor(Executor postCommitExecutor) {
+        this.postCommitExecutor = postCommitExecutor;
+    }
 
     @Autowired(required = false)
     public void setDashboardAnalyticsSyncService(
@@ -260,29 +273,8 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
             sequenceGenerator.releaseTicketLock(tenantCode, service.getId(), today, lockOwnerToken);
         }
 
-        // Sync operational/platform analytics & quota alerts AFTER tenant transaction commits
-        if (dashboardAnalyticsSyncService != null && issuedEntityRef.get() != null) {
-            dashboardAnalyticsSyncService.onTicketIssued(tenantCode, issuedEntityRef.get());
-        }
-
-        // Update daily ticket telemetry cache for tenant monitoring
-        if (cacheService != null) {
-            try {
-                long todayTotal = ticketRepository.countByWorkDate(today);
-                cacheService.setCachedCount(ValkeyKeyConstant.tenantTodayTicketsKey(tenantCode), todayTotal, Duration.ofSeconds(60));
-            } catch (Exception ex) {
-                LogContract.warn(log, LogDomain.TICKET, "telemetry_cache_refresh")
-                        .outcome(LogOutcome.DEGRADED)
-                        .tenant(tenantCode)
-                        .cause(ex)
-                        .emit();
-            }
-        }
-
-        // Broadcast live queue update to waiting SSE subscribers
-        if (sseBroadcaster != null) {
-            sseBroadcaster.broadcastQueueUpdate(tenantCode, service.getId(), today, "TICKET_ISSUED");
-        }
+        // Dispatch post-commit analytics, telemetry refresh, and SSE fan-out asynchronously on bounded executor
+        dispatchPostIssueSideEffects(tenantCode, service.getId(), today, issuedEntityRef.get(), response.getTicketCode());
 
         LogContract.info(log, LogDomain.TICKET, "ticket_issued")
                 .outcome(LogOutcome.SUCCESS)
@@ -296,6 +288,111 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
         return response;
     }
 
+    private void dispatchPostIssueSideEffects(
+            String tenantCode,
+            String serviceId,
+            LocalDate workDate,
+            TenantQueueTicket issuedTicket,
+            String ticketCode
+    ) {
+        String traceId = MDC.get(LogContract.MDC_TRACE_ID);
+        Runnable task = () -> executePostIssueSideEffectsWithContext(tenantCode, traceId, serviceId, workDate, issuedTicket);
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    submitPostCommit(task, tenantCode, ticketCode);
+                }
+            });
+            return;
+        }
+        submitPostCommit(task, tenantCode, ticketCode);
+    }
+
+    private void submitPostCommit(Runnable task, String tenantCode, String ticketCode) {
+        if (postCommitExecutor != null) {
+            try {
+                postCommitExecutor.execute(task);
+            } catch (Exception ex) {
+                LogContract.warn(log, LogDomain.TICKET, "post_commit_fanout_submit")
+                        .outcome(LogOutcome.DEGRADED)
+                        .tenant(tenantCode)
+                        .entity("ticket", ticketCode)
+                        .cause(ex)
+                        .emit();
+            }
+            return;
+        }
+        task.run();
+    }
+
+    private void executePostIssueSideEffectsWithContext(
+            String tenantCode,
+            String traceId,
+            String serviceId,
+            LocalDate workDate,
+            TenantQueueTicket issuedTicket
+    ) {
+        String previousTenant = TenantContextHolder.getTenantCode();
+        String previousTrace = MDC.get(LogContract.MDC_TRACE_ID);
+        try {
+            if (tenantCode != null && !tenantCode.isBlank()) {
+                TenantContextHolder.setTenantCode(tenantCode);
+            }
+            if (traceId != null && !traceId.isBlank()) {
+                LogContract.bindTraceId(traceId);
+            }
+            if (dashboardAnalyticsSyncService != null && issuedTicket != null) {
+                try {
+                    dashboardAnalyticsSyncService.onTicketIssued(tenantCode, issuedTicket);
+                } catch (Exception ex) {
+                    LogContract.warn(log, LogDomain.TICKET, "dashboard_analytics_hook")
+                            .outcome(LogOutcome.DEGRADED)
+                            .tenant(tenantCode)
+                            .entity("ticket", issuedTicket.getTicketCode())
+                            .cause(ex)
+                            .emit();
+                }
+            }
+            if (cacheService != null) {
+                try {
+                    long todayTotal = ticketRepository.countByWorkDate(workDate);
+                    cacheService.setCachedCount(ValkeyKeyConstant.tenantTodayTicketsKey(tenantCode), todayTotal, Duration.ofSeconds(60));
+                } catch (Exception ex) {
+                    LogContract.warn(log, LogDomain.TICKET, "telemetry_cache_refresh")
+                            .outcome(LogOutcome.DEGRADED)
+                            .tenant(tenantCode)
+                            .cause(ex)
+                            .emit();
+                }
+            }
+            if (sseBroadcaster != null) {
+                try {
+                    sseBroadcaster.broadcastQueueUpdate(tenantCode, serviceId, workDate, "TICKET_ISSUED");
+                } catch (Exception ex) {
+                    LogContract.warn(log, LogDomain.TICKET, "ticket_sse_hook")
+                            .outcome(LogOutcome.DEGRADED)
+                            .tenant(tenantCode)
+                            .field("serviceId", serviceId)
+                            .cause(ex)
+                            .emit();
+                }
+            }
+        } finally {
+            if (previousTenant != null) {
+                TenantContextHolder.setTenantCode(previousTenant);
+            } else {
+                TenantContextHolder.clear();
+            }
+            if (previousTrace != null) {
+                LogContract.bindTraceId(previousTrace);
+            } else {
+                LogContract.clearTraceId();
+            }
+        }
+    }
+
     @Override
     public TicketResponse getTicketDetails(String ticketIdOrCode) {
         return queryService.getTicketDetails(ticketIdOrCode);
@@ -303,13 +400,20 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
 
     @Override
     public SseEmitter subscribeToTicketStream(String ticketIdOrCode) {
+        return subscribeToTicketStream(ticketIdOrCode, null);
+    }
+
+    @Override
+    public SseEmitter subscribeToTicketStream(String ticketIdOrCode, String lastEventId) {
         String tenantCode = resolveCurrentTenantCode();
         if (sseBroadcaster == null) {
             SseEmitter emitter = new SseEmitter(0L);
             emitter.complete();
             return emitter;
         }
-        return sseBroadcaster.subscribe(tenantCode, ticketIdOrCode);
+        return (lastEventId != null && !lastEventId.isBlank())
+                ? sseBroadcaster.subscribe(tenantCode, ticketIdOrCode, lastEventId)
+                : sseBroadcaster.subscribe(tenantCode, ticketIdOrCode);
     }
 
     @Override

@@ -310,4 +310,16 @@ public final class ValkeyKeyConstant {
         String dateStr = workDate != null ? workDate.toString() : "";
         return DASHBOARD_QUOTA_ALERT_PREFIX + cleanCode + ":" + dateStr;
     }
+
+    /**
+     * Key prefix for short-lived, single-use SSE stream tokens (30s TTL) enabling browser EventSource auth.
+     */
+    public static final String SSE_STREAM_TOKEN_PREFIX = "nextturn:sse:stream-token:";
+
+    /**
+     * Formats the Redis key for a short-lived, single-use SSE stream token.
+     */
+    public static String sseStreamTokenKey(String token) {
+        return SSE_STREAM_TOKEN_PREFIX + (token != null ? token.trim() : "");
+    }
 }

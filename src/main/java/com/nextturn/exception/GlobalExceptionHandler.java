@@ -5,10 +5,13 @@ import com.nextturn.exception.system.SystemErrorCode;
 import com.nextturn.infrastructure.logging.LogContract;
 import com.nextturn.infrastructure.logging.LogDomain;
 import com.nextturn.infrastructure.logging.LogOutcome;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
@@ -31,20 +34,35 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(BaseException.class)
-    public ResponseEntity<BaseResponse<Object>> handleBaseException(BaseException ex) {
+    public ResponseEntity<?> handleBaseException(BaseException ex, HttpServletRequest request) {
         LogContract.warn(log, LogDomain.SYSTEM, "domain_exception")
                 .outcome(LogOutcome.REJECTED)
                 .field("errorCode", ex.getCode())
                 .cause(ex)
                 .emit();
+        HttpStatus status = ex.getHttpStatus() != null ? ex.getHttpStatus() : HttpStatus.BAD_REQUEST;
+        if (isSseOnlyRequest(request)) {
+            return ResponseEntity.status(status).build();
+        }
         BaseResponse<Object> response = BaseResponse.error(
                 ex.getStatus(),
                 ex.getMessage(),
                 ex.getCode()
         );
         return ResponseEntity
-                .status(ex.getHttpStatus() != null ? ex.getHttpStatus() : HttpStatus.BAD_REQUEST)
+                .status(status)
                 .body(response);
+    }
+
+    private boolean isSseOnlyRequest(HttpServletRequest request) {
+        if (request == null) {
+            return false;
+        }
+        String accept = request.getHeader(HttpHeaders.ACCEPT);
+        return accept != null
+                && accept.contains(MediaType.TEXT_EVENT_STREAM_VALUE)
+                && !accept.contains(MediaType.APPLICATION_JSON_VALUE)
+                && !accept.contains(MediaType.ALL_VALUE);
     }
 
     @ExceptionHandler(AccessDeniedException.class)

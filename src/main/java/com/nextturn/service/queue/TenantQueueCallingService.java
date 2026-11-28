@@ -31,4 +31,8 @@ public interface TenantQueueCallingService {
     LobbyDisplayResponse getLobbyDisplay();
 
     SseEmitter subscribeToLobbyDisplay();
+
+    default SseEmitter subscribeToLobbyDisplay(String lastEventId) {
+        return subscribeToLobbyDisplay();
+    }
 }
