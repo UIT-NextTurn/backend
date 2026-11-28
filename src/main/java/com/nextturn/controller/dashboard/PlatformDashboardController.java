@@ -22,6 +22,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -88,13 +89,17 @@ public class PlatformDashboardController {
             summary = "Kênh SSE đồng bộ chỉ số giám sát toàn nền tảng (REQ-DASHBOARD-05)",
             description = "Supports either Authorization: Bearer <jwt> header or a short-lived single-use ?streamToken=... minted via POST /api/v1/central/dashboard/overview/stream-token."
     )
-    public SseEmitter streamPlatformOverview() {
+    public SseEmitter streamPlatformOverview(
+            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId
+    ) {
         if (sseBroadcaster == null) {
             SseEmitter emitter = new SseEmitter(0L);
             emitter.complete();
             return emitter;
         }
-        return sseBroadcaster.subscribePlatformOverview();
+        return (lastEventId != null && !lastEventId.isBlank())
+                ? sseBroadcaster.subscribePlatformOverview(lastEventId)
+                : sseBroadcaster.subscribePlatformOverview();
     }
 
     @GetMapping(DashboardEndpointConstant.QUOTAS)

@@ -474,13 +474,20 @@ public class TenantQueueCallingServiceImpl extends BaseService implements Tenant
 
     @Override
     public SseEmitter subscribeToLobbyDisplay() {
+        return subscribeToLobbyDisplay(null);
+    }
+
+    @Override
+    public SseEmitter subscribeToLobbyDisplay(String lastEventId) {
         String tenantCode = resolveCurrentTenantCode();
         if (lobbySseBroadcaster == null) {
             SseEmitter emitter = new SseEmitter(0L);
             emitter.complete();
             return emitter;
         }
-        return lobbySseBroadcaster.subscribe(tenantCode);
+        return (lastEventId != null && !lastEventId.isBlank())
+                ? lobbySseBroadcaster.subscribe(tenantCode, lastEventId)
+                : lobbySseBroadcaster.subscribe(tenantCode);
     }
 
     private boolean isOverdueForAutoComplete(TenantQueueTicket ticket, LocalDateTime now) {

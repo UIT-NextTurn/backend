@@ -106,7 +106,8 @@ public class TenantDashboardController extends BaseController {
             description = "Supports either Authorization: Bearer <jwt> header or a short-lived single-use ?streamToken=... minted via POST /api/v1/dashboard/overview/stream-token."
     )
     public SseEmitter streamOverview(
-            @RequestHeader(value = TenantHeaderConstant.X_TENANT_CODE_HEADER, required = false) String headerTenantCode
+            @RequestHeader(value = TenantHeaderConstant.X_TENANT_CODE_HEADER, required = false) String headerTenantCode,
+            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId
     ) {
         String tenantCode = ensureTenantContext(headerTenantCode);
         if (sseBroadcaster == null) {
@@ -114,7 +115,9 @@ public class TenantDashboardController extends BaseController {
             emitter.complete();
             return emitter;
         }
-        return sseBroadcaster.subscribeTenantOverview(tenantCode);
+        return (lastEventId != null && !lastEventId.isBlank())
+                ? sseBroadcaster.subscribeTenantOverview(tenantCode, lastEventId)
+                : sseBroadcaster.subscribeTenantOverview(tenantCode);
     }
 
     @GetMapping(DashboardEndpointConstant.CANCELLATIONS_NOSHOWS)

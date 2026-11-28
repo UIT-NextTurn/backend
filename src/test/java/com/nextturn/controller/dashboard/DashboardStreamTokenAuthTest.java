@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nextturn.config.CorsConfig;
 import com.nextturn.config.RestClientConfig;
 import com.nextturn.config.ScalarConfig;
+import com.nextturn.exception.AppException;
 import com.nextturn.exception.GlobalExceptionHandler;
+import com.nextturn.exception.system.SystemErrorCode;
 import com.nextturn.infrastructure.multitenancy.TenantContextFilter;
 import com.nextturn.infrastructure.security.TestSecurityConfig;
 import com.nextturn.infrastructure.security.config.SecurityConfig;
@@ -242,5 +244,29 @@ class DashboardStreamTokenAuthTest {
                                 org.hamcrest.Matchers.containsString("X-Widget-Key"),
                                 org.hamcrest.Matchers.containsString("Authorization")
                         )));
+    }
+
+    @Test
+    @DisplayName("P1 #7 & #9: SSE endpoint forwards Last-Event-ID header and returns HTTP 429 (not 406) when tenant subscriber cap is reached")
+    void dashboardStream_ForwardsLastEventIdAndReturns429OnCapExceeded() throws Exception {
+        SseEmitter emitter = new SseEmitter(0L);
+        emitter.complete();
+        when(sseBroadcaster.subscribeTenantOverview(TENANT_CODE, "boot1234-5")).thenReturn(emitter);
+
+        mockMvc.perform(get("/api/v1/dashboard/overview/stream")
+                        .with(authentication(authWithRole("TENANT_ADMIN", TENANT_CODE)))
+                        .header("Last-Event-ID", "boot1234-5"))
+                .andExpect(status().isOk());
+
+        verify(sseBroadcaster).subscribeTenantOverview(TENANT_CODE, "boot1234-5");
+
+        // When per-tenant subscriber limit is reached on an Accept: text/event-stream request -> 429 Too Many Requests
+        when(sseBroadcaster.subscribeTenantOverview(TENANT_CODE))
+                .thenThrow(new AppException(SystemErrorCode.RATE_LIMIT_EXCEEDED, "Limit reached"));
+
+        mockMvc.perform(get("/api/v1/dashboard/overview/stream")
+                        .with(authentication(authWithRole("TENANT_ADMIN", TENANT_CODE)))
+                        .header(HttpHeaders.ACCEPT, "text/event-stream"))
+                .andExpect(status().isTooManyRequests());
     }
 }

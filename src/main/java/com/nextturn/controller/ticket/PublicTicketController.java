@@ -97,10 +97,13 @@ public class PublicTicketController extends BaseController {
     )
     public SseEmitter streamTicketProgress(
             @RequestHeader(value = TenantHeaderConstant.X_TENANT_CODE_HEADER, required = false) String headerTenantCode,
+            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId,
             @RequestParam(required = false) String tenantCode,
             @PathVariable String ticketIdOrCode
     ) {
         ensureTenantContext(headerTenantCode, tenantCode);
-        return ticketService.subscribeToTicketStream(ticketIdOrCode);
+        return (lastEventId != null && !lastEventId.isBlank())
+                ? ticketService.subscribeToTicketStream(ticketIdOrCode, lastEventId)
+                : ticketService.subscribeToTicketStream(ticketIdOrCode);
     }
 }

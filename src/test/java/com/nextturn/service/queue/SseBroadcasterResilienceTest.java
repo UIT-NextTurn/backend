@@ -13,8 +13,11 @@ import com.nextturn.enums.StaffStatus;
 import com.nextturn.enums.TicketCustomerType;
 import com.nextturn.enums.TicketStatus;
 import com.nextturn.enums.UserRole;
+import com.nextturn.exception.AppException;
+import com.nextturn.exception.system.SystemErrorCode;
 import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
 import com.nextturn.infrastructure.security.principal.AuthenticatedUser;
+import com.nextturn.infrastructure.sse.TenantSseConnectionLimiter;
 import com.nextturn.repository.appointment.TenantAppointmentRepository;
 import com.nextturn.repository.service.TenantServiceRepository;
 import com.nextturn.repository.staff.TenantStaffRepository;
@@ -60,6 +63,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
@@ -567,6 +571,182 @@ class SseBroadcasterResilienceTest {
         assertThat(deadLobby.getFailedSendAttempts()).isEqualTo(1);
         assertThat(deadTicket.getFailedSendAttempts()).isEqualTo(1);
         assertThat(deadDashboard.getFailedSendAttempts()).isEqualTo(1);
+    }
+
+    // -------------------------------------------------------------------------
+    // #7: Event IDs, Last-Event-ID replay buffer, and subscribe-vs-snapshot race
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("P1 #7: Lobby broadcaster emits monotonic id: fields and replays missed announcements when reconnecting with Last-Event-ID")
+    void lobbyBroadcaster_EmitsEventIdsAndReplaysMissedEventsOnLastEventId() {
+        when(ticketRepository.findActiveLobbyTicketsByWorkDate(any())).thenReturn(List.of());
+
+        RecordingSseEmitter tvInitial = new RecordingSseEmitter();
+        RecordingSseEmitter tvReconnected = new RecordingSseEmitter();
+        RecordingSseEmitter tvOldBoot = new RecordingSseEmitter();
+        Queue<SseEmitter> emitters = new ArrayDeque<>(List.of(tvInitial, tvReconnected, tvOldBoot));
+
+        TenantLobbySseBroadcasterImpl broadcaster = new TenantLobbySseBroadcasterImpl(ticketRepository, null) {
+            @Override
+            protected SseEmitter createEmitter() {
+                return emitters.remove();
+            }
+        };
+
+        // 1. Initial TV connection receives INITIAL_DISPLAY with id:
+        broadcaster.subscribe(TENANT_CODE);
+        assertThat(tvInitial.getRawFrames().get(0)).contains("id:");
+
+        // 2. First call event arrives on TV; capture its SSE id:
+        TenantQueueTicket t1 = TenantQueueTicket.builder()
+                .id("t-1").ticketCode("A-001").sequenceNumber(1).workDate(WORK_DATE)
+                .service(service).status(TicketStatus.CALLING).counterLabel("Counter 1")
+                .issuedAt(LocalDateTime.now(FIXED_CLOCK)).build();
+        broadcaster.broadcastLobbyEvent(TENANT_CODE, "TICKET_CALLED", t1);
+        String event1Id = extractSseId(tvInitial.getRawFrames().get(1));
+        assertThat(event1Id).isNotBlank();
+
+        // 3. TV drops connection (simulating brief network blip leaving 0 active subscribers)
+        tvInitial.failNextSendsWith(new IOException("Connection reset"));
+        broadcaster.sendHeartbeats();
+        assertThat(tvInitial.isCompleted()).isTrue();
+
+        // 4. Two announcements happen while TV is offline
+        TenantQueueTicket t2 = TenantQueueTicket.builder()
+                .id("t-2").ticketCode("A-002").sequenceNumber(2).workDate(WORK_DATE)
+                .service(service).status(TicketStatus.CALLING).counterLabel("Counter 2")
+                .issuedAt(LocalDateTime.now(FIXED_CLOCK)).build();
+        broadcaster.broadcastLobbyEvent(TENANT_CODE, "TICKET_CALLED", t2);
+        broadcaster.broadcastLobbyEvent(TENANT_CODE, "TICKET_RECALLED", t2);
+
+        // 5. TV reconnects with Last-Event-ID from event 1 -> gets INITIAL_DISPLAY + both missed events in order
+        broadcaster.subscribe(TENANT_CODE, event1Id);
+        assertThat(tvReconnected.getSendCount()).isEqualTo(3);
+        assertThat(tvReconnected.getRawFrames().get(0)).contains("INITIAL_DISPLAY");
+        assertThat(tvReconnected.getRawFrames().get(1)).contains("TICKET_CALLED").contains("A-002");
+        assertThat(tvReconnected.getRawFrames().get(2)).contains("TICKET_RECALLED").contains("A-002");
+        String event2Id = extractSseId(tvReconnected.getRawFrames().get(1));
+        String event3Id = extractSseId(tvReconnected.getRawFrames().get(2));
+        assertThat(event2Id).isNotEqualTo(event1Id);
+        assertThat(event3Id).isNotEqualTo(event2Id);
+
+        // 6. Client sending a stale Last-Event-ID from a different server boot epoch safely gets only INITIAL_DISPLAY
+        broadcaster.subscribe(TENANT_CODE, "oldboot0-1");
+        assertThat(tvOldBoot.getSendCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("P1 #7: Ticket subscribe refreshes snapshot if a broadcast races between initial DB read and registration")
+    void ticketBroadcaster_ClosesSnapshotVsRegistrationRaceAndEmitsIds() {
+        TicketResponse staleWaiting = TicketResponse.builder()
+                .id("t-race").ticketCode("A-050").serviceId(SERVICE_ID).workDate(WORK_DATE)
+                .status(TicketStatus.WAITING).peopleAheadCount(1L).queuePosition(2L).build();
+        TicketResponse freshCalling = TicketResponse.builder()
+                .id("t-race").ticketCode("A-050").serviceId(SERVICE_ID).workDate(WORK_DATE)
+                .status(TicketStatus.CALLING).counterLabel("Desk 3").build();
+
+        RecordingSseEmitter viewer = new RecordingSseEmitter();
+        TenantTicketSseBroadcasterImpl broadcaster = new TenantTicketSseBroadcasterImpl(mockTicketQueryService) {
+            @Override
+            protected SseEmitter createEmitter() {
+                return viewer;
+            }
+        };
+
+        AtomicInteger readCount = new AtomicInteger(0);
+        when(mockTicketQueryService.getTicketDetails("t-race")).thenAnswer(inv -> {
+            int call = readCount.incrementAndGet();
+            if (call == 1) {
+                // Simulate a concurrent broadcast firing while subscribe() is still reading the initial snapshot
+                broadcaster.broadcastQueueUpdate(TENANT_CODE, SERVICE_ID, WORK_DATE, "TICKET_CALLED");
+                return staleWaiting;
+            }
+            return freshCalling;
+        });
+
+        broadcaster.subscribe(TENANT_CODE, "t-race");
+
+        // Detected the concurrent broadcast and re-fetched fresh CALLING snapshot with id:
+        assertThat(readCount.get()).isEqualTo(2);
+        assertThat(viewer.getSendCount()).isEqualTo(1);
+        assertThat(viewer.getRawFrames().get(0))
+                .contains("id:")
+                .contains("retry:3000")
+                .contains("CALLING");
+    }
+
+    // -------------------------------------------------------------------------
+    // #9: Per-tenant subscriber cap and leak-free idempotent slot release
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("P1 #9: Per-tenant SSE connection limiter caps combined Lobby/Ticket/Dashboard emitters with HTTP 429 and releases idempotently")
+    void connectionLimiter_EnforcesPerTenantCapAndReleasesCleanly() {
+        when(ticketRepository.findActiveLobbyTicketsByWorkDate(any())).thenReturn(List.of());
+        when(tenantDashboardService.getOverview()).thenReturn(TenantDashboardOverviewResponse.builder().build());
+
+        TenantSseConnectionLimiter limiter = new TenantSseConnectionLimiter(2, 5, 10);
+
+        RecordingSseEmitter lobbyEmitter = new RecordingSseEmitter();
+        RecordingSseEmitter otherTenantLobby = new RecordingSseEmitter();
+        Queue<SseEmitter> lobbyQueue = new ArrayDeque<>(List.of(lobbyEmitter, otherTenantLobby));
+        TenantLobbySseBroadcasterImpl lobbyBroadcaster = new TenantLobbySseBroadcasterImpl(ticketRepository, null) {
+            @Override
+            protected SseEmitter createEmitter() {
+                return lobbyQueue.remove();
+            }
+        };
+        lobbyBroadcaster.setConnectionLimiter(limiter);
+
+        RecordingSseEmitter dashEmitter1 = new RecordingSseEmitter();
+        RecordingSseEmitter dashEmitter2 = new RecordingSseEmitter();
+        Queue<SseEmitter> dashQueue = new ArrayDeque<>(List.of(dashEmitter1, dashEmitter2));
+        DashboardSseBroadcasterImpl dashboardBroadcaster = new DashboardSseBroadcasterImpl(tenantDashboardService, null) {
+            @Override
+            protected SseEmitter createEmitter() {
+                return dashQueue.remove();
+            }
+        };
+        dashboardBroadcaster.setConnectionLimiter(limiter);
+
+        // Tenant clinic_a opens 1 lobby + 1 dashboard stream -> reaches cap of 2
+        lobbyBroadcaster.subscribe(TENANT_CODE);
+        dashboardBroadcaster.subscribeTenantOverview(TENANT_CODE);
+        assertThat(limiter.getActiveCountForTenant(TENANT_CODE)).isEqualTo(2);
+
+        // 3rd subscriber for clinic_a is rejected with HTTP 429 RATE_LIMIT_EXCEEDED
+        assertThatThrownBy(() -> dashboardBroadcaster.subscribeTenantOverview(TENANT_CODE))
+                .isInstanceOf(AppException.class)
+                .satisfies(ex -> {
+                    AppException appEx = (AppException) ex;
+                    assertThat(appEx.getCode()).isEqualTo(SystemErrorCode.RATE_LIMIT_EXCEEDED.code());
+                    assertThat(appEx.getStatus()).isEqualTo(429);
+                });
+        assertThat(limiter.getActiveCountForTenant(TENANT_CODE)).isEqualTo(2);
+
+        // Another tenant (clinic_b) is unaffected and can still subscribe
+        lobbyBroadcaster.subscribe("clinic_b");
+        assertThat(limiter.getActiveCountForTenant("clinic_b")).isEqualTo(1);
+        assertThat(limiter.getTotalActiveCount()).isEqualTo(3);
+
+        // Evict clinic_a lobby emitter via failed heartbeat -> frees exactly 1 slot (idempotent)
+        lobbyEmitter.failNextSendsWith(new IOException("Broken pipe"));
+        lobbyBroadcaster.sendHeartbeats();
+        assertThat(limiter.getActiveCountForTenant(TENANT_CODE)).isEqualTo(1);
+
+        // Now clinic_a can open a new dashboard stream again
+        dashboardBroadcaster.subscribeTenantOverview(TENANT_CODE);
+        assertThat(limiter.getActiveCountForTenant(TENANT_CODE)).isEqualTo(2);
+    }
+
+    private static String extractSseId(String frame) {
+        for (String line : frame.split("\n")) {
+            if (line.startsWith("id:")) {
+                return line.substring(3).trim();
+            }
+        }
+        return null;
     }
 
     /**

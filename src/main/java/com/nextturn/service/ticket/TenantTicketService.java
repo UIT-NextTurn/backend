@@ -34,6 +34,13 @@ public interface TenantTicketService {
     SseEmitter subscribeToTicketStream(String ticketIdOrCode);
 
     /**
+     * Subscribes to live SSE updates with optional {@code Last-Event-ID} replay support.
+     */
+    default SseEmitter subscribeToTicketStream(String ticketIdOrCode, String lastEventId) {
+        return subscribeToTicketStream(ticketIdOrCode);
+    }
+
+    /**
      * Recovers active tickets issued today for the given customer phone number (REQ-TICKET-04).
      */
     List<TicketResponse> recoverTicketsByPhoneToday(String customerPhone);

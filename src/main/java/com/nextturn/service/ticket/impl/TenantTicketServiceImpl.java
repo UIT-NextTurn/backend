@@ -400,13 +400,20 @@ public class TenantTicketServiceImpl extends BaseService implements TenantTicket
 
     @Override
     public SseEmitter subscribeToTicketStream(String ticketIdOrCode) {
+        return subscribeToTicketStream(ticketIdOrCode, null);
+    }
+
+    @Override
+    public SseEmitter subscribeToTicketStream(String ticketIdOrCode, String lastEventId) {
         String tenantCode = resolveCurrentTenantCode();
         if (sseBroadcaster == null) {
             SseEmitter emitter = new SseEmitter(0L);
             emitter.complete();
             return emitter;
         }
-        return sseBroadcaster.subscribe(tenantCode, ticketIdOrCode);
+        return (lastEventId != null && !lastEventId.isBlank())
+                ? sseBroadcaster.subscribe(tenantCode, ticketIdOrCode, lastEventId)
+                : sseBroadcaster.subscribe(tenantCode, ticketIdOrCode);
     }
 
     @Override

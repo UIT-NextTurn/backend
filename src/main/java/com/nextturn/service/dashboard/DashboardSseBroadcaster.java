@@ -10,7 +10,15 @@ public interface DashboardSseBroadcaster {
 
     SseEmitter subscribeTenantOverview(String tenantCode);
 
+    default SseEmitter subscribeTenantOverview(String tenantCode, String lastEventId) {
+        return subscribeTenantOverview(tenantCode);
+    }
+
     SseEmitter subscribePlatformOverview();
+
+    default SseEmitter subscribePlatformOverview(String lastEventId) {
+        return subscribePlatformOverview();
+    }
 
     void broadcastTenantOverviewUpdate(String tenantCode, String eventType);
 

@@ -7,20 +7,24 @@ import com.nextturn.infrastructure.logging.LogContract;
 import com.nextturn.infrastructure.logging.LogDomain;
 import com.nextturn.infrastructure.logging.LogOutcome;
 import com.nextturn.infrastructure.multitenancy.TenantContextHolder;
+import com.nextturn.infrastructure.sse.SseEventReplayBuffer;
+import com.nextturn.infrastructure.sse.SseEventReplayBuffer.BufferedEvent;
+import com.nextturn.infrastructure.sse.TenantSseConnectionLimiter;
 import com.nextturn.service.dashboard.DashboardSseBroadcaster;
 import com.nextturn.service.dashboard.PlatformDashboardService;
 import com.nextturn.service.dashboard.TenantDashboardService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Thread-safe SSE registry pushing real-time KPI snapshots to Tenant Operations Dashboards
@@ -35,13 +39,17 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
      */
     private static final long SSE_TIMEOUT_MS = 0L;
     private static final long SSE_RECONNECT_TIME_MS = 3000L;
+    private static final String PLATFORM_CHANNEL_KEY = "platform";
 
-    private final ConcurrentHashMap<String, CopyOnWriteArrayList<SseEmitter>> tenantEmitters =
-            new ConcurrentHashMap<>();
-    private final CopyOnWriteArrayList<SseEmitter> platformEmitters = new CopyOnWriteArrayList<>();
+    private final ConcurrentHashMap<String, Set<SseEmitter>> tenantEmitters = new ConcurrentHashMap<>();
+    private final Set<SseEmitter> platformEmitters = ConcurrentHashMap.newKeySet();
+    private final ConcurrentHashMap<SseEmitter, AtomicLong> lastDeliveredSeq = new ConcurrentHashMap<>();
 
     private final TenantDashboardService tenantDashboardService;
     private final PlatformDashboardService platformDashboardService;
+    private TenantSseConnectionLimiter connectionLimiter;
+    private SseEventReplayBuffer<DashboardSseEventResponse> tenantReplayBuffer = new SseEventReplayBuffer<>();
+    private SseEventReplayBuffer<DashboardSseEventResponse> platformReplayBuffer = new SseEventReplayBuffer<>();
 
     @Autowired
     public DashboardSseBroadcasterImpl(
@@ -52,46 +60,145 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
         this.platformDashboardService = platformDashboardService;
     }
 
+    @Autowired(required = false)
+    public void setConnectionLimiter(TenantSseConnectionLimiter connectionLimiter) {
+        this.connectionLimiter = connectionLimiter;
+    }
+
+    @Autowired(required = false)
+    public void setReplayBufferSize(@Value("${nextturn.sse.replay.buffer-size:100}") int replayBufferSize) {
+        this.tenantReplayBuffer = new SseEventReplayBuffer<>(replayBufferSize);
+        this.platformReplayBuffer = new SseEventReplayBuffer<>(replayBufferSize);
+    }
+
     @Override
     public SseEmitter subscribeTenantOverview(String tenantCode) {
+        return subscribeTenantOverview(tenantCode, null);
+    }
+
+    @Override
+    public SseEmitter subscribeTenantOverview(String tenantCode, String lastEventId) {
         String key = tenantCode != null ? tenantCode.trim().toLowerCase() : "default";
+        if (connectionLimiter != null) {
+            connectionLimiter.acquireTenantSlot(key);
+        }
+
+        long seqBeforeSnapshot = tenantReplayBuffer.currentSequence(key);
+        TenantDashboardOverviewResponse snapshot = null;
+        if (tenantDashboardService != null) {
+            try {
+                snapshot = tenantDashboardService.getOverview();
+            } catch (RuntimeException ex) {
+                if (connectionLimiter != null) {
+                    connectionLimiter.releaseTenantSlot(key);
+                }
+                throw ex;
+            }
+        }
+
         SseEmitter emitter = createEmitter();
-        // Serialize add/remove per key inside ConcurrentHashMap.compute to prevent empty-list eviction races
-        tenantEmitters.compute(key, (k, existing) -> {
-            CopyOnWriteArrayList<SseEmitter> list = existing != null ? existing : new CopyOnWriteArrayList<>();
-            list.add(emitter);
-            return list;
-        });
         Runnable cleanup = () -> removeTenantEmitter(key, emitter);
         registerCleanup(emitter, cleanup);
 
-        if (tenantDashboardService != null) {
-            TenantDashboardOverviewResponse snapshot = tenantDashboardService.getOverview();
-            emitToList(List.of(emitter), DashboardSseEventResponse.builder()
-                    .eventType("INITIAL_SNAPSHOT")
-                    .scope("TENANT")
-                    .tenantCode(key)
-                    .occurredAt(LocalDateTime.now())
-                    .tenantOverview(snapshot)
-                    .build(), cleanup);
+        synchronized (emitter) {
+            tenantEmitters.compute(key, (k, existing) -> {
+                Set<SseEmitter> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                set.add(emitter);
+                return set;
+            });
+            AtomicLong deliveredTracker = new AtomicLong(0L);
+            lastDeliveredSeq.put(emitter, deliveredTracker);
+
+            if (tenantDashboardService != null) {
+                DashboardSseEventResponse initialEvent = DashboardSseEventResponse.builder()
+                        .eventType("INITIAL_SNAPSHOT")
+                        .scope("TENANT")
+                        .tenantCode(key)
+                        .occurredAt(LocalDateTime.now())
+                        .tenantOverview(snapshot)
+                        .build();
+                if (!sendEvent(emitter, initialEvent, tenantReplayBuffer.currentEventId(key), true, key)) {
+                    cleanup.run();
+                    return emitter;
+                }
+
+                long clientSeq = tenantReplayBuffer.parseSequenceIfSameEpoch(lastEventId);
+                long replayBaseline = clientSeq >= 0L
+                        ? Math.min(clientSeq, seqBeforeSnapshot)
+                        : seqBeforeSnapshot;
+                long maxSentSeq = seqBeforeSnapshot;
+                for (BufferedEvent<DashboardSseEventResponse> missed : tenantReplayBuffer.eventsAfter(key, replayBaseline)) {
+                    if (!sendEvent(emitter, missed.payload(), missed.eventId(), false, key)) {
+                        cleanup.run();
+                        return emitter;
+                    }
+                    maxSentSeq = Math.max(maxSentSeq, missed.sequence());
+                }
+                deliveredTracker.set(maxSentSeq);
+            }
         }
         return emitter;
     }
 
     @Override
     public SseEmitter subscribePlatformOverview() {
-        SseEmitter emitter = createEmitter();
-        platformEmitters.add(emitter);
-        registerCleanup(emitter, () -> platformEmitters.remove(emitter));
+        return subscribePlatformOverview(null);
+    }
 
+    @Override
+    public SseEmitter subscribePlatformOverview(String lastEventId) {
+        if (connectionLimiter != null) {
+            connectionLimiter.acquirePlatformSlot();
+        }
+
+        long seqBeforeSnapshot = platformReplayBuffer.currentSequence(PLATFORM_CHANNEL_KEY);
+        PlatformDashboardOverviewResponse snapshot = null;
         if (platformDashboardService != null) {
-            PlatformDashboardOverviewResponse snapshot = platformDashboardService.getPlatformOverview(7);
-            emitToList(List.of(emitter), DashboardSseEventResponse.builder()
-                    .eventType("INITIAL_SNAPSHOT")
-                    .scope("PLATFORM")
-                    .occurredAt(LocalDateTime.now())
-                    .platformOverview(snapshot)
-                    .build(), () -> platformEmitters.remove(emitter));
+            try {
+                snapshot = platformDashboardService.getPlatformOverview(7);
+            } catch (RuntimeException ex) {
+                if (connectionLimiter != null) {
+                    connectionLimiter.releasePlatformSlot();
+                }
+                throw ex;
+            }
+        }
+
+        SseEmitter emitter = createEmitter();
+        Runnable cleanup = () -> removePlatformEmitter(emitter);
+        registerCleanup(emitter, cleanup);
+
+        synchronized (emitter) {
+            platformEmitters.add(emitter);
+            AtomicLong deliveredTracker = new AtomicLong(0L);
+            lastDeliveredSeq.put(emitter, deliveredTracker);
+
+            if (platformDashboardService != null) {
+                DashboardSseEventResponse initialEvent = DashboardSseEventResponse.builder()
+                        .eventType("INITIAL_SNAPSHOT")
+                        .scope("PLATFORM")
+                        .occurredAt(LocalDateTime.now())
+                        .platformOverview(snapshot)
+                        .build();
+                if (!sendEvent(emitter, initialEvent, platformReplayBuffer.currentEventId(PLATFORM_CHANNEL_KEY), true, null)) {
+                    cleanup.run();
+                    return emitter;
+                }
+
+                long clientSeq = platformReplayBuffer.parseSequenceIfSameEpoch(lastEventId);
+                long replayBaseline = clientSeq >= 0L
+                        ? Math.min(clientSeq, seqBeforeSnapshot)
+                        : seqBeforeSnapshot;
+                long maxSentSeq = seqBeforeSnapshot;
+                for (BufferedEvent<DashboardSseEventResponse> missed : platformReplayBuffer.eventsAfter(PLATFORM_CHANNEL_KEY, replayBaseline)) {
+                    if (!sendEvent(emitter, missed.payload(), missed.eventId(), false, null)) {
+                        cleanup.run();
+                        return emitter;
+                    }
+                    maxSentSeq = Math.max(maxSentSeq, missed.sequence());
+                }
+                deliveredTracker.set(maxSentSeq);
+            }
         }
         return emitter;
     }
@@ -102,7 +209,7 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
             return;
         }
         String key = tenantCode.trim().toLowerCase();
-        CopyOnWriteArrayList<SseEmitter> listeners = tenantEmitters.get(key);
+        Set<SseEmitter> listeners = tenantEmitters.get(key);
         if (listeners == null || listeners.isEmpty()) {
             return;
         }
@@ -117,7 +224,12 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
                     .occurredAt(LocalDateTime.now())
                     .tenantOverview(snapshot)
                     .build();
-            emitToList(listeners, payload, null, key);
+            BufferedEvent<DashboardSseEventResponse> recorded = tenantReplayBuffer.record(key, payload);
+            for (SseEmitter emitter : listeners) {
+                if (!sendLiveEventIfNewer(emitter, recorded, key)) {
+                    removeTenantEmitter(key, emitter);
+                }
+            }
         } catch (Exception ex) {
             LogContract.warn(log, LogDomain.DASHBOARD, "tenant_sse_broadcast")
                     .outcome(LogOutcome.DEGRADED)
@@ -148,7 +260,12 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
                     .occurredAt(LocalDateTime.now())
                     .platformOverview(snapshot)
                     .build();
-            emitToList(platformEmitters, payload, null);
+            BufferedEvent<DashboardSseEventResponse> recorded = platformReplayBuffer.record(PLATFORM_CHANNEL_KEY, payload);
+            for (SseEmitter emitter : platformEmitters) {
+                if (!sendLiveEventIfNewer(emitter, recorded, null)) {
+                    removePlatformEmitter(emitter);
+                }
+            }
         } catch (Exception ex) {
             LogContract.warn(log, LogDomain.DASHBOARD, "platform_sse_broadcast")
                     .outcome(LogOutcome.DEGRADED)
@@ -163,12 +280,30 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
         }
     }
 
+    private boolean sendLiveEventIfNewer(
+            SseEmitter emitter,
+            BufferedEvent<DashboardSseEventResponse> event,
+            String tenantKey
+    ) {
+        synchronized (emitter) {
+            AtomicLong tracker = lastDeliveredSeq.get(emitter);
+            if (tracker != null && tracker.get() >= event.sequence()) {
+                return true;
+            }
+            boolean ok = sendEvent(emitter, event.payload(), event.eventId(), false, tenantKey);
+            if (ok && tracker != null) {
+                tracker.set(event.sequence());
+            }
+            return ok;
+        }
+    }
+
     @Override
     public int sendHeartbeats() {
         int sent = 0;
-        for (Map.Entry<String, CopyOnWriteArrayList<SseEmitter>> entry : tenantEmitters.entrySet()) {
+        for (Map.Entry<String, Set<SseEmitter>> entry : tenantEmitters.entrySet()) {
             String key = entry.getKey();
-            CopyOnWriteArrayList<SseEmitter> listeners = entry.getValue();
+            Set<SseEmitter> listeners = entry.getValue();
             if (listeners == null || listeners.isEmpty()) {
                 continue;
             }
@@ -181,10 +316,10 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
             }
         }
         for (SseEmitter emitter : platformEmitters) {
-            if (sendHeartbeat(emitter, "platform")) {
+            if (sendHeartbeat(emitter, PLATFORM_CHANNEL_KEY)) {
                 sent++;
             } else {
-                platformEmitters.remove(emitter);
+                removePlatformEmitter(emitter);
             }
         }
         return sent;
@@ -207,44 +342,33 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
         }
     }
 
-    private void emitToList(List<SseEmitter> targets, DashboardSseEventResponse event, Runnable extraCleanup) {
-        emitToList(targets, event, extraCleanup, null);
-    }
-
-    private void emitToList(
-            List<SseEmitter> targets,
+    private boolean sendEvent(
+            SseEmitter emitter,
             DashboardSseEventResponse event,
-            Runnable extraCleanup,
+            String eventId,
+            boolean includeReconnectHint,
             String tenantKey
     ) {
-        boolean includeReconnectHint = "INITIAL_SNAPSHOT".equals(event.getEventType());
-        for (SseEmitter emitter : targets) {
-            try {
-                SseEmitter.SseEventBuilder eventBuilder = SseEmitter.event()
-                        .name(event.getEventType())
-                        .data(event);
-                if (includeReconnectHint) {
-                    eventBuilder.reconnectTime(SSE_RECONNECT_TIME_MS);
-                }
-                synchronized (emitter) {
-                    emitter.send(eventBuilder);
-                }
-            } catch (Exception ex) {
-                LogContract.warn(log, LogDomain.DASHBOARD, "dashboard_sse_push")
-                        .outcome(LogOutcome.DEGRADED)
-                        .tenant(tenantKey)
-                        .cause(ex)
-                        .emit();
-                if (tenantKey != null) {
-                    removeTenantEmitter(tenantKey, emitter);
-                } else if (targets instanceof CopyOnWriteArrayList<SseEmitter> cow) {
-                    cow.remove(emitter);
-                }
-                if (extraCleanup != null) {
-                    extraCleanup.run();
-                }
-                safeCompleteEmitter(emitter);
+        try {
+            SseEmitter.SseEventBuilder eventBuilder = SseEmitter.event()
+                    .id(eventId)
+                    .name(event.getEventType())
+                    .data(event);
+            if (includeReconnectHint) {
+                eventBuilder.reconnectTime(SSE_RECONNECT_TIME_MS);
             }
+            synchronized (emitter) {
+                emitter.send(eventBuilder);
+            }
+            return true;
+        } catch (Exception ex) {
+            LogContract.warn(log, LogDomain.DASHBOARD, "dashboard_sse_push")
+                    .outcome(LogOutcome.DEGRADED)
+                    .tenant(tenantKey)
+                    .cause(ex)
+                    .emit();
+            safeCompleteEmitter(emitter);
+            return false;
         }
     }
 
@@ -257,10 +381,23 @@ public class DashboardSseBroadcasterImpl implements DashboardSseBroadcaster {
     }
 
     private void removeTenantEmitter(String key, SseEmitter emitter) {
+        boolean[] removed = {false};
         tenantEmitters.computeIfPresent(key, (k, existing) -> {
-            existing.remove(emitter);
+            removed[0] = existing.remove(emitter);
             return existing.isEmpty() ? null : existing;
         });
+        lastDeliveredSeq.remove(emitter);
+        if (removed[0] && connectionLimiter != null) {
+            connectionLimiter.releaseTenantSlot(key);
+        }
+    }
+
+    private void removePlatformEmitter(SseEmitter emitter) {
+        boolean removed = platformEmitters.remove(emitter);
+        lastDeliveredSeq.remove(emitter);
+        if (removed && connectionLimiter != null) {
+            connectionLimiter.releasePlatformSlot();
+        }
     }
 
     protected SseEmitter createEmitter() {
